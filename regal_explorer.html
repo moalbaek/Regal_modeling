@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>REGAL Scenario Explorer</title>
+<style>
+  :root{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
+    --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--muted:#6b7280;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:18px 20px 6px}
+  header h1{margin:0;font-size:18px;color:var(--navy)}
+  header p{margin:4px 0 0;color:var(--muted);font-size:12.5px;max-width:780px}
+  .wrap{display:grid;grid-template-columns:minmax(320px,380px) 1fr;gap:16px;padding:14px 20px 28px}
+  @media(max-width:880px){.wrap{grid-template-columns:1fr}.results{order:-1}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .card+.card{margin-top:14px}
+  .card h2{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--navy)}
+  .row{margin:11px 0}
+  .row label{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;color:#33404f;margin-bottom:3px}
+  .row label .val{font-weight:600;color:var(--navy);font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:#dfe4ea;border-radius:3px;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;width:16px;border-radius:50%;background:var(--navy);cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  input[type=range]::-moz-range-thumb{height:14px;width:14px;border-radius:50%;background:var(--navy);cursor:pointer;border:2px solid #fff}
+  .ven input[type=range]::-webkit-slider-thumb{background:var(--teal)}.ven input[type=range]::-moz-range-thumb{background:var(--teal)}
+  .beta input[type=range]::-webkit-slider-thumb{background:var(--orange)}.beta input[type=range]::-moz-range-thumb{background:var(--orange)}
+  .presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+  .presets button,.btn{font:inherit;font-size:11.5px;padding:5px 9px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;color:#33404f}
+  .presets button:hover,.btn:hover{border-color:var(--navy);color:var(--navy)}
+  .toggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:4px}
+  .toggle button{font:inherit;font-size:12px;padding:6px 12px;border:0;background:#fff;cursor:pointer;color:#55606e}
+  .toggle button.on{background:var(--navy);color:#fff}
+  details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+  summary{cursor:pointer;font-size:12px;color:var(--muted);user-select:none}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+  table th,table td{padding:4px 5px;text-align:right;border-bottom:1px solid var(--line)}
+  table th:first-child,table td:first-child{text-align:left}
+  table input{width:54px;font:inherit;font-size:12px;padding:2px 4px;border:1px solid var(--line);border-radius:5px;text-align:right}
+  .psucc{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end}
+  .pcol .big{font-size:40px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+  .pcol.cure .big{color:var(--navy)} .pcol.ll .big{color:var(--orange)}
+  .pcol .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .pcol .hr{font-size:11px;color:var(--muted)}
+  .verdict{font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:20px;display:inline-block;margin-bottom:8px}
+  .spread{font-size:12px;color:#33404f;margin-top:10px;background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .sub{font-size:12px;color:var(--muted)}
+  .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+  @media(max-width:520px){.metrics{grid-template-columns:repeat(2,1fr)}}
+  .metric{background:#fafbfc;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+  .metric .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+  .metric .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+  .metric .v small{font-size:11px;color:var(--muted);font-weight:500}
+  svg{width:100%;height:auto;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:#33404f;margin-top:4px}
+  .legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+  .fitnote{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .warn{color:var(--red)}
+  footer{padding:4px 20px 26px;color:var(--muted);font-size:11.5px;max-width:1000px}
+</style>
+</head>
+<body>
+<header>
+  <h1>REGAL Scenario Explorer</h1>
+  <p>The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is always re-calibrated and only the
+     <b>split between arms</b> moves. The right-hand numbers show P(success) under two survival shapes — a
+     <b>plateau (cure-mixture)</b> and a <b>no-plateau (log-logistic)</b> tail. The gap between them is the
+     irreducible "is the plateau real" uncertainty the blinded data cannot resolve. Research tool, not investment advice.</p>
+</header>
+
+<div class="wrap">
+  <section class="controls">
+    <div class="card">
+      <h2>Control (BAT) arm composition</h2>
+      <div class="presets" id="presets">
+        <button data-preset="base">Base</button>
+        <button data-preset="low">Low-venetoclax</button>
+        <button data-preset="dom">Venetoclax-dominant</button>
+        <button data-preset="bear">Bear corner</button>
+      </div>
+      <div id="weights"></div>
+      <div class="ven row">
+        <label>Venetoclax durable-remission (cure) <span class="val" id="vcL">22%</span></label>
+        <input type="range" id="vcure" min="10" max="40" step="1" value="22">
+      </div>
+      <div class="sub">Weights auto-normalize. Venetoclax cure is the key bear/bull knob (cure-mixture mode).</div>
+    </div>
+
+    <div class="card">
+      <h2>Survival-shape stress test</h2>
+      <div class="beta row">
+        <label>Tail heaviness &nbsp;β (log-logistic) <span class="val" id="bL">1.20</span></label>
+        <input type="range" id="beta" min="0.6" max="2.0" step="0.05" value="1.2">
+      </div>
+      <div class="sub">Lower β = heavier tail (both arms survive long, smaller implied effect). Higher β ≈ a plateau.
+        This controls the orange "no-plateau" number only.</div>
+      <div class="row" style="margin-top:12px">
+        <label>Max BAT survival stretch &nbsp;(×) <span class="val" id="maxLL">1.5</span></label>
+        <input type="range" id="maxL" min="1.0" max="3.0" step="0.1" value="1.5">
+      </div>
+      <div class="sub">Caps how far the fit may stretch BAT survival past your component medians (cure-mixture mode).
+        Tighter cap → less longevity attributed to BAT → more attributed to GPS → <b>higher</b> P(success). 3× ≈ unconstrained.</div>
+    </div>
+
+    <div class="card">
+      <h2>GPS arm &amp; trial</h2>
+      <div class="row">
+        <label>GPS immunological non-responders <span class="val" id="nrL">20%</span></label>
+        <input type="range" id="nr" min="0" max="40" step="1" value="20">
+      </div>
+      <div class="sub">~20% anchored to the interim's ~80% WT1 response; they track the Observation row.</div>
+      <div class="row" style="margin-top:14px">
+        <label>Enrollment back-loading <span class="val" id="blL">0.50</span></label>
+        <input type="range" id="bl" min="0" max="1" step="0.05" value="0.5">
+      </div>
+      <div class="sub">0 = flat accrual, 1 = heavily back-loaded into 2023.</div>
+      <details>
+        <summary>Advanced — component survival, event data, design</summary>
+        <table id="compTable"><thead><tr><th>Component</th><th>Median (mo)</th><th>Cure %</th><th>Shape k</th></tr></thead><tbody></tbody></table>
+        <div class="sub" style="margin-top:6px">Non-responders use the <b>Observation</b> row. Shape k: &lt;1 heavy tail (more long-term survivors), 1 = exponential, &gt;1 accelerating. Applies to cure-mixture mode.</div>
+        <table id="evTable" style="margin-top:12px"><thead><tr><th>Milestone</th><th>Date</th><th>Deaths</th></tr></thead><tbody></tbody></table>
+        <table style="margin-top:12px"><tbody>
+          <tr><td>Enrolled (N)</td><td></td><td><input id="N" type="number" value="126"></td></tr>
+          <tr><td>Final-analysis events</td><td></td><td><input id="FINAL" type="number" value="80"></td></tr>
+          <tr><td>Significance HR threshold</td><td></td><td><input id="HRC" type="number" step="0.001" value="0.636"></td></tr>
+        </tbody></table>
+        <div class="presets" style="margin-top:10px"><button class="btn" id="reset">Reset all to defaults</button></div>
+      </details>
+    </div>
+  </section>
+
+  <section class="results">
+    <div class="card">
+      <h2>Modeled probability of a positive readout</h2>
+      <div id="verdict" class="verdict"></div>
+      <div class="psucc">
+        <div class="pcol cure"><div class="big" id="psucc">–</div>
+          <div class="sub">Plateau&nbsp;(cure-mixture)</div><div class="hr">HR <b id="hr">–</b></div></div>
+        <div class="pcol ll"><div class="big" id="psuccLL">–</div>
+          <div class="sub">No-plateau&nbsp;(log-logistic, β=<span id="bsh">1.20</span>)</div><div class="hr">HR <b id="hrLL">–</b></div></div>
+      </div>
+      <div class="spread" id="spread"></div>
+      <div class="sub" style="margin-top:8px">Both conditional on the 80th event occurring · threshold HR ≤ <span id="hrc2">0.636</span> (one-sided 0.025).</div>
+    </div>
+
+    <div class="card">
+      <h2>Survival curves
+        <span class="toggle" id="modeTog" style="float:right;margin-top:-4px">
+          <button data-mode="cure" class="on">Plateau</button><button data-mode="ll">No-plateau</button></span>
+      </h2>
+      <div id="chart"></div>
+      <div class="legend">
+        <span><i style="background:#9e2b25"></i>BAT (control)</span>
+        <span><i style="background:#0b2545"></i>GPS</span>
+        <span><i style="background:#111;opacity:.6"></i>Pooled (blinded)</span>
+        <span><i style="background:#e8910b"></i>event-fraction levels</span>
+      </div>
+      <div class="metrics" id="metrics"></div>
+      <div class="fitnote" id="fit"></div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  The blinded data only pin the <i>pooled</i> curve; the arm split is your assumption, and so is the tail shape.
+  The two headline numbers bracket that shape uncertainty — they fit the milestones almost equally well, so the data
+  cannot adjudicate them (they only weakly favor the lighter tail). P(success) is conditional on the 80th event
+  occurring. Built from public disclosures; not investment advice.
+</footer>
+
+<script>
+"use strict";
+const DPM=30.4375, BASE=Date.UTC(2020,8,1);
+const mfb=(y,m,d)=>(Date.UTC(y,m-1,d)-BASE)/(DPM*86400000);
+const mulberry32=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};
+const Acoef=cure=>-Math.log((0.5-cure)/(1-cure));
+const lam=(med,cure,k)=>med/Math.pow(Acoef(cure),1/k);
+const Sc=(t,med,cure,k,L)=>cure+(1-cure)*Math.exp(-Math.pow(L*Math.max(t,0)/lam(med,cure,k),k));
+const sampNC=(med,cure,k,L,u)=>(lam(med,cure,k)/L)*Math.pow(-Math.log(u),1/k);
+const Sll=(t,al,be)=>1/(1+Math.pow(Math.max(t,1e-9)/al,be));
+const sampLL=(al,be,u)=>al*Math.pow(1/u-1,1/be);
+
+const DEFAULT_COMP=[{name:"Observation",w:15,med:6,cure:8,k:1},{name:"Hydroxyurea",w:5,med:6,cure:5,k:1},
+  {name:"HMA",w:30,med:10,cure:13,k:1},{name:"Venetoclax",w:35,med:13,cure:22,k:1},{name:"LDAC",w:15,med:8,cure:9,k:1}];
+const DEFAULT_EV=[{label:"60 events",y:2024,m:12,d:10,n:60},{label:"72 events",y:2025,m:12,d:26,n:72},{label:"78 events",y:2026,m:5,d:11,n:78}];
+const PRESETS={base:{w:[15,5,30,35,15],vc:22},low:{w:[25,15,35,10,15],vc:22},dom:{w:[5,2,23,60,10],vc:22},bear:{w:[5,2,13,70,10],vc:36}};
+let comp=structuredClone(DEFAULT_COMP), ev=structuredClone(DEFAULT_EV), mode="cure";
+
+function enroll(b,N){
+  const win=[[2020,9,2020,12,1.2,0.8],[2021,1,2021,12,1.8,0.9],[2022,1,2022,12,2.8,2.2],[2023,1,2023,11,4.2,5.6],[2023,12,2024,3,6.2,6.2]];
+  let coh=[];
+  for(const[ys,ms,ye,me,rf,rb]of win){let y=ys,m=ms;const rate=(1-b)*rf+b*rb;
+    while(y<ye||(y===ye&&m<=me)){coh.push([mfb(y,m,15),rate]);m++;if(m>12){m=1;y++;}}}
+  let s=coh.reduce((a,c)=>a+c[1],0); coh.forEach(c=>c[1]*=N/s); return coh;
+}
+function common(cfg){
+  const tot=comp.reduce((a,c)=>a+c.w,0)||1, w=comp.map(c=>c.w/tot);
+  const cm=comp.map(c=>({med:c.med,cure:Math.min(Math.max(c.cure/100,0),0.49),k:Math.max(c.k||1,0.3)}));
+  const coh=enroll(cfg.bl,cfg.N), MT=ev.map(e=>mfb(e.y,e.m,e.d)), MOBS=ev.map(e=>e.n), WT=[1,2,4];
+  return {w,cm,coh,MT,MOBS,WT};
+}
+const median=(S)=>{ if(S(900)>=0.5) return Infinity; let lo=.01,hi=900; for(let i=0;i<60;i++){const m=(lo+hi)/2;S(m)>.5?lo=m:hi=m;} return (lo+hi)/2; };
+
+// ---------- cure-mixture model ----------
+function buildCure(cfg){
+  const {w,cm,coh,MT,MOBS,WT}=common(cfg); const {fnr}=cfg;
+  const pibat=cm.reduce((a,c,i)=>a+w[i]*c.cure,0), obs=cm[0];
+  const Sbat=(t,L)=>cm.reduce((a,c,i)=>a+w[i]*Sc(t,c.med,c.cure,c.k,L),0);
+  const Snc=(t,L)=>(Sbat(t,L)-pibat)/(1-pibat);
+  const Spool=(t,pr,L)=>0.5*Sbat(t,L)+0.5*((1-fnr)*(pr+(1-pr)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L));
+  const ed=(T,pr,L)=>coh.reduce((a,c)=>a+(c[0]<=T?c[1]*(1-Spool(T-c[0],pr,L)):0),0);
+  const Lmin=1/(cfg.maxStretch||3), Lmax=2.2;
+  let best=[.6,Math.min(1,Lmax)],bs=1e18;
+  for(let ki=0;ki<=44;ki++)for(let li=0;li<=30;li++){const pr=ki/45,L=Lmin+li/30*(Lmax-Lmin);let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr,L)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[pr,L];}}
+  for(let it=0;it<3;it++){const[p0,l0]=best,st=.06/(it+1);for(let dp=-3;dp<=3;dp++)for(let dl=-3;dl<=3;dl++){const pr=Math.min(.985,Math.max(0,p0+dp*st)),L=Math.max(Lmin,Math.min(Lmax,l0+dl*st*4));let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr,L)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[pr,L];}}}
+  const[presp,L]=best, pgps=(1-fnr)*presp+fnr*obs.cure;
+  const Sb=t=>Sbat(t,L), Sg=t=>(1-fnr)*(presp+(1-presp)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L), Sp=t=>Spool(t,presp,L);
+  return {kind:"cure",cfg,w,cm,coh,MT,MOBS,presp,L,pibat,pgps,obs,
+    Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),batMedRaw:median(t=>Sbat(t,1)),gpsMed:median(Sg),poolMed:median(Sp),
+    poolCure:0.5*(pibat+pgps),ed:t=>ed(t,presp,L)};
+}
+// ---------- log-logistic (no plateau) ----------
+function buildLL(cfg){
+  const {w,cm,coh,MT,MOBS,WT}=common(cfg); const {fnr,beta}=cfg;
+  const mC=cm.reduce((a,c,i)=>a+w[i]*c.med,0), mObs=cm[0].med;
+  const Spool=(t,k,r)=>{const mB=k*mC;return 0.5*Sll(t,mB,beta)+0.5*((1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta));};
+  const ed=(T,k,r)=>coh.reduce((a,c)=>a+(c[0]<=T?c[1]*(1-Spool(T-c[0],k,r)):0),0);
+  let best=[1.4,2],bs=1e18;
+  for(let ki=0;ki<=48;ki++)for(let ri=0;ri<=60;ri++){const k=.6+ki/48*2.6,r=1+ri/60*6;let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],k,r)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[k,r];}}
+  for(let it=0;it<3;it++){const[k0,r0]=best,st=.04/(it+1);for(let dk=-3;dk<=3;dk++)for(let dr=-3;dr<=3;dr++){const k=Math.max(.4,k0+dk*st*2),r=Math.max(1,r0+dr*st*4);let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],k,r)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[k,r];}}}
+  const[k,r]=best, mB=k*mC;
+  const Sb=t=>Sll(t,mB,beta), Sg=t=>(1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta), Sp=t=>0.5*Sb(t)+0.5*Sg(t);
+  return {kind:"ll",cfg,w,cm,coh,MT,MOBS,beta,k,r,mB,mObs:k*mObs,
+    Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:mB,gpsMed:r*mB,ratio:r,poolMed:median(Sp),ed:t=>ed(t,k,r)};
+}
+// ---------- shared Monte-Carlo ----------
+function mc(M,nsim){
+  const {N,FINAL,HRC,fnr}=M.cfg, ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
+  const rnd=mulberry32(987654321), w=M.w, cm=M.cm;
+  let a3=0;const cs=M.coh.reduce((a,c)=>a+c[1],0);const cohc=M.coh.map(c=>(a3+=c[1]/cs));
+  let a1=0;const cwc=w.map(x=>a1+=x);
+  const ncw=cm.map((c,i)=>w[i]*(1-c.cure));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
+  const time=new Float64Array(N),ev2=new Int8Array(N),arm=new Int8Array(N),dcal=new Float64Array(N),en=new Float64Array(N);
+  let sig=0,reached=0; const hrs=[];
+  for(let s=0;s<nsim;s++){
+    for(let i=0;i<N;i++)arm[i]=i<N/2?1:0;
+    for(let i=N-1;i>0;i--){const j=(rnd()*(i+1))|0;const t=arm[i];arm[i]=arm[j];arm[j]=t;}
+    for(let i=0;i<N;i++){
+      let u=rnd(),k=0;while(k<cohc.length-1&&u>cohc[k])k++; en[i]=M.coh[k][0]; let surv;
+      if(M.kind==="cure"){
+        const presp=M.presp,L=M.L,obs=M.obs;
+        if(arm[i]===1){ if(rnd()<fnr) surv=rnd()<obs.cure?1e9:sampNC(obs.med,obs.cure,obs.k,L,rnd());
+          else { if(rnd()<presp) surv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;surv=sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd());} } }
+        else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; surv=rnd()<cm[c].cure?1e9:sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd()); }
+      } else {
+        if(arm[i]===1) surv = rnd()<fnr ? sampLL(M.mObs,M.beta,rnd()) : sampLL(M.r*M.mB,M.beta,rnd());
+        else surv = sampLL(M.mB,M.beta,rnd());
+      }
+      time[i]=surv; dcal[i]=en[i]+surv;
+    }
+    const fin=[]; for(let i=0;i<N;i++) if(dcal[i]<1e8) fin.push(dcal[i]);
+    if(fin.length<FINAL) continue; fin.sort((a,b)=>a-b); reached++;
+    const t80=fin[FINAL-1];
+    for(let i=0;i<N;i++){ ev2[i]=dcal[i]<=t80?1:0; time[i]=Math.min(time[i],Math.max(t80-en[i],0)); }
+    const idx=[...Array(N).keys()].sort((a,b)=>time[a]-time[b]);
+    let prefX=0,num=0,varr=0,totX=0; for(let i=0;i<N;i++)totX+=arm[i];
+    for(let p=0;p<N;p++){const i=idx[p];const nAt=N-p;const sx=totX-prefX;if(ev2[i]===1){const pb=sx/nAt;num+=arm[i]-pb;varr+=pb*(1-pb);}prefX+=arm[i];}
+    if(varr>0){ const z=-num/Math.sqrt(varr); if(z>ZC)sig++; hrs.push(Math.exp(num/varr)); }
+  }
+  hrs.sort((a,b)=>a-b);
+  return {ps:reached?sig/reached:0, reach:reached/nsim, medHR:hrs.length?hrs[hrs.length>>1]:NaN};
+}
+
+// ---------- chart ----------
+function chart(M){
+  const W=600,H=300,pl=42,pr=14,pt=12,pb=28,iw=W-pl-pr,ih=H-pt-pb,TMAX=48;
+  const X=t=>pl+t/TMAX*iw, Y=s=>pt+(1-s)*ih;
+  const path=fn=>{let d="";for(let t=0;t<=TMAX;t+=0.5)d+=(t===0?"M":"L")+X(t).toFixed(1)+" "+Y(fn(t)).toFixed(1)+" ";return d;};
+  let g="";
+  for(let s=0;s<=1.0001;s+=0.25){const y=Y(s);g+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="#eef1f4"/><text x="${pl-6}" y="${y+3}" text-anchor="end" font-size="10" fill="#9aa0a6">${(s*100)|0}%</text>`;}
+  for(let t=0;t<=TMAX;t+=12){const x=X(t);g+=`<line x1="${x}" y1="${pt}" x2="${x}" y2="${H-pb}" stroke="#f3f5f7"/><text x="${x}" y="${H-pb+15}" text-anchor="middle" font-size="10" fill="#9aa0a6">${t}</text>`;}
+  let refs=""; const N=M.cfg.N;
+  M.MOBS.forEach(n=>{const s=1-n/N,y=Y(s);refs+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="#e8910b" stroke-dasharray="2 3" opacity=".7"/><text x="${W-pr}" y="${y-2}" text-anchor="end" font-size="9" fill="#b5740a">${n}</text>`;});
+  const yT=Y(1-M.cfg.FINAL/N); refs+=`<line x1="${pl}" y1="${yT}" x2="${W-pr}" y2="${yT}" stroke="#9e2b25" stroke-dasharray="4 3" opacity=".5"/><text x="${pl+2}" y="${yT-3}" font-size="9" fill="#9e2b25">${M.cfg.FINAL}-event trigger</text>`;
+  if(M.kind==="cure"){const yp=Y(M.poolCure);refs+=`<line x1="${pl}" y1="${yp}" x2="${W-pr}" y2="${yp}" stroke="#111" stroke-dasharray="1 4" opacity=".35"/>`;}
+  const curves=`<path d="${path(M.Sbat)}" fill="none" stroke="#9e2b25" stroke-width="2.4"/><path d="${path(M.Sgps)}" fill="none" stroke="#0b2545" stroke-width="2.4"/><path d="${path(M.Spool)}" fill="none" stroke="#111" stroke-width="1.6" stroke-dasharray="5 3" opacity=".75"/>`;
+  const b36=M.Sbat(36),mx=X(36),my=Y(b36);
+  const mark=`<line x1="${mx}" y1="${my}" x2="${mx}" y2="${H-pb}" stroke="#9e2b25" stroke-dasharray="2 2" opacity=".4"/><circle cx="${mx}" cy="${my}" r="3.6" fill="#9e2b25" stroke="#fff" stroke-width="1.4"/><text x="${mx-5}" y="${my-5}" text-anchor="end" font-size="9.5" fill="#9e2b25" font-weight="600">BAT@36mo ${(100*b36).toFixed(0)}%</text>`;
+  document.getElementById("chart").innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}${refs}${curves}${mark}<text x="${pl-30}" y="${pt-2}" font-size="10" fill="#9aa0a6">% alive</text><text x="${W-pr}" y="${H-2}" text-anchor="end" font-size="10" fill="#9aa0a6">months from randomization</text></svg>`;
+}
+
+// ---------- render ----------
+const $=id=>document.getElementById(id);
+const cfgFromUI=()=>({N:+$("N").value||126,FINAL:+$("FINAL").value||80,HRC:+$("HRC").value||0.636,
+  fnr:(+$("nr").value)/100,bl:+$("bl").value,beta:+$("beta").value,maxStretch:+$("maxL").value||1.5});
+const fmtMed=m=>m===Infinity?"NR":m.toFixed(0)+"mo";
+function render(){
+  const cfg=cfgFromUI();
+  const Mc=buildCure(cfg), Ml=buildLL(cfg);
+  const rc=mc(Mc,600), rl=mc(Ml,600);
+  const pc=Math.round(rc.ps*100), pll=Math.round(rl.ps*100);
+  $("psucc").textContent=pc+"%"; $("psuccLL").textContent=pll+"%";
+  $("hr").textContent=isNaN(rc.medHR)?"–":rc.medHR.toFixed(2);
+  $("hrLL").textContent=isNaN(rl.medHR)?"–":rl.medHR.toFixed(2);
+  $("bsh").textContent=cfg.beta.toFixed(2); $("hrc2").textContent=cfg.HRC.toFixed(3);
+  const lo=Math.min(pc,pll), hi=Math.max(pc,pll), vb=$("verdict");
+  if(lo>=70){vb.textContent="Robustly positive";vb.style.background="#e3f1ec";vb.style.color="#17683f";}
+  else if(hi<50){vb.textContent="Robustly weak";vb.style.background="#f6e5e3";vb.style.color="#9e2b25";}
+  else{vb.textContent="Shape-dependent";vb.style.background="#f6efe1";vb.style.color="#8a6d1e";}
+  $("spread").innerHTML = pc===pll ? `Both shapes agree at ${pc}%.`
+    : `The plateau shape gives <b>${pc}%</b>; the heavier-tail shape gives <b>${pll}%</b>. That <b>${Math.abs(pc-pll)}-point gap</b> is the "is the plateau real" uncertainty — the milestones can't distinguish the shapes, so this spread is irreducible from blinded data. Drag β to explore it.`;
+  // detail panel follows the toggle
+  const M = mode==="cure"?Mc:Ml, r = mode==="cure"?rc:rl;
+  let mhtml="";
+  const bat36=M.Sbat(36);
+  if(mode==="cure"){
+    mhtml=metric("BAT cure / median",(100*M.pibat).toFixed(0)+"% <small>/ "+fmtMed(M.batMedRaw)+"→"+fmtMed(M.batMed)+"</small>")
+      +metric("BAT @36mo (tail)",(100*bat36).toFixed(0)+"%")
+      +metric("GPS cure / median",(100*M.pgps).toFixed(0)+"% <small>/ "+fmtMed(M.gpsMed)+"</small>")
+      +metric("Cure-fraction gap","+"+(100*(M.pgps-M.pibat)).toFixed(0)+"<small>pp</small>")
+      +metric("Survival calib.",(1/M.L).toFixed(1)+"× <small>"+(Math.abs(M.L-1/cfg.maxStretch)<0.015?"(capped)":"vs inputs")+"</small>")
+      +metric("80th event reached",Math.round(r.reach*100)+"%");
+  } else {
+    mhtml=metric("BAT median",fmtMed(M.batMed))
+      +metric("BAT @36mo (tail)",(100*bat36).toFixed(0)+"%")
+      +metric("GPS median",fmtMed(M.gpsMed))
+      +metric("Median ratio (GPS/BAT)",M.ratio.toFixed(1)+"<small>×</small>")
+      +metric("Tail heaviness β",M.beta.toFixed(2))
+      +metric("80th event reached",Math.round(r.reach*100)+"%");
+  }
+  $("metrics").innerHTML=mhtml;
+  const edv=M.MT.map(t=>M.ed(t));
+  let note="Fit check — modeled deaths: "+edv.map(x=>`<b>${x.toFixed(0)}</b>`).join(" / ")+" vs observed "+M.MOBS.join(" / ")+". ";
+  if(mode==="cure"){ const rch=Math.round(r.reach*100);
+    note += rch<70 ? `<span class="warn">⚠ 80th event reached in only ${rch}% of sims — survival so high the trigger may stall.</span> ` : "";
+    note += `Early-hazard calibration ${M.L.toFixed(2)}× ${M.L<0.9?"(cohort dying slower than the component medians imply — itself a survival signal).":""}`;
+  } else {
+    note += `No plateau ⇒ the 80th event is always reached — the real trial's current stall at 78/80 mildly favors the plateau model. A heavier tail (lower β) fits the milestones slightly worse but cannot be excluded.`;
+  }
+  $("fit").innerHTML=note;
+  chart(M);
+}
+const metric=(k,v)=>`<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+// ---------- UI ----------
+function buildWeightSliders(){
+  const tot=comp.reduce((a,c)=>a+c.w,0)||1;
+  $("weights").innerHTML=comp.map((c,i)=>`<div class="row"><label>${c.name} <span class="val" id="wv${i}">${Math.round(c.w/tot*100)}%</span></label><input type="range" id="w${i}" min="0" max="100" step="1" value="${c.w}"></div>`).join("");
+  comp.forEach((c,i)=>$("w"+i).addEventListener("input",e=>{comp[i].w=+e.target.value;updWeights();schedule();}));
+}
+const updWeights=()=>{const tot=comp.reduce((a,c)=>a+c.w,0)||1;comp.forEach((c,i)=>{const el=$("wv"+i);if(el)el.textContent=Math.round(c.w/tot*100)+"%";});};
+function buildCompTable(){
+  $("compTable").querySelector("tbody").innerHTML=comp.map((c,i)=>`<tr><td>${c.name}</td><td><input type="number" id="cm${i}" value="${c.med}" step="0.5"></td><td><input type="number" id="cc${i}" value="${c.cure}" step="1"></td><td><input type="number" id="ck${i}" value="${c.k}" step="0.05" min="0.4" max="2"></td></tr>`).join("");
+  comp.forEach((c,i)=>{$("cm"+i).addEventListener("input",e=>{comp[i].med=+e.target.value;schedule();});$("cc"+i).addEventListener("input",e=>{comp[i].cure=+e.target.value;if(i===3){$("vcure").value=comp[3].cure;$("vcL").textContent=comp[3].cure+"%";}schedule();});$("ck"+i).addEventListener("input",e=>{comp[i].k=+e.target.value||1;schedule();});});
+}
+function buildEvTable(){
+  $("evTable").querySelector("tbody").innerHTML=ev.map((e,i)=>`<tr><td>${e.label}</td><td><input value="${e.y}-${String(e.m).padStart(2,'0')}-${String(e.d).padStart(2,'0')}" style="width:92px" disabled></td><td><input type="number" id="en${i}" value="${e.n}"></td></tr>`).join("");
+  ev.forEach((e,i)=>$("en"+i).addEventListener("input",x=>{ev[i].n=+x.target.value;schedule();}));
+}
+$("vcure").addEventListener("input",e=>{comp[3].cure=+e.target.value;$("vcL").textContent=e.target.value+"%";const el=$("cc3");if(el)el.value=e.target.value;schedule();});
+$("beta").addEventListener("input",e=>{$("bL").textContent=(+e.target.value).toFixed(2);schedule();});
+$("maxL").addEventListener("input",e=>{$("maxLL").textContent=(+e.target.value).toFixed(1);schedule();});
+$("nr").addEventListener("input",e=>{$("nrL").textContent=e.target.value+"%";schedule();});
+$("bl").addEventListener("input",e=>{$("blL").textContent=(+e.target.value).toFixed(2);schedule();});
+["N","FINAL","HRC"].forEach(id=>$(id).addEventListener("input",schedule));
+document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
+document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>x.classList.toggle("on",x===b));render();}));
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("blL").textContent="0.50";$("beta").value=1.2;$("bL").textContent="1.20";$("maxL").value=1.5;$("maxLL").textContent="1.5";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();render();});
+
+let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
+buildWeightSliders(); buildCompTable(); buildEvTable(); render();
+</script>
+</body>
+</html>
