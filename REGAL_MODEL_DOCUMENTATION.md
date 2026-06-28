@@ -63,14 +63,6 @@ threshold (Section 2.1). Within each, **two survival models are fit to the ident
   shared shape β; a single BAT-median scale `k` and a GPS/BAT median ratio `r` are fit to the same
   events (Section 4.7).
 
-> **Lineage.** This explorer consolidates an earlier set of standalone prototypes — `regal_model2.py`
-> (first cure-mixture calibration + Monte-Carlo), `regal_verify.py` (full Cox MLE vs one-step, RMST),
-> `regal_v3.py` (Bayesian posterior-predictive P(success) under 3 BAT priors), `regal_bat2.py`
-> (component-mixture BAT + venetoclax bear map), and `regal_nr.py` (immunological non-responder
-> subgroup). Their structure survives as paths inside the unified engine (the cure-mixture fit, the
-> BAT composition, the non-responder fraction); the explorer adds the per-component Weibull shape,
-> the survival-stretch cap, the back-loading interpolation, and the log-logistic no-plateau model.
-
 ---
 
 ## 2. Input parameters and their sources
@@ -97,9 +89,9 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 
 > **Note on the threshold.** The log-rank test is the score test of the Cox model, so the
 > Monte-Carlo significance decision (`score_z > z_crit`) is the operating characteristic of the
-> trial's *actual* pre-specified test. `regal_verify.py` confirms a fully-iterated Cox MLE differs
-> from the one-step estimate by ≤0.001 in HR here (balanced 1:1, single covariate), so the
-> approximation does not affect any conclusion.
+> trial's *actual* pre-specified test. A fully-iterated Cox MLE differs from the one-step estimate
+> by ≤0.001 in HR here (balanced 1:1, single covariate), so the approximation does not affect any
+> conclusion.
 
 ### 2.2 Event milestones (pooled deaths, calendar)
 
@@ -119,7 +111,7 @@ survival is unexpectedly long).
 The exact monthly accrual is **not public**; the curve is reconstructed [A] to honor the sourced
 anchors below. Its shape is treated as a nuisance parameter via the **back-loading slider**
 (Section 2.8), which interpolates between a "flat" and a heavily back-loaded profile (default 0.50,
-i.e. the midpoint that the earlier prototypes marginalized over).
+i.e. the midpoint of that range).
 
 | Anchor | Value | Type | Source |
 |--------|-------|------|--------|
@@ -179,9 +171,9 @@ Observation 0.15 · Hydroxyurea 0.05 · HMA 0.30 · Venetoclax 0.35 · LDAC 0.15
 ≈ 14%, BAT median ≈ 9.4 mo. Two alternates ("low-venetoclax / early-ex-US", "venetoclax-dominant /
 modern US") bracket the range.
 
-### 2.6 Bayesian priors on the BAT plateau (legacy `regal_v3.py`; superseded by the composition lever)
+### 2.6 Bayesian priors on the BAT plateau (an alternative to the composition lever)
 
-The lineage `regal_v3.py` gave the BAT-arm long-term-survivor fraction (π_c) a Beta prior, with the
+One way to set the BAT-arm long-term-survivor fraction (π_c) is a Beta prior, with the
 GPS plateau following from the data constraint (Section 4.4). The explorer replaces this abstract
 prior with the clinically-grounded **BAT composition** (Section 2.5) and the **stretch cap**
 (Section 2.8), which together set π_BAT directly; the Beta priors below are retained only as the
@@ -277,7 +269,7 @@ up-weight the most recent (and most informative) milestone, over a coarse grid f
 local-refinement passes. For the plateau model the two free parameters are the GPS responder cure
 `π_resp` and the early-hazard multiplier `L` (bounded by `L ∈ [1/maxStretch, 2.2]`); the displayed
 "survival calibration" is `1/L`. The enrollment shape is set by the back-loading slider (Section 2.8)
-rather than marginalized. (The lineage `regal_v3.py` used a Poisson log-likelihood with a Bayesian
+rather than marginalized. (An earlier Bayesian formulation used a Poisson log-likelihood with a
 prior on π_BAT; the explorer replaces that with this transparent point-fit + composition lever.)
 
 ### 4.4 Arm decomposition (the unidentified step)
@@ -331,7 +323,9 @@ lighter tail (and toward the plateau model is the trial's current stall at 78/80
 ## 5. Key functions (reference)
 
 Names are given as **`python` / `javascript`** where they differ between `regal_explorer.py` and
-`regal_explorer.html`; the two implementations are line-for-line equivalent.
+`regal_explorer.html`; the two implementations are function-for-function equivalent (the Python
+`common()` reads its inputs from the `cfg` dict, where the JavaScript reads module-level state, but
+the computed results match).
 
 | Function | Purpose |
 |----------|---------|
