@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>REGAL Model — Documentation</title>
+<style>
+  :root{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
+    --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--muted:#6b7280;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .bar{background:var(--navy);color:#fff;padding:12px 20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  .bar a{color:#cfe0ff;text-decoration:none;font-size:13px}
+  .bar a:hover{text-decoration:underline}
+  .bar .t{font-weight:600;font-size:15px;margin-right:auto}
+  .wrap{max-width:880px;margin:24px auto;padding:0 20px}
+  .doc{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:28px 34px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .doc h1{color:var(--navy);font-size:26px;border-bottom:2px solid var(--line);padding-bottom:8px;margin-top:8px}
+  .doc h2{color:var(--navy);font-size:20px;border-bottom:1px solid var(--line);padding-bottom:6px;margin-top:34px}
+  .doc h3{color:var(--navy);font-size:16px;margin-top:26px}
+  .doc h4{color:#33404f;font-size:14px;margin-top:20px}
+  .doc a{color:var(--teal)}
+  .doc code{background:#eef1f4;border-radius:4px;padding:1px 5px;font-size:13px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .doc pre{background:#0b2545;color:#e6edf6;border-radius:8px;padding:14px 16px;overflow:auto;font-size:13px}
+  .doc pre code{background:none;color:inherit;padding:0}
+  .doc table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px;display:block;overflow-x:auto}
+  .doc th,.doc td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  .doc th{background:#f7f9fb;color:var(--navy)}
+  .doc tr:nth-child(even) td{background:#fafbfc}
+  .doc blockquote{border-left:3px solid var(--orange);margin:14px 0;padding:4px 14px;color:#445;background:#fafbfc}
+  .doc hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+  .doc img{max-width:100%}
+  .note{color:var(--muted);font-size:13px;margin:18px 0}
+  footer{max-width:880px;margin:8px auto 40px;padding:0 20px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="t">REGAL Model — Documentation</span>
+  <a href="regal_explorer.html">← Interactive explorer</a>
+  <a href="https://github.com/moalbaek/Regal_modeling" target="_blank" rel="noopener">GitHub repo</a>
+  <a href="REGAL_MODEL_DOCUMENTATION.md" target="_blank" rel="noopener">Raw Markdown</a>
+</div>
+<div class="wrap">
+  <div id="doc" class="doc"><p class="note">Loading documentation…</p></div>
+</div>
+<footer>
+  Research/analysis tool operating entirely on public disclosures. Not investment advice.
+</footer>
+
+<!-- marked v12 vendored locally so the page is self-contained (no CDN dependency). -->
+<script src="marked.min.js"></script>
+<script>
+"use strict";
+const el = document.getElementById("doc");
+fetch("REGAL_MODEL_DOCUMENTATION.md")
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+  .then(md => {
+    if (window.marked) {
+      el.innerHTML = marked.parse(md);
+    } else {
+      // marked CDN unavailable — show the raw text rather than nothing.
+      el.innerHTML = "<pre></pre>";
+      el.firstChild.textContent = md;
+    }
+    document.title = "REGAL Model — Documentation";
+  })
+  .catch(err => {
+    el.innerHTML = '<p class="note">Could not load the documentation (' + err.message +
+      '). Read it on <a href="https://github.com/moalbaek/Regal_modeling/blob/main/REGAL_MODEL_DOCUMENTATION.md">GitHub</a> instead.</p>';
+  });
+</script>
+</body>
+</html>
