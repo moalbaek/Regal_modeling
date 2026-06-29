@@ -112,10 +112,11 @@
       </div>
       <div class="sub">~20% anchored to the interim's ~80% WT1 response; they track the Observation row.</div>
       <div class="row" style="margin-top:14px">
-        <label>Enrollment back-loading <span class="val" id="blL">0.50</span></label>
+        <label>Enrollment median (timing) <span class="val" id="blL">Mar 2023</span></label>
         <input type="range" id="bl" min="0" max="1" step="0.05" value="0.5">
       </div>
-      <div class="sub">0 = flat accrual, 1 = heavily back-loaded into 2023.</div>
+      <div class="sub">Slides accrual earlier (flat) ↔ later (back-loaded). <span id="enrollInfo"></span><br>
+        Anchored to SELLAS PRs (~20 by Apr 2022, 104 by Nov 2023, 126 by Apr 2024); those anchors pin the median to ~Q1–Q2 2023.</div>
       <div class="row" style="margin-top:14px">
         <label>Natural (non-disease) death rate <span class="val" id="ndrL">2.0%/yr</span></label>
         <input type="range" id="ndr" min="0" max="10" step="0.5" value="2">
@@ -129,7 +130,11 @@
         <tr><td>Enrolled (N)</td><td></td><td><input id="N" type="number" value="126"></td></tr>
         <tr><td>Final-analysis events</td><td></td><td><input id="FINAL" type="number" value="80"></td></tr>
         <tr><td>Significance HR threshold</td><td></td><td><input id="HRC" type="number" step="0.001" value="0.636"></td></tr>
+        <tr><td>Interim-analysis events</td><td></td><td><input id="IA" type="number" value="60"></td></tr>
+        <tr><td>Interim futility HR</td><td></td><td><input id="futHR" type="number" step="0.05" value="1.0"></td></tr>
       </tbody></table>
+      <div class="sub">Interim futility HR: the trial cleared the IDMC futility look at the 60-event interim, so a scenario whose
+        <i>implied</i> HR at that point exceeds this threshold is inconsistent with reality (it would have stopped). Flagged below.</div>
       <div class="presets" style="margin-top:10px"><button class="btn" id="reset">Reset all to defaults</button></div>
     </div>
   </section>
@@ -204,6 +209,10 @@ function enroll(b,N){
     while(y<ye||(y===ye&&m<=me)){coh.push([mfb(y,m,15),rate]);m++;if(m>12){m=1;y++;}}}
   let s=coh.reduce((a,c)=>a+c[1],0); coh.forEach(c=>c[1]*=N/s); return coh;
 }
+// enrollment readouts: median date (where cumulative crosses N/2) and cumulative-by-date
+const medEnroll=coh=>{const half=coh.reduce((a,x)=>a+x[1],0)/2;let c=0;for(const x of coh){c+=x[1];if(c>=half)return x[0];}return coh[coh.length-1][0];};
+const monthLabel=m=>new Date(BASE+m*DPM*86400000).toLocaleDateString("en-US",{month:"short",year:"numeric",timeZone:"UTC"});
+const cumEnroll=(coh,y,mn)=>coh.reduce((a,x)=>a+(x[0]<=mfb(y,mn,28)?x[1]:0),0);
 function common(cfg){
   const tot=comp.reduce((a,c)=>a+c.w,0)||1, w=comp.map(c=>c.w/tot);
   const cm=comp.map(c=>({med:c.med,cure:Math.min(Math.max(c.cure/100,0),0.49),k:Math.max(c.k||1,0.3)}));
@@ -251,41 +260,53 @@ function buildLL(cfg){
 // ---------- shared Monte-Carlo ----------
 function mc(M,nsim){
   const {N,FINAL,HRC,fnr}=M.cfg, ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
+  const IA=Math.min(Math.round(M.cfg.IA||60),FINAL-1);   // interim-analysis event count
+  const futHR=M.cfg.futHR||1.0;                          // interim futility HR threshold
   const h=natH(M.cfg.ndr||0);   // background mortality competing risk
   const rnd=mulberry32(987654321), w=M.w, cm=M.cm;
   let a3=0;const cs=M.coh.reduce((a,c)=>a+c[1],0);const cohc=M.coh.map(c=>(a3+=c[1]/cs));
   let a1=0;const cwc=w.map(x=>a1+=x);
   const ncw=cm.map((c,i)=>w[i]*(1-c.cure));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
-  const time=new Float64Array(N),ev2=new Int8Array(N),arm=new Int8Array(N),dcal=new Float64Array(N),en=new Float64Array(N);
-  let sig=0,reached=0; const hrs=[];
+  const surv=new Float64Array(N),time=new Float64Array(N),ev2=new Int8Array(N),arm=new Int8Array(N),dcal=new Float64Array(N),en=new Float64Array(N);
+  let sig=0,reached=0,aliveG=0,aliveB=0; const hrs=[],hrsIA=[];
+  // Cox/log-rank score at a calendar cutoff -> [num, varr]
+  const scoreAt=tcut=>{
+    for(let i=0;i<N;i++){ ev2[i]=dcal[i]<=tcut?1:0; time[i]=Math.min(surv[i],Math.max(tcut-en[i],0)); }
+    const idx=[...Array(N).keys()].sort((a,b)=>time[a]-time[b]);
+    let prefX=0,num=0,varr=0,totX=0; for(let i=0;i<N;i++)totX+=arm[i];
+    for(let p=0;p<N;p++){const i=idx[p];const nAt=N-p;const sx=totX-prefX;if(ev2[i]===1){const pb=sx/nAt;num+=arm[i]-pb;varr+=pb*(1-pb);}prefX+=arm[i];}
+    return [num,varr];
+  };
   for(let s=0;s<nsim;s++){
     for(let i=0;i<N;i++)arm[i]=i<N/2?1:0;
     for(let i=N-1;i>0;i--){const j=(rnd()*(i+1))|0;const t=arm[i];arm[i]=arm[j];arm[j]=t;}
     for(let i=0;i<N;i++){
-      let u=rnd(),k=0;while(k<cohc.length-1&&u>cohc[k])k++; en[i]=M.coh[k][0]; let surv;
+      let u=rnd(),k=0;while(k<cohc.length-1&&u>cohc[k])k++; en[i]=M.coh[k][0]; let sv;
       if(M.kind==="cure"){
         const presp=M.presp,L=M.L,obs=M.obs;
-        if(arm[i]===1){ if(rnd()<fnr) surv=rnd()<obs.cure?1e9:sampNC(obs.med,obs.cure,obs.k,L,rnd());
-          else { if(rnd()<presp) surv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;surv=sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd());} } }
-        else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; surv=rnd()<cm[c].cure?1e9:sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd()); }
+        if(arm[i]===1){ if(rnd()<fnr) sv=rnd()<obs.cure?1e9:sampNC(obs.med,obs.cure,obs.k,L,rnd());
+          else { if(rnd()<presp) sv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;sv=sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd());} } }
+        else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; sv=rnd()<cm[c].cure?1e9:sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd()); }
       } else {
-        if(arm[i]===1) surv = rnd()<fnr ? sampLL(M.mObs,M.beta,rnd()) : sampLL(M.r*M.mB,M.beta,rnd());
-        else surv = sampLL(M.mB,M.beta,rnd());
+        if(arm[i]===1) sv = rnd()<fnr ? sampLL(M.mObs,M.beta,rnd()) : sampLL(M.r*M.mB,M.beta,rnd());
+        else sv = sampLL(M.mB,M.beta,rnd());
       }
-      if(h>0){const tn=-Math.log(rnd())/h; if(tn<surv) surv=tn;}   // natural death may preempt
-      time[i]=surv; dcal[i]=en[i]+surv;
+      if(h>0){const tn=-Math.log(rnd())/h; if(tn<sv) sv=tn;}   // natural death may preempt
+      surv[i]=sv; dcal[i]=en[i]+sv;
     }
     const fin=[]; for(let i=0;i<N;i++) if(dcal[i]<1e8) fin.push(dcal[i]);
     if(fin.length<FINAL) continue; fin.sort((a,b)=>a-b); reached++;
     const t80=fin[FINAL-1];
-    for(let i=0;i<N;i++){ ev2[i]=dcal[i]<=t80?1:0; time[i]=Math.min(time[i],Math.max(t80-en[i],0)); }
-    const idx=[...Array(N).keys()].sort((a,b)=>time[a]-time[b]);
-    let prefX=0,num=0,varr=0,totX=0; for(let i=0;i<N;i++)totX+=arm[i];
-    for(let p=0;p<N;p++){const i=idx[p];const nAt=N-p;const sx=totX-prefX;if(ev2[i]===1){const pb=sx/nAt;num+=arm[i]-pb;varr+=pb*(1-pb);}prefX+=arm[i];}
+    const [num,varr]=scoreAt(t80);                              // final-analysis test
     if(varr>0){ const z=-num/Math.sqrt(varr); if(z>ZC)sig++; hrs.push(Math.exp(num/varr)); }
+    const [numIA,varrIA]=scoreAt(fin[IA-1]);                    // implied HR at the interim
+    if(varrIA>0) hrsIA.push(Math.exp(numIA/varrIA));
+    for(let i=0;i<N;i++){ if(dcal[i]>t80){ if(arm[i]===1)aliveG++; else aliveB++; } }  // alive at the 80th
   }
-  hrs.sort((a,b)=>a-b);
-  return {ps:reached?sig/reached:0, reach:reached/nsim, medHR:hrs.length?hrs[hrs.length>>1]:NaN};
+  hrs.sort((a,b)=>a-b); hrsIA.sort((a,b)=>a-b);
+  const medHR_IA=hrsIA.length?hrsIA[hrsIA.length>>1]:NaN;
+  return {ps:reached?sig/reached:0, reach:reached/nsim, medHR:hrs.length?hrs[hrs.length>>1]:NaN,
+    medHR_IA, futHR, futOK:medHR_IA<=futHR, aliveG:reached?aliveG/reached:NaN, aliveB:reached?aliveB/reached:NaN};
 }
 
 // ---------- chart ----------
@@ -310,7 +331,7 @@ function chart(M){
 const $=id=>document.getElementById(id);
 const cfgFromUI=()=>({N:+$("N").value||126,FINAL:+$("FINAL").value||80,HRC:+$("HRC").value||0.636,
   fnr:(+$("nr").value)/100,bl:+$("bl").value,beta:+$("beta").value,maxStretch:+$("maxL").value||1.5,
-  ndr:(+$("ndr").value)/100});
+  ndr:(+$("ndr").value)/100,IA:+$("IA").value||60,futHR:+$("futHR").value||1.0});
 const fmtMed=m=>m===Infinity?"NR":m.toFixed(0)+"mo";
 function render(){
   const cfg=cfgFromUI();
@@ -331,20 +352,27 @@ function render(){
   const M = mode==="cure"?Mc:Ml, r = mode==="cure"?rc:rl;
   let mhtml="";
   const bat36=M.Sbat(36);
+  const iaHR=isNaN(r.medHR_IA)?"–":r.medHR_IA.toFixed(2);
+  const iaVal=iaHR+(r.futOK?"":` <small style="color:#9e2b25">&gt;${r.futHR.toFixed(2)} ⚠</small>`);
+  const aliveVal=isNaN(r.aliveG)?"–":r.aliveG.toFixed(0)+" / "+r.aliveB.toFixed(0);
   if(mode==="cure"){
     mhtml=metric("BAT cure / median",(100*M.pibat).toFixed(0)+"% <small>/ "+fmtMed(M.batMedRaw)+"→"+fmtMed(M.batMed)+"</small>")
       +metric("BAT @36mo (tail)",(100*bat36).toFixed(0)+"%")
       +metric("GPS cure / median",(100*M.pgps).toFixed(0)+"% <small>/ "+fmtMed(M.gpsMed)+"</small>")
       +metric("Cure-fraction gap","+"+(100*(M.pgps-M.pibat)).toFixed(0)+"<small>pp</small>")
       +metric("Survival calib.",(1/M.L).toFixed(1)+"× <small>"+(Math.abs(M.L-1/cfg.maxStretch)<0.015?"(capped)":"vs inputs")+"</small>")
-      +metric("80th event reached",Math.round(r.reach*100)+"%");
+      +metric("80th event reached",Math.round(r.reach*100)+"%")
+      +metric("Implied HR @ IA ("+cfg.IA+" ev)",iaVal)
+      +metric("Alive @ 80th (GPS / BAT)",aliveVal);
   } else {
     mhtml=metric("BAT median",fmtMed(M.batMed))
       +metric("BAT @36mo (tail)",(100*bat36).toFixed(0)+"%")
       +metric("GPS median",fmtMed(M.gpsMed))
       +metric("Median ratio (GPS/BAT)",M.ratio.toFixed(1)+"<small>×</small>")
       +metric("Tail heaviness β",M.beta.toFixed(2))
-      +metric("80th event reached",Math.round(r.reach*100)+"%");
+      +metric("80th event reached",Math.round(r.reach*100)+"%")
+      +metric("Implied HR @ IA ("+cfg.IA+" ev)",iaVal)
+      +metric("Alive @ 80th (GPS / BAT)",aliveVal);
   }
   $("metrics").innerHTML=mhtml;
   const edv=M.MT.map(t=>M.ed(t));
@@ -355,7 +383,13 @@ function render(){
   } else {
     note += `No plateau ⇒ the 80th event is always reached — the real trial's current stall at 78/80 mildly favors the plateau model. A heavier tail (lower β) fits the milestones slightly worse but cannot be excluded.`;
   }
+  note += r.futOK
+    ? ` Implied interim HR <b>${iaHR}</b> clears the futility look (≤ ${r.futHR.toFixed(2)}); modeled split at the 80th ≈ <b>${aliveVal}</b> alive (GPS / BAT).`
+    : ` <span class="warn">⚠ implied interim HR ${iaHR} exceeds the futility threshold ${r.futHR.toFixed(2)} — inconsistent with the IDMC continuing past the 60-event futility look, so this scenario is implausible.</span>`;
   $("fit").innerHTML=note;
+  // enrollment readout under its slider
+  const ec=Mc.coh;
+  $("enrollInfo").innerHTML=`Median <b>${monthLabel(medEnroll(ec))}</b>; cumulative ${cumEnroll(ec,2022,4).toFixed(0)} / ${cumEnroll(ec,2023,11).toFixed(0)} / ${cumEnroll(ec,2024,4).toFixed(0)} by Apr 2022 / Nov 2023 / Apr 2024.`;
   chart(M);
 }
 const metric=(k,v)=>`<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`;
@@ -379,15 +413,16 @@ $("vcure").addEventListener("input",e=>{comp[3].cure=+e.target.value;$("vcL").te
 $("beta").addEventListener("input",e=>{$("bL").textContent=(+e.target.value).toFixed(2);schedule();});
 $("maxL").addEventListener("input",e=>{$("maxLL").textContent=(+e.target.value).toFixed(1);schedule();});
 $("nr").addEventListener("input",e=>{$("nrL").textContent=e.target.value+"%";schedule();});
-$("bl").addEventListener("input",e=>{$("blL").textContent=(+e.target.value).toFixed(2);schedule();});
+const updBl=()=>{$("blL").textContent=monthLabel(medEnroll(enroll(+$("bl").value,+$("N").value||126)));};
+$("bl").addEventListener("input",e=>{updBl();schedule();});
 $("ndr").addEventListener("input",e=>{$("ndrL").textContent=(+e.target.value).toFixed(1)+"%/yr";schedule();});
-["N","FINAL","HRC"].forEach(id=>$(id).addEventListener("input",schedule));
+["N","FINAL","HRC","IA","futHR"].forEach(id=>$(id).addEventListener("input",()=>{updBl();schedule();}));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>x.classList.toggle("on",x===b));render();}));
-$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("blL").textContent="0.50";$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("beta").value=1.2;$("bL").textContent="1.20";$("maxL").value=1.5;$("maxLL").textContent="1.5";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();render();});
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("beta").value=1.2;$("bL").textContent="1.20";$("maxL").value=1.5;$("maxLL").textContent="1.5";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
-buildWeightSliders(); buildCompTable(); buildEvTable(); render();
+buildWeightSliders(); buildCompTable(); buildEvTable(); updBl(); render();
 </script>
 </body>
 </html>
