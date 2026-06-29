@@ -50,7 +50,7 @@ The current tool is a single unified engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
-| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment back-loading, tail heaviness β, and the BAT survival-stretch cap; live survival chart and the two headline P(success) numbers. | dual P(success), median HR, fit-check, per-arm curves |
+| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment back-loading, natural (non-disease) death rate, tail heaviness β, and the BAT survival-stretch cap; live survival chart and the two headline P(success) numbers. | dual P(success), median HR, fit-check, per-arm curves |
 | `regal_explorer.py` | The same engine in Python (`build_cure`, `build_ll`, `mc`), with a CLI summary across the four BAT presets and a 3-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, figure |
 
 Both share one enrollment reconstruction, one set of survival primitives, and the same significance
@@ -205,12 +205,42 @@ unidentified question. All are user-controlled in the explorer.
 | Enrollment back-loading | 0–1, default 0.50 | [A] | Interpolates the monthly accrual between a flat profile (0) and a heavily back-loaded-into-2023 profile (1); replaces the earlier fixed 50/50 marginalization (Section 2.3) with a continuous slider. |
 | Per-component shape **k** | ≥0.3, default 1 | [A] | Weibull shape of each BAT component's non-cured tail (Section 2.5). |
 
+### 2.9 Natural (non-disease) death rate
+
+The REGAL population is an AML second-complete-remission cohort that is **mostly in its sixties**, so
+a non-trivial share of deaths is background, age-related mortality rather than disease relapse. The
+explorer makes this an explicit, adjustable assumption.
+
+| Control | Range / default | Type | Role |
+|---------|-----------------|------|------|
+| Natural death rate | 0–10%/yr, default 2% | [A] | All-cause background mortality, applied **equally to both arms** as an independent competing risk. ~2%/yr ≈ the US all-cause rate for ages 60–69; raise to stress-test an older or frailer cohort. |
+
+**Mechanics.** The annual fraction `p` is converted to a constant monthly hazard
+`h = −ln(1 − p) / 12` and overlaid as a multiplicative survival factor `S_nat(t) = e^(−h·t)` on every
+arm. Because it is common to both arms, the pooled all-cause survival is simply
+`S_pool^all(t) = S_pool^disease(t) · S_nat(t)`. This factor enters the milestone fit (Section 3), so the
+calibration *attributes the observed 60/72/78 deaths to disease + background mortality*: a higher
+natural rate implies disease-specific survival is actually somewhat **better** than the raw milestones
+would otherwise suggest. In the Monte-Carlo (Section 4), each subject draws an independent exponential
+natural-death time `T_nat = −ln(u)/h` and dies of whichever cause comes first
+(`survival = min(disease, T_nat)`); this also caps the "cured" (plateau) subjects, who otherwise never
+contribute an event.
+
+**Effect on the readout.** Natural mortality (i) thins the plateau and shortens medians, and (ii) brings the
+80th-event trigger *forward* (so the trial is less likely to stall — the cure-mixture "reached" fraction
+rises toward 100%). Its effect on P(success) is **small and of ambiguous sign**: being non-differential it
+*dilutes* the treatment contrast (pushing P(success) down), but it also makes the event trigger fire more
+reliably (pushing P(success) up). Which dominates depends on the scenario — at the base preset's large cure
+gap the trigger-reliability effect slightly wins, so P(success) is flat-to-slightly-higher across 0–10%; in
+tighter-gap presets the dilution can show through. Either way the move is only a few points at realistic
+~2%/yr rates.
+
 ---
 
 ## 3. Calibrated / derived outputs [D]
 
-Representative values at the **base preset** (f_nr = 20%, default β and stretch cap); every number
-is a function of the user controls in Sections 2.5–2.8, so treat these as a centre point, not a
+Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, default β and stretch
+cap); every number is a function of the user controls in Sections 2.5–2.9, so treat these as a centre point, not a
 fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the default sim budget.
 
 | Quantity | Value (base preset) | Source |
@@ -258,8 +288,10 @@ Both have matching inverse-CDF samplers used by the Monte-Carlo (`sampNC`, `samp
 ### 4.2 Enrollment → expected deaths
 
 For an enrollment cohort enrolled at calendar time `e` with `n` patients, expected cumulative
-deaths at calendar time `T` are `Σ_cohorts n · [1 − S(T − e)]`. This convolution is the forward
-model linking a survival curve to the disclosed event counts.
+deaths at calendar time `T` are `Σ_cohorts n · [1 − S(T − e)]`, where `S` is the **all-cause**
+survival `S_disease · S_nat` (Section 2.9). This convolution is the forward model linking a survival
+curve to the disclosed event counts; folding background mortality into `S` is what lets the fit
+split the observed deaths between disease and natural causes.
 
 ### 4.3 Pooled calibration
 
@@ -288,7 +320,9 @@ GPS plateau follows. Different decomposition modes:
 `P(success)` is the fraction of simulated trials whose pre-specified test is significant
 (`mc()`). Each simulated trial: draws enrollment per cohort; assigns 1:1 GPS/BAT; draws each
 patient's survival from the relevant arm/component (cured patients get an effectively infinite
-time); finds the calendar time of the `FINAL`-th (80th) death; censors everyone there; and computes
+time); applies an independent exponential natural-death time as a competing risk
+(`survival = min(disease, T_nat)`, Section 2.9), which also caps the cured subjects; finds the
+calendar time of the `FINAL`-th (80th) death; censors everyone there; and computes
 the **log-rank score statistic = Cox score test = the trial's actual pre-specified test**, declaring
 success when `z > z_crit = |ln(HRC)|·√FINAL / 2 = 2.024`. It returns P(significant), the fraction of
 sims that reach the 80th event, and the median simulated HR. The same `mc()` runs on both the
