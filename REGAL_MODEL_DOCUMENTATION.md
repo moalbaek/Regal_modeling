@@ -84,7 +84,7 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 | Alpha spending | Lan–DeMets **O'Brien–Fleming**, one interim at 60 deaths | [S] | Design paper [R1]; OncLive [R5]. |
 | Stratification factors | CR2 vs CR2p; cytogenetic risk; MRD status; CR1 duration (<1 yr vs ≥1 yr) | [S] | Targeted Oncology [R4]. |
 | Design effect size | HR 0.636 ⇒ medians 12.6 mo (GPS) vs ~8.0–8.1 mo (BAT) | [S] | SAP/IR [R2]; conference coverage states 12.6 vs 8.1 mo [R7]. |
-| **Significance threshold used in code** | observed HR ≤ **0.636**, i.e. z_crit = |ln 0.636|·√80 / 2 = **2.024** (one-sided p ≈ 0.0215) | [D] | Derived from N, 80 events, and one-sided 0.025 with a small OBF interim spend; matches SELLAS's stated 0.636. |
+| **Significance threshold used in code** | observed HR ≤ **0.636**, i.e. z_crit = \|ln 0.636\|·√80 / 2 = **2.024** (one-sided p ≈ 0.0215) | [D] | Derived from N, 80 events, and one-sided 0.025 with a small OBF interim spend; matches SELLAS's stated 0.636. |
 | BAT-arm allowed agents | observation/hydroxyurea, hypomethylating agents (HMA), venetoclax, low-dose ara-C (LDAC); targeted maintenance (e.g. FLT3i) **excluded** | [S] | Targeted Oncology [R4]; OncLive [R5]. |
 
 > **Note on the threshold.** The log-rank test is the score test of the Cox model, so the
