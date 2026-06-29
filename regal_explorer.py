@@ -37,6 +37,16 @@ sampLL = lambda al, be, u: al * (1.0 / u - 1.0) ** (1.0 / be)                 # 
 natH  = lambda p: (-np.log(1.0 - p) / 12.0) if p > 0 else 0.0                 # monthly hazard from annual fraction
 Snat  = lambda t, h: np.exp(-h * np.clip(t, 0, None))                         # background survival factor
 
+def obs_frac(S, tau, hd, n=10):
+    """Fraction of a cohort *observed* dead by tau under independent exponential censoring
+    (loss-to-follow-up hazard hd). With hd=0 this is just the death CDF 1-S(tau)."""
+    if tau <= 0: return 0.0
+    if hd <= 0: return 1.0 - S(tau)
+    ts = np.linspace(0.0, tau, n + 1)
+    f = (1.0 - S(ts)) * np.exp(-hd * ts)
+    integ = (tau / n) * (f.sum() - 0.5 * (f[0] + f[-1]))          # trapezoid ∫ (1-S) e^{-hd t} dt
+    return float(np.exp(-hd * tau) * (1.0 - S(tau)) + hd * integ)
+
 # ---------------------------------------------------------------- defaults
 DEFAULT_COMP = [
     {"name": "Observation",  "w": 15, "med": 6.0,  "cure": 8,  "k": 1},
@@ -59,7 +69,7 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, beta=1.20,
-               maxStretch=1.5, ndr=0.02, IA=60, futHR=1.0,
+               maxStretch=1.5, ndr=0.02, IA=60, futHR=1.0, drop=0.0, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
     cfg.update(over)
@@ -98,7 +108,7 @@ def common(cfg):
     coh = enroll(cfg["bl"], cfg["N"])
     MT = np.array([mo(e["y"], e["m"], e["d"]) for e in cfg["ev"]])
     MOBS = np.array([e["n"] for e in cfg["ev"]], float)
-    WT = np.array([1.0, 2.0, 4.0])
+    WT = np.array([1.0, 1.0, 1.0]) if cfg.get("unweighted") else np.array([1.0, 2.0, 4.0])
     return w, cm, coh, MT, MOBS, WT
 
 def median(S):
@@ -128,7 +138,7 @@ def cum_enroll(coh, y, m, d=28):
 def build_cure(cfg):
     w, cm, coh, MT, MOBS, WT = common(cfg)
     fnr = cfg["fnr"]
-    h = natH(cfg.get("ndr", 0.0))
+    h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
     pibat = sum(w[i] * cm[i]["cure"] for i in range(len(cm)))
     obs = cm[0]
     def Sbat(t, L): return sum(w[i] * Sc(t, cm[i]["med"], cm[i]["cure"], cm[i]["k"], L) for i in range(len(cm)))
@@ -136,9 +146,10 @@ def build_cure(cfg):
     def Spool(t, pr, L):
         return 0.5 * Sbat(t, L) + 0.5 * ((1 - fnr) * (pr + (1 - pr) * Snc(t, L))
                                          + fnr * Sc(t, obs["med"], obs["cure"], obs["k"], L))
-    # observed deaths are all-cause: disease survival is thinned by background mortality.
+    # observed deaths are all-cause (disease x background mortality) and net of loss-to-follow-up.
     def ed(T, pr, L):
-        return sum(c[1] * (1 - Spool(T - c[0], pr, L) * Snat(T - c[0], h)) for c in coh if c[0] <= T)
+        Sf = lambda t: Spool(t, pr, L) * Snat(t, h)
+        return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
 
     Lmin, Lmax = 1.0 / (cfg.get("maxStretch") or 3.0), 2.2
     best, bs = (0.6, min(1.0, Lmax)), 1e18
@@ -172,14 +183,15 @@ def build_cure(cfg):
 def build_ll(cfg):
     w, cm, coh, MT, MOBS, WT = common(cfg)
     fnr, beta = cfg["fnr"], cfg["beta"]
-    h = natH(cfg.get("ndr", 0.0))
+    h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
     mC = sum(w[i] * cm[i]["med"] for i in range(len(cm)))
     mObs = cm[0]["med"]
     def Spool(t, k, r):
         mB = k * mC
         return 0.5 * Sll(t, mB, beta) + 0.5 * ((1 - fnr) * Sll(t, r * mB, beta) + fnr * Sll(t, k * mObs, beta))
     def ed(T, k, r):
-        return sum(c[1] * (1 - Spool(T - c[0], k, r) * Snat(T - c[0], h)) for c in coh if c[0] <= T)
+        Sf = lambda t: Spool(t, k, r) * Snat(t, h)
+        return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
 
     best, bs = (1.4, 2.0), 1e18
     for ki in range(49):
@@ -204,6 +216,17 @@ def build_ll(cfg):
                 batMed=median(Sb), gpsMed=median(Sg), ratio=r, poolMed=median(Sp),
                 ed=lambda t: ed(t, k, r))
 
+# ---------------------------------------------------------------- fit uncertainty
+def fit_ci(cfg, builder):
+    """Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts.
+    Returns (med_more, med_fewer): more deaths -> shorter GPS median; fewer deaths -> longer (often NR)."""
+    def refit(sign):
+        c = dict(cfg); c["ev"] = [dict(e) for e in cfg["ev"]]
+        for e in c["ev"]:
+            e["n"] = max(1.0, e["n"] + sign * np.sqrt(e["n"]))
+        return builder(c)["gpsMed"]
+    return refit(+1), refit(-1)
+
 # ---------------------------------------------------------------- shared Monte-Carlo
 def mc(M, nsim=1500, seed=987654321):
     """Enrollment -> per-arm death draws -> censor at FINAL-th event -> log-rank test.
@@ -211,7 +234,8 @@ def mc(M, nsim=1500, seed=987654321):
     reaching the trigger, median final HR, median implied HR at the interim (feature 1), whether
     that clears the futility threshold, and the mean per-arm patients alive at the 80th (feature 3)."""
     cfg = M["cfg"]; N, FINAL, HRC, fnr = cfg["N"], cfg["FINAL"], cfg["HRC"], cfg["fnr"]
-    h = natH(cfg.get("ndr", 0.0))                                  # background mortality competing risk
+    h = natH(cfg.get("ndr", 0.0))                                  # background mortality competing risk (an event)
+    hdrop = natH(cfg.get("drop", 0.0))                             # loss-to-follow-up (censoring, not an event)
     ZC = abs(np.log(HRC)) * np.sqrt(FINAL) / 2.0
     rng = np.random.default_rng(seed)
     coh, w, cm = M["coh"], M["w"], M["cm"]
@@ -280,13 +304,18 @@ def mc(M, nsim=1500, seed=987654321):
             surv[nr] = sampLL(mObs, beta, u[nr])
         if h > 0:                                                   # natural death may preempt disease death
             surv = np.minimum(surv, -np.log(rng.random(N)) / h)
-        dcal = en + surv
+        # loss-to-follow-up: an independent censoring time; if it precedes death the patient is censored
+        td = (-np.log(rng.random(N)) / hdrop) if hdrop > 0 else np.full(N, np.inf)
+        isdeath = surv <= td                                        # a death is observed only if it precedes dropout
+        obsT = np.minimum(surv, td)                                 # follow-up time (death or censoring)
+        rawcal = en + surv                                          # death calendar ignoring dropout (alive-count basis)
+        dcal = np.where(isdeath, en + surv, 1e9)                    # event calendar feeding the trigger
         fin = np.sort(dcal[dcal < 1e8])
         if fin.size < FINAL: continue
         reached += 1
         t80 = fin[FINAL - 1]
-        ev = (dcal <= t80).astype(int)
-        time = np.minimum(surv, np.clip(t80 - en, 0, None))
+        ev = (isdeath & (dcal <= t80)).astype(int)
+        time = np.minimum(obsT, np.clip(t80 - en, 0, None))
         num, varr = score(time, ev)                              # final-analysis test (the trial's)
         if varr > 0:
             z = -num / np.sqrt(varr)
@@ -294,13 +323,13 @@ def mc(M, nsim=1500, seed=987654321):
             hrs.append(np.exp(num / varr))
         # implied HR at the interim (the futility read-through, feature 1)
         tIA = fin[IA - 1]
-        evIA = (dcal <= tIA).astype(int)
-        timeIA = np.minimum(surv, np.clip(tIA - en, 0, None))
+        evIA = (isdeath & (dcal <= tIA)).astype(int)
+        timeIA = np.minimum(obsT, np.clip(tIA - en, 0, None))
         numIA, varrIA = score(timeIA, evIA)
         if varrIA > 0: hrsIA.append(np.exp(numIA / varrIA))
         # per-arm patients still alive at the 80th event (feature 3, before censoring)
-        aliveG += np.sum((arm == 1) & (dcal > t80))
-        aliveB += np.sum((arm == 0) & (dcal > t80))
+        aliveG += np.sum((arm == 1) & (rawcal > t80))
+        aliveB += np.sum((arm == 0) & (rawcal > t80))
     hrs.sort(); hrsIA.sort()
     medHR_IA = hrsIA[len(hrsIA) // 2] if hrsIA else np.nan
     return dict(ps=(sig / reached if reached else 0.0),
@@ -376,9 +405,13 @@ if __name__ == "__main__":
     base = apply_preset(default_cfg(), "base")
     Mc, Ml = build_cure(base), build_ll(base)
     rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)
-    print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr)")
+    wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
+    print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
+          f"loss-to-FU {100*base['drop']:.0f}%/yr, fit {wmode})")
     print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMedRaw'])}->{fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
+    ci_more, ci_few = fit_ci(base, build_cure)
     print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
+    print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
     print(f"  calib: survival {1/Mc['L']:.2f}x inputs  poolMed {fmt_med(Mc['poolMed'])}")
     coh = Mc['coh']
     print(f"  enrol: median {month_label(med_enroll(coh))}  "
