@@ -353,7 +353,8 @@ function render(){
   let mhtml="";
   const bat36=M.Sbat(36);
   const iaHR=isNaN(r.medHR_IA)?"–":r.medHR_IA.toFixed(2);
-  const iaVal=iaHR+(r.futOK?"":` <small style="color:#9e2b25">&gt;${r.futHR.toFixed(2)} ⚠</small>`);
+  const futBite=!isNaN(r.medHR_IA)&&!r.futOK;   // only flag a real interim breach, not an uncomputed (no-reach) one
+  const iaVal=iaHR+(futBite?` <small style="color:#9e2b25">&gt;${r.futHR.toFixed(2)} ⚠</small>`:"");
   const aliveVal=isNaN(r.aliveG)?"–":r.aliveG.toFixed(0)+" / "+r.aliveB.toFixed(0);
   if(mode==="cure"){
     mhtml=metric("BAT cure / median",(100*M.pibat).toFixed(0)+"% <small>/ "+fmtMed(M.batMedRaw)+"→"+fmtMed(M.batMed)+"</small>")
@@ -383,7 +384,7 @@ function render(){
   } else {
     note += `No plateau ⇒ the 80th event is always reached — the real trial's current stall at 78/80 mildly favors the plateau model. A heavier tail (lower β) fits the milestones slightly worse but cannot be excluded.`;
   }
-  note += r.futOK
+  if(!isNaN(r.medHR_IA)) note += r.futOK
     ? ` Implied interim HR <b>${iaHR}</b> clears the futility look (≤ ${r.futHR.toFixed(2)}); modeled split at the 80th ≈ <b>${aliveVal}</b> alive (GPS / BAT).`
     : ` <span class="warn">⚠ implied interim HR ${iaHR} exceeds the futility threshold ${r.futHR.toFixed(2)} — inconsistent with the IDMC continuing past the 60-event futility look, so this scenario is implausible.</span>`;
   $("fit").innerHTML=note;
