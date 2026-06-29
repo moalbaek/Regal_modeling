@@ -16,7 +16,7 @@ real?" uncertainty that blinded data cannot resolve.
 **Deliverables:** `regal_explorer.html` (self-contained interactive explorer) and
 `regal_explorer.py` (the same engine in Python, with a CLI summary and a 3-panel figure).
 
-**Last updated:** 2026-06-28 · **Status:** research/analysis tool, not investment advice.
+**Last updated:** 2026-06-29 · **Status:** research/analysis tool, not investment advice.
 
 ---
 
@@ -189,9 +189,9 @@ historical mapping from a one-number prior to a P(success). Priors are **analyst
 
 | Parameter | Value | Type | Source / reasoning |
 |-----------|-------|------|--------------------|
-| Non-responder fraction f_nr | swept 0–30% | [A] | Anchored to the ~80% WT1 T-cell response rate [R4] ⇒ ~20% immunological non-responders. |
+| Non-responder fraction f_nr | swept 0–40% (default 20%) | [A] | Anchored to the ~80% WT1 T-cell response rate [R4] ⇒ ~20% immunological non-responders. |
 | Non-responder survival | = Observation component (median 6 mo, cure 8%) | [A] | User's specification: non-responders get no vaccine benefit → behave like best-supportive-care. |
-| Responder cure | refit to events given f_nr & BAT | [D] | Increases 62% → 87% as f_nr rises 0 → 30% (Section 6). |
+| Responder cure | refit to events given f_nr & BAT | [D] | Increases ~56% → ~91% as f_nr rises 0 → 40% (base preset, 2% natural death); the GPS *arm* cure stays ~57% because the rising responder cure offsets the larger non-responder share (Section 6). |
 
 ### 2.8 Survival-shape stress controls (the explorer's headline knobs)
 
@@ -226,14 +226,16 @@ natural-death time `T_nat = −ln(u)/h` and dies of whichever cause comes first
 (`survival = min(disease, T_nat)`); this also caps the "cured" (plateau) subjects, who otherwise never
 contribute an event.
 
-**Effect on the readout.** Natural mortality (i) thins the plateau and shortens medians, and (ii) brings the
-80th-event trigger *forward* (so the trial is less likely to stall — the cure-mixture "reached" fraction
-rises toward 100%). Its effect on P(success) is **small and of ambiguous sign**: being non-differential it
-*dilutes* the treatment contrast (pushing P(success) down), but it also makes the event trigger fire more
-reliably (pushing P(success) up). Which dominates depends on the scenario — at the base preset's large cure
-gap the trigger-reliability effect slightly wins, so P(success) is flat-to-slightly-higher across 0–10%; in
-tighter-gap presets the dilution can show through. Either way the move is only a few points at realistic
-~2%/yr rates.
+**Effect on the readout.** Natural mortality (i) thins the plateau and shortens medians — e.g. it gives the
+GPS arm a finite ~78-mo all-cause median where the disease-only plateau never crosses 50% — and (ii) brings
+the 80th-event trigger *forward*: the cure-mixture "reached" fraction climbs from ~82% at 0% to ~100% by
+2%/yr. Two forces then push P(success) in opposite directions — background deaths are *non-differential*,
+which *dilutes* the treatment contrast (downward), but the more-reliable trigger removes stalled sims that
+never reached significance (upward). In the explorer's presets the trigger-reliability gain dominates, so the
+base-preset plateau P(success) rises gently with the natural rate (≈ **94% → 96% → 99% → 100%** across
+0 / 2 / 5 / 10 %/yr, with the GPS arm cure rising 51% → 57% → 66% → 80% over the same range). Dilution would
+win only where the trigger already fires in ~100% of sims; at the realistic ~2%/yr default the net move is a
+few points.
 
 ---
 
@@ -246,23 +248,30 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Quantity | Value (base preset) | Source |
 |----------|---------------------|--------|
 | BAT cure / median | ~14% · ~9 mo (→ ~14 mo after stretch cap) | `build_cure` |
-| GPS cure / median | ~51% · not reached within 48 mo | `build_cure` |
-| Pooled long-term-survivor fraction | ~0.33–0.37 | `build_cure` |
+| GPS cure / median | ~57% · ~78 mo all-cause (disease-only plateau is never reached) | `build_cure` |
+| Pooled long-term-survivor fraction | ~0.33–0.37 (disease plateau; all-cause survival decays below it) | `build_cure` |
 | Pooled median OS | **~16–21 mo** (above the ≥13.5 floor) | `build_cure` |
-| **P(success) — plateau (cure-mixture)** | **~90–95%** | `build_cure` + `mc` |
-| **P(success) — no-plateau (log-logistic, β=1.2)** | **~98–99%** | `build_ll` + `mc` |
-| 80th event reached in MC | ~80–85% of sims (plateau); ~100% (no-plateau) | `mc` |
+| **P(success) — plateau (cure-mixture)** | **~94–97%** | `build_cure` + `mc` |
+| **P(success) — no-plateau (log-logistic, β=1.2)** | **~99–100%** | `build_ll` + `mc` |
+| 80th event reached in MC | ~100% of sims (both shapes) at the 2% natural-death default; the plateau drops to ~82% only at 0% natural death | `mc` |
+
+The 2% natural-death default (Section 2.9) raises the GPS arm cure to ~57% and, because it guarantees
+the trigger eventually fires, lifts the plateau "reached" fraction from ~82% (at 0%) to ~100%; that
+removes the stalled sims and nudges the plateau P(success) up a few points relative to a no-mortality
+run.
 
 Sweeping the BAT composition shows where the two shapes diverge: under the **bear corner**
-(venetoclax-dominant *and* ~36% durable) the plateau P(success) falls to ~25–30% while the
-no-plateau P(success) stays ~98%. That divergence — not the central estimate — is the analysis's
+(venetoclax-dominant *and* ~36% durable) the plateau P(success) falls to ~44% while the
+no-plateau P(success) stays ~99%. That divergence — not the central estimate — is the analysis's
 main output.
 
-> The plateau model's ultimate dead fraction (~63%) nearly coincides with the 80-event trigger
-> (63.5%), which is *why* accrual has stalled at 78 — the cohort is essentially at its modeled
-> asymptote. The no-plateau model has no asymptote, so it always reaches the 80th event; the real
-> trial's stall at 78/80 therefore *mildly* favors the plateau model, though the milestones alone
-> cannot adjudicate.
+> The plateau model's ultimate *disease* dead fraction (~63%) nearly coincides with the 80-event
+> trigger (63.5%), which is *why* real-world accrual has stalled at 78 — the cohort is essentially at
+> its modeled disease asymptote, and the few remaining events are expected to come slowly from
+> background (natural) mortality. The no-plateau model has no asymptote, so it reaches the 80th event
+> readily; the real trial's stall at 78/80 therefore *mildly* favors the plateau model, though the
+> milestones alone cannot adjudicate. (In the Monte-Carlo, the natural-death overlay lets the plateau
+> model also reach the trigger in ~100% of sims, on a longer timeline than the disease process alone.)
 
 ---
 
@@ -385,17 +394,17 @@ the computed results match).
 2. **Blinded pooled survival is high:** ~33–37% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 3. **Under the plateau model, P(success) is governed by the BAT-quality assumption.** With a
-   clinically-built BAT composition it stays high (~90%+ at base) and is hard to push below ~50%
+   clinically-built BAT composition it stays high (~96% at base) and is hard to push below ~50%
    without assuming venetoclax maintenance is both dominant *and* ~30–36% durable — the narrow
-   "bear corner," where it falls to ~25–30%.
+   "bear corner," where it falls to ~44%.
 4. **Structural refinements are absorbed by the pooled fit.** Component-mixture BAT and a 0–40%
    non-responder subgroup each leave P(success) ≈ unchanged, because the data fix the pooled
    plateau and refits merely redistribute it (e.g. raising the non-responder fraction forces the
    responder cure up). This *localizes* the uncertainty rather than resolving it.
 5. **The shape assumption — not the arm split — is what moves the answer.** The no-plateau
    (log-logistic) model fits the same milestones and generally returns a *higher* P(success)
-   (~98–99%), because a heavy tail with no asymptote implies an even larger arm gap. Only in the
-   bear corner do the two shapes sharply diverge (plateau ~25–30% vs no-plateau ~98%). That
+   (~99–100%), because a heavy tail with no asymptote implies an even larger arm gap. Only in the
+   bear corner do the two shapes sharply diverge (plateau ~44% vs no-plateau ~99%). That
    plateau-vs-tail gap is the irreducible, blinded-data-proof uncertainty, and the explorer reports
    it as the headline.
 
@@ -418,6 +427,11 @@ the computed results match).
   committed Cox test could under-detect — the one shape where this risk bites.
 - **Per-component BAT survival and composition are assumptions** [A], not patient-level data; they
   are the intended user levers.
+- **Natural mortality is a flat, independent hazard.** Background death (Section 2.9) is modeled as a
+  single constant all-cause rate (default 2%/yr), common to both arms and independent of the disease
+  process. Real age-related mortality rises across the multi-year follow-up, and non-relapse mortality
+  in a post-induction AML CR2 cohort can exceed general-population rates; the 0–10%/yr slider is the
+  lever for stress-testing that, but the constant-hazard, disease-independent form is a simplification.
 - **Promotional bias.** Several anchors (e.g. the ~8-mo BAT figure, the "longer-than-expected
   survival" framing) originate with SELLAS or affiliates and should be discounted accordingly.
 - **Not incorporated (conservative):** the interim futility pass; stratification of the Cox model
