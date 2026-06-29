@@ -428,8 +428,9 @@ if __name__ == "__main__":
     print(f"\n  P(success) PLATEAU (cure-mixture) : {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
     print(f"         interim: implied HR@{base['IA']} {ia}   "
           f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
+    ia_ll = f"{rl['medHR_IA']:.2f}" if np.isfinite(rl['medHR_IA']) else "n/a"
     print(f"  P(success) NO-PLATEAU (log-logistic β={base['beta']:.2f}): {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   "
-          f"interim HR {rl['medHR_IA']:.2f}   @80th: {rl['aliveG']:.0f} GPS / {rl['aliveB']:.0f} BAT")
+          f"interim HR {ia_ll}   @80th: {rl['aliveG']:.0f} GPS / {rl['aliveB']:.0f} BAT")
     print(f"  -> shape gap = {abs(round(100*rc['ps'])-round(100*rl['ps']))} points (irreducible from blinded data)\n")
 
     print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} {'P(no-plat)':>10} | {'BATmed':>7} {'GPSmed':>7}")

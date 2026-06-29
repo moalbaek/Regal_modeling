@@ -289,6 +289,13 @@ plateau P(success) falls ~96% → 93% → 88% → 60% across 0 / 3 / 5 / 10 %/yr
 "reached" fraction starts dropping (~89% at 10%). It is non-differential, so it dilutes the contrast
 and removes events; unlike natural death it does not bring the trigger forward.
 
+**Important reading of this control.** Because the censoring is folded into the *fit*, raising the
+slider re-infers a **markedly deadlier underlying disease** to still reproduce the fixed 60/72/78
+counts (some of those deaths are now "hidden" by dropout) — the GPS median moves ~78 → 38 → 24 mo
+across 0 / 5 / 10 %/yr. So the P(success) decline is **not** merely "fewer observed events"; the
+slider also reshapes the disease curve. That coupling follows from holding the milestones fixed, but
+it is the key thing to internalize about what this control does.
+
 ### 2.12 Milestone weighting and fit uncertainty
 
 The pooled fit minimizes a weighted squared error over the three milestones (Section 4.3). Two
