@@ -84,6 +84,8 @@
         <input type="range" id="vcure" min="10" max="40" step="1" value="22">
       </div>
       <div class="sub">Weights auto-normalize. Venetoclax cure is the key bear/bull knob (cure-mixture mode).</div>
+      <table id="compTable" style="margin-top:14px"><thead><tr><th>Component</th><th>Median (mo)</th><th>Cure %</th><th>Shape k</th></tr></thead><tbody></tbody></table>
+      <div class="sub" style="margin-top:6px">Per-component survival inputs. Non-responders use the <b>Observation</b> row. Shape k: &lt;1 heavy tail (more long-term survivors), 1 = exponential, &gt;1 accelerating. Applies to cure-mixture mode.</div>
     </div>
 
     <div class="card">
@@ -121,18 +123,14 @@
       <div class="sub">All-cause background mortality for a population mostly in their sixties, applied equally to both
         arms as a competing risk. It thins survival (incl. the plateau), brings the trigger forward, and — being
         non-differential — dilutes the treatment effect. ~2%/yr ≈ US ages 60–69; raise to stress-test.</div>
-      <details>
-        <summary>Advanced — component survival, event data, design</summary>
-        <table id="compTable"><thead><tr><th>Component</th><th>Median (mo)</th><th>Cure %</th><th>Shape k</th></tr></thead><tbody></tbody></table>
-        <div class="sub" style="margin-top:6px">Non-responders use the <b>Observation</b> row. Shape k: &lt;1 heavy tail (more long-term survivors), 1 = exponential, &gt;1 accelerating. Applies to cure-mixture mode.</div>
-        <table id="evTable" style="margin-top:12px"><thead><tr><th>Milestone</th><th>Date</th><th>Deaths</th></tr></thead><tbody></tbody></table>
-        <table style="margin-top:12px"><tbody>
-          <tr><td>Enrolled (N)</td><td></td><td><input id="N" type="number" value="126"></td></tr>
-          <tr><td>Final-analysis events</td><td></td><td><input id="FINAL" type="number" value="80"></td></tr>
-          <tr><td>Significance HR threshold</td><td></td><td><input id="HRC" type="number" step="0.001" value="0.636"></td></tr>
-        </tbody></table>
-        <div class="presets" style="margin-top:10px"><button class="btn" id="reset">Reset all to defaults</button></div>
-      </details>
+      <div class="sub" style="margin-top:14px;font-weight:600;color:#33404f">Event data &amp; design</div>
+      <table id="evTable" style="margin-top:8px"><thead><tr><th>Milestone</th><th>Date</th><th>Deaths</th></tr></thead><tbody></tbody></table>
+      <table style="margin-top:12px"><tbody>
+        <tr><td>Enrolled (N)</td><td></td><td><input id="N" type="number" value="126"></td></tr>
+        <tr><td>Final-analysis events</td><td></td><td><input id="FINAL" type="number" value="80"></td></tr>
+        <tr><td>Significance HR threshold</td><td></td><td><input id="HRC" type="number" step="0.001" value="0.636"></td></tr>
+      </tbody></table>
+      <div class="presets" style="margin-top:10px"><button class="btn" id="reset">Reset all to defaults</button></div>
     </div>
   </section>
 
