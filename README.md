@@ -15,7 +15,7 @@ the gap between them is the irreducible "is the plateau real?" uncertainty.
 
 | File | What it is |
 |------|------------|
-| `regal_explorer.html` | Self-contained interactive explorer — open in any browser, no build or dependencies. Sliders for BAT composition, non-responder fraction, tail heaviness, etc.; live curves and dual P(success). |
+| `regal_explorer.html` | Self-contained interactive explorer — open in any browser, no build or dependencies. Sliders for BAT composition, non-responder fraction, natural (non-disease) death rate, tail heaviness, etc.; live curves and dual P(success). |
 | `regal_explorer.py` | The same engine in Python. Prints a summary across the four BAT presets and writes `regal_explorer_panel.png`. Requires `numpy` + `matplotlib`. |
 | `REGAL_MODEL_DOCUMENTATION.md` | Full methodology, parameter sourcing, and limitations. |
 

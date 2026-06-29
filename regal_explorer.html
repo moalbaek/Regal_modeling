@@ -114,6 +114,13 @@
         <input type="range" id="bl" min="0" max="1" step="0.05" value="0.5">
       </div>
       <div class="sub">0 = flat accrual, 1 = heavily back-loaded into 2023.</div>
+      <div class="row" style="margin-top:14px">
+        <label>Natural (non-disease) death rate <span class="val" id="ndrL">2.0%/yr</span></label>
+        <input type="range" id="ndr" min="0" max="10" step="0.5" value="2">
+      </div>
+      <div class="sub">All-cause background mortality for a population mostly in their sixties, applied equally to both
+        arms as a competing risk. It thins survival (incl. the plateau), brings the trigger forward, and — being
+        non-differential — dilutes the treatment effect. ~2%/yr ≈ US ages 60–69; raise to stress-test.</div>
       <details>
         <summary>Advanced — component survival, event data, design</summary>
         <table id="compTable"><thead><tr><th>Component</th><th>Median (mo)</th><th>Cure %</th><th>Shape k</th></tr></thead><tbody></tbody></table>
@@ -179,6 +186,10 @@ const Sc=(t,med,cure,k,L)=>cure+(1-cure)*Math.exp(-Math.pow(L*Math.max(t,0)/lam(
 const sampNC=(med,cure,k,L,u)=>(lam(med,cure,k)/L)*Math.pow(-Math.log(u),1/k);
 const Sll=(t,al,be)=>1/(1+Math.pow(Math.max(t,1e-9)/al,be));
 const sampLL=(al,be,u)=>al*Math.pow(1/u-1,1/be);
+// natural (non-disease) all-cause mortality as an independent competing risk.
+// ndr is an annual death fraction; convert to a constant monthly hazard.
+const natH=p=>p>0?-Math.log(1-p)/12:0;          // monthly hazard from annual fraction
+const Snat=(t,h)=>Math.exp(-h*Math.max(t,0));   // background survival factor
 
 const DEFAULT_COMP=[{name:"Observation",w:15,med:6,cure:8,k:1},{name:"Hydroxyurea",w:5,med:6,cure:5,k:1},
   {name:"HMA",w:30,med:10,cure:13,k:1},{name:"Venetoclax",w:35,med:13,cure:22,k:1},{name:"LDAC",w:15,med:8,cure:9,k:1}];
@@ -204,38 +215,43 @@ const median=(S)=>{ if(S(900)>=0.5) return Infinity; let lo=.01,hi=900; for(let 
 // ---------- cure-mixture model ----------
 function buildCure(cfg){
   const {w,cm,coh,MT,MOBS,WT}=common(cfg); const {fnr}=cfg;
+  const h=natH(cfg.ndr||0);
   const pibat=cm.reduce((a,c,i)=>a+w[i]*c.cure,0), obs=cm[0];
   const Sbat=(t,L)=>cm.reduce((a,c,i)=>a+w[i]*Sc(t,c.med,c.cure,c.k,L),0);
   const Snc=(t,L)=>(Sbat(t,L)-pibat)/(1-pibat);
   const Spool=(t,pr,L)=>0.5*Sbat(t,L)+0.5*((1-fnr)*(pr+(1-pr)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L));
-  const ed=(T,pr,L)=>coh.reduce((a,c)=>a+(c[0]<=T?c[1]*(1-Spool(T-c[0],pr,L)):0),0);
+  // observed deaths are all-cause: disease survival is thinned by background mortality.
+  const ed=(T,pr,L)=>coh.reduce((a,c)=>a+(c[0]<=T?c[1]*(1-Spool(T-c[0],pr,L)*Snat(T-c[0],h)):0),0);
   const Lmin=1/(cfg.maxStretch||3), Lmax=2.2;
   let best=[.6,Math.min(1,Lmax)],bs=1e18;
   for(let ki=0;ki<=44;ki++)for(let li=0;li<=30;li++){const pr=ki/45,L=Lmin+li/30*(Lmax-Lmin);let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr,L)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[pr,L];}}
   for(let it=0;it<3;it++){const[p0,l0]=best,st=.06/(it+1);for(let dp=-3;dp<=3;dp++)for(let dl=-3;dl<=3;dl++){const pr=Math.min(.985,Math.max(0,p0+dp*st)),L=Math.max(Lmin,Math.min(Lmax,l0+dl*st*4));let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr,L)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[pr,L];}}}
   const[presp,L]=best, pgps=(1-fnr)*presp+fnr*obs.cure;
-  const Sb=t=>Sbat(t,L), Sg=t=>(1-fnr)*(presp+(1-presp)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L), Sp=t=>Spool(t,presp,L);
-  return {kind:"cure",cfg,w,cm,coh,MT,MOBS,presp,L,pibat,pgps,obs,
-    Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),batMedRaw:median(t=>Sbat(t,1)),gpsMed:median(Sg),poolMed:median(Sp),
+  // returned curves are all-cause (disease × background mortality).
+  const Sb=t=>Sbat(t,L)*Snat(t,h), Sg=t=>((1-fnr)*(presp+(1-presp)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L))*Snat(t,h), Sp=t=>Spool(t,presp,L)*Snat(t,h);
+  return {kind:"cure",cfg,w,cm,coh,MT,MOBS,presp,L,h,pibat,pgps,obs,
+    Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),batMedRaw:median(t=>Sbat(t,1)*Snat(t,h)),gpsMed:median(Sg),poolMed:median(Sp),
     poolCure:0.5*(pibat+pgps),ed:t=>ed(t,presp,L)};
 }
 // ---------- log-logistic (no plateau) ----------
 function buildLL(cfg){
   const {w,cm,coh,MT,MOBS,WT}=common(cfg); const {fnr,beta}=cfg;
+  const h=natH(cfg.ndr||0);
   const mC=cm.reduce((a,c,i)=>a+w[i]*c.med,0), mObs=cm[0].med;
   const Spool=(t,k,r)=>{const mB=k*mC;return 0.5*Sll(t,mB,beta)+0.5*((1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta));};
-  const ed=(T,k,r)=>coh.reduce((a,c)=>a+(c[0]<=T?c[1]*(1-Spool(T-c[0],k,r)):0),0);
+  const ed=(T,k,r)=>coh.reduce((a,c)=>a+(c[0]<=T?c[1]*(1-Spool(T-c[0],k,r)*Snat(T-c[0],h)):0),0);
   let best=[1.4,2],bs=1e18;
   for(let ki=0;ki<=48;ki++)for(let ri=0;ri<=60;ri++){const k=.6+ki/48*2.6,r=1+ri/60*6;let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],k,r)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[k,r];}}
   for(let it=0;it<3;it++){const[k0,r0]=best,st=.04/(it+1);for(let dk=-3;dk<=3;dk++)for(let dr=-3;dr<=3;dr++){const k=Math.max(.4,k0+dk*st*2),r=Math.max(1,r0+dr*st*4);let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],k,r)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[k,r];}}}
   const[k,r]=best, mB=k*mC;
-  const Sb=t=>Sll(t,mB,beta), Sg=t=>(1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta), Sp=t=>0.5*Sb(t)+0.5*Sg(t);
-  return {kind:"ll",cfg,w,cm,coh,MT,MOBS,beta,k,r,mB,mObs:k*mObs,
-    Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:mB,gpsMed:r*mB,ratio:r,poolMed:median(Sp),ed:t=>ed(t,k,r)};
+  const Sb=t=>Sll(t,mB,beta)*Snat(t,h), Sg=t=>((1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta))*Snat(t,h), Sp=t=>0.5*Sb(t)+0.5*Sg(t);
+  return {kind:"ll",cfg,w,cm,coh,MT,MOBS,beta,k,r,mB,h,mObs:k*mObs,
+    Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),gpsMed:median(Sg),ratio:r,poolMed:median(Sp),ed:t=>ed(t,k,r)};
 }
 // ---------- shared Monte-Carlo ----------
 function mc(M,nsim){
   const {N,FINAL,HRC,fnr}=M.cfg, ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
+  const h=natH(M.cfg.ndr||0);   // background mortality competing risk
   const rnd=mulberry32(987654321), w=M.w, cm=M.cm;
   let a3=0;const cs=M.coh.reduce((a,c)=>a+c[1],0);const cohc=M.coh.map(c=>(a3+=c[1]/cs));
   let a1=0;const cwc=w.map(x=>a1+=x);
@@ -256,6 +272,7 @@ function mc(M,nsim){
         if(arm[i]===1) surv = rnd()<fnr ? sampLL(M.mObs,M.beta,rnd()) : sampLL(M.r*M.mB,M.beta,rnd());
         else surv = sampLL(M.mB,M.beta,rnd());
       }
+      if(h>0){const tn=-Math.log(rnd())/h; if(tn<surv) surv=tn;}   // natural death may preempt
       time[i]=surv; dcal[i]=en[i]+surv;
     }
     const fin=[]; for(let i=0;i<N;i++) if(dcal[i]<1e8) fin.push(dcal[i]);
@@ -292,7 +309,8 @@ function chart(M){
 // ---------- render ----------
 const $=id=>document.getElementById(id);
 const cfgFromUI=()=>({N:+$("N").value||126,FINAL:+$("FINAL").value||80,HRC:+$("HRC").value||0.636,
-  fnr:(+$("nr").value)/100,bl:+$("bl").value,beta:+$("beta").value,maxStretch:+$("maxL").value||1.5});
+  fnr:(+$("nr").value)/100,bl:+$("bl").value,beta:+$("beta").value,maxStretch:+$("maxL").value||1.5,
+  ndr:(+$("ndr").value)/100});
 const fmtMed=m=>m===Infinity?"NR":m.toFixed(0)+"mo";
 function render(){
   const cfg=cfgFromUI();
@@ -362,10 +380,11 @@ $("beta").addEventListener("input",e=>{$("bL").textContent=(+e.target.value).toF
 $("maxL").addEventListener("input",e=>{$("maxLL").textContent=(+e.target.value).toFixed(1);schedule();});
 $("nr").addEventListener("input",e=>{$("nrL").textContent=e.target.value+"%";schedule();});
 $("bl").addEventListener("input",e=>{$("blL").textContent=(+e.target.value).toFixed(2);schedule();});
+$("ndr").addEventListener("input",e=>{$("ndrL").textContent=(+e.target.value).toFixed(1)+"%/yr";schedule();});
 ["N","FINAL","HRC"].forEach(id=>$(id).addEventListener("input",schedule));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>x.classList.toggle("on",x===b));render();}));
-$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("blL").textContent="0.50";$("beta").value=1.2;$("bL").textContent="1.20";$("maxL").value=1.5;$("maxLL").textContent="1.5";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();render();});
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("blL").textContent="0.50";$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("beta").value=1.2;$("bL").textContent="1.20";$("maxL").value=1.5;$("maxLL").textContent="1.5";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
 buildWeightSliders(); buildCompTable(); buildEvTable(); render();
