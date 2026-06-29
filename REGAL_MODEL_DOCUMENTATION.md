@@ -50,7 +50,7 @@ The current tool is a single unified engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
-| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment median timing, natural (non-disease) death rate, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check; live survival chart and the two headline P(success) numbers. | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, fit-check, per-arm curves |
+| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; live survival chart and the two headline P(success) numbers. | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, per-arm curves |
 | `regal_explorer.py` | The same engine in Python (`build_cure`, `build_ll`, `mc`), with a CLI summary across the four BAT presets and a 3-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, figure |
 
 Both share one enrollment reconstruction, one set of survival primitives, and the same significance
@@ -266,12 +266,53 @@ adjustable input. At the default 1.00 even the pessimistic **bear corner** clear
 HR ≈ 0.7), so the constraint mainly excludes extreme anti-GPS scenarios; tightening the threshold
 makes it bite harder. It is a soft, user-controlled constraint, deliberately not a hard gate.
 
+### 2.11 Loss to follow-up (administrative censoring)
+
+Distinct from natural death (Section 2.9, which *is* an event), some patients leave the study before
+dying — withdrawal, lost to follow-up, administrative censoring. These patients contribute follow-up
+but **no death event**, so they slow event accrual.
+
+| Control | Range / default | Type | Role |
+|---------|-----------------|------|------|
+| Loss to follow-up | 0–10%/yr, default 0 | [A] | Annual dropout rate, applied to both arms as an independent censoring process. 0 = complete follow-up; comparable trials run ~3–10%. |
+
+**Mechanics.** Each subject draws an independent exponential censoring time `T_cens = −ln(u)/h_c`
+(monthly hazard `h_c = −ln(1−p)/12`); if it precedes death the subject is censored (no event, but
+counted alive "before censoring" in the per-arm 80th-event split). The same thinning enters the
+milestone fit: the expected *observed* deaths by a date use
+`∫ S_cens(t) dF_death(t) = e^{−h_c τ}(1−S(τ)) + h_c ∫₀^τ (1−S(t)) e^{−h_c t} dt` per cohort
+(closed-form reduces to `1−S(τ)` when `h_c = 0`), so the fit stays calibrated to 60/72/78 with the
+underlying disease survival adjusted for the censoring. At default 0 the model is unchanged.
+
+**Effect.** Dropout meaningfully lowers P(success) and can stall the trigger: at the base preset the
+plateau P(success) falls ~96% → 93% → 88% → 60% across 0 / 3 / 5 / 10 %/yr, and the 80th-event
+"reached" fraction starts dropping (~89% at 10%). It is non-differential, so it dilutes the contrast
+and removes events; unlike natural death it does not bring the trigger forward.
+
+**Important reading of this control.** Because the censoring is folded into the *fit*, raising the
+slider re-infers a **markedly deadlier underlying disease** to still reproduce the fixed 60/72/78
+counts (some of those deaths are now "hidden" by dropout) — the GPS median moves ~78 → 38 → 24 mo
+across 0 / 5 / 10 %/yr. So the P(success) decline is **not** merely "fewer observed events"; the
+slider also reshapes the disease curve. That coupling follows from holding the milestones fixed, but
+it is the key thing to internalize about what this control does.
+
+### 2.12 Milestone weighting and fit uncertainty
+
+The pooled fit minimizes a weighted squared error over the three milestones (Section 4.3). Two
+controls expose the robustness of that fit:
+
+| Control | Default | Type | Role |
+|---------|---------|------|------|
+| Milestone weighting | weighted 1 / 2 / 4 (toggle to equal 1 / 1 / 1) | [A] | The default up-weights the most recent (most informative) milestone; the **unweighted** toggle treats 60/72/78 equally, testing whether the weighting choice drives the answer. At base it barely moves the fit (GPS median ~78 → ~79 mo). |
+| GPS-median Poisson interval | reported, not set | [D] | The event counts carry Poisson sampling noise, so the explorer refits at each count ±√n and reports the resulting **~68% interval on the derived GPS median** (e.g. ~23–222 mo at base). Its width shows how weakly three counts constrain the tail. |
+
 ---
 
 ## 3. Calibrated / derived outputs [D]
 
 Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, default β and stretch
-cap); every number is a function of the user controls in Sections 2.5–2.10, so treat these as a centre point, not a
+cap, 0% loss-to-follow-up, weighted fit); every number is a function of the user controls in Sections
+2.5–2.12, so treat these as a centre point, not a
 fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the default sim budget.
 
 | Quantity | Value (base preset) | Source |
@@ -279,6 +320,7 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Median enrollment date | ≈ Mar 2023 (cumulative ≈ 30 / 102 / 126 by Apr 2022 / Nov 2023 / Apr 2024) | `enroll` |
 | BAT cure / median | ~14% · ~9 mo (→ ~14 mo after stretch cap) | `build_cure` |
 | GPS cure / median | ~57% · ~78 mo all-cause (disease-only plateau is never reached) | `build_cure` |
+| GPS median Poisson 68% CI | ~23 – 222 mo (from 60/72/78 ±√n) — wide: three counts barely pin the tail | `fit_ci` |
 | Pooled long-term-survivor fraction | ~0.33–0.37 (disease plateau; all-cause survival decays below it) | `build_cure` |
 | Pooled median OS | **~16–21 mo** (above the ≥13.5 floor) | `build_cure` |
 | Implied HR at the 60-event interim | ~0.45 (clears the 1.00 futility threshold) | `mc` |
@@ -329,17 +371,23 @@ Both have matching inverse-CDF samplers used by the Monte-Carlo (`sampNC`, `samp
 ### 4.2 Enrollment → expected deaths
 
 For an enrollment cohort enrolled at calendar time `e` with `n` patients, expected cumulative
-deaths at calendar time `T` are `Σ_cohorts n · [1 − S(T − e)]`, where `S` is the **all-cause**
-survival `S_disease · S_nat` (Section 2.9). This convolution is the forward model linking a survival
-curve to the disclosed event counts; folding background mortality into `S` is what lets the fit
-split the observed deaths between disease and natural causes.
+deaths at calendar time `T` are `Σ_cohorts n · D(T − e)`, where `D(τ)` is the fraction *observed*
+dead by `τ`. With complete follow-up `D(τ) = 1 − S(τ)` and `S` is the **all-cause** survival
+`S_disease · S_nat` (Section 2.9); under loss-to-follow-up at hazard `h_c` (Section 2.11) the observed
+fraction is thinned to `D(τ) = e^{−h_c τ}(1−S(τ)) + h_c ∫₀^τ (1−S(t))e^{−h_c t}dt`. This convolution
+is the forward model linking a survival curve to the disclosed event counts; folding background
+mortality and censoring into `D` is what lets the fit split the observed deaths between disease,
+natural causes, and patients who left before dying.
 
 ### 4.3 Pooled calibration
 
 The pooled curve is `0.5·S_BAT + 0.5·S_GPS`. The explorer fits its free parameters to the three
 (date, deaths) milestones by **weighted least squares**, with weights `WT = [1, 2, 4]` that
-up-weight the most recent (and most informative) milestone, over a coarse grid followed by three
-local-refinement passes. For the plateau model the two free parameters are the GPS responder cure
+up-weight the most recent (and most informative) milestone (a **toggle** switches to equal weights
+`[1, 1, 1]` to check the choice is not load-bearing — at base it shifts the GPS median by ~1 mo), over
+a coarse grid followed by three local-refinement passes. Sampling uncertainty in the counts is
+propagated by refitting at each milestone ±√n, giving a ~68% Poisson interval on the derived medians
+(Section 2.12). For the plateau model the two free parameters are the GPS responder cure
 `π_resp` and the early-hazard multiplier `L` (bounded by `L ∈ [1/maxStretch, 2.2]`); the displayed
 "survival calibration" is `1/L`. The enrollment shape is set by the back-loading slider (Section 2.8)
 rather than marginalized. (An earlier Bayesian formulation used a Poisson log-likelihood with a
@@ -362,8 +410,10 @@ GPS plateau follows. Different decomposition modes:
 (`mc()`). Each simulated trial: draws enrollment per cohort; assigns 1:1 GPS/BAT; draws each
 patient's survival from the relevant arm/component (cured patients get an effectively infinite
 time); applies an independent exponential natural-death time as a competing risk
-(`survival = min(disease, T_nat)`, Section 2.9), which also caps the cured subjects; finds the
-calendar time of the `FINAL`-th (80th) death; censors everyone there; and computes
+(`survival = min(disease, T_nat)`, Section 2.9), which also caps the cured subjects; draws an
+independent loss-to-follow-up time and censors the subject (no event) if it precedes death
+(Section 2.11); finds the calendar time of the `FINAL`-th (80th) death; censors everyone there; and
+computes
 the **log-rank score statistic = Cox score test = the trial's actual pre-specified test**, declaring
 success when `z > z_crit = |ln(HRC)|·√FINAL / 2 = 2.024`. It returns P(significant), the fraction of
 sims that reach the 80th event, and the median simulated HR. The same `mc()` runs on both the
@@ -476,9 +526,11 @@ the computed results match).
   60-event futility look is now used as an adjustable consistency constraint on the arm split
   (Section 2.10), flagging implausible scenarios rather than rejecting them outright; the futility
   boundary itself is an assumed number.
+- **Loss to follow-up is modeled as a flat, independent rate.** Administrative censoring (Section 2.11)
+  enters both the fit and the simulation, but as a single constant all-cause-independent hazard
+  (default 0); real dropout is time- and arm-varying.
 - **Not incorporated (conservative):** stratification of the Cox model (the trial stratifies; the
-  simulation does not — a minor, likely slightly power-increasing, difference); administrative
-  censoring / loss to follow-up beyond the natural-death competing risk.
+  simulation does not — a minor, likely slightly power-increasing, difference).
 
 ---
 
