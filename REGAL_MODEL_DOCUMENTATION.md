@@ -50,7 +50,7 @@ The current tool is a single unified engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
-| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment back-loading, natural (non-disease) death rate, tail heaviness β, and the BAT survival-stretch cap; live survival chart and the two headline P(success) numbers. | dual P(success), median HR, fit-check, per-arm curves |
+| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment median timing, natural (non-disease) death rate, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check; live survival chart and the two headline P(success) numbers. | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, fit-check, per-arm curves |
 | `regal_explorer.py` | The same engine in Python (`build_cure`, `build_ll`, `mc`), with a CLI summary across the four BAT presets and a 3-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, figure |
 
 Both share one enrollment reconstruction, one set of survival primitives, and the same significance
@@ -109,19 +109,21 @@ survival is unexpectedly long).
 ### 2.3 Enrollment reconstruction
 
 The exact monthly accrual is **not public**; the curve is reconstructed [A] to honor the sourced
-anchors below. Its shape is treated as a nuisance parameter via the **back-loading slider**
-(Section 2.8), which interpolates between a "flat" and a heavily back-loaded profile (default 0.50,
-i.e. the midpoint of that range).
+anchors below. Its shape is controlled by the **enrollment-timing slider** (Section 2.8), which slides
+accrual between an earlier (flat) and a later (back-loaded) profile. Because the *median enrollment
+date* is the quantity that actually drives time-from-randomization at each milestone, the explorer
+now **displays the implied median date** (default ≈ Mar 2023) live, together with the cumulative
+patients enrolled at the sourced anchor dates, so drift away from the anchors is visible.
 
 | Anchor | Value | Type | Source |
 |--------|-------|------|--------|
 | Registration | NCT04229979 first posted Jan 2020 | [S] | ClinicalTrials.gov. |
 | Early protocol | WT1-positivity required initially, later broadened | [S] | OncLive eligibility note [R5]. |
-| Ex-China enrollment target reached | Nov 2023 | [S] | SELLAS PRs (2023). |
+| Cumulative enrolled (anchors) | ~20 by Apr 2022 · ~104 by Nov 2023 · 126 by Apr 2024 | [S] | SELLAS PRs (2023) / SAP [R2]. |
 | China cohort (via 3D Medicines) | enrolled ~Dec 2023 – Mar 2024 | [S] | SAP/partnership disclosures [R2]. |
 | Last patient in | ~March 2024 | [S] | CEO, May 2026 conference [R7]. |
 | Original expectation to 80th event | 12–15 months after last patient (~mid-2025) | [S] | CEO, May 2026 conference [R7]. |
-| **Code reconstruction (base)** | slow 2020–21 (COVID + WT1-only) → heavy 2022–23 → China bolus to Mar-2024, summing to 126 | [A] | Piecewise monthly rates chosen to match the anchors above. |
+| **Code reconstruction (base)** | slow 2020–21 (COVID + WT1-only) → heavy 2022–23 → China bolus to Mar-2024, summing to 126; **implied median ≈ Mar 2023** | [A] | Piecewise monthly rates chosen to match the anchors above. The ~104-by-Nov-2023 anchor pins the median to roughly Q1–Q2 2023. |
 
 ### 2.4 Interim disclosures (Jan 2025, at 60 deaths)
 
@@ -202,7 +204,7 @@ unidentified question. All are user-controlled in the explorer.
 |---------|-----------------|------|------|
 | Tail heaviness **β** (log-logistic) | 0.6–2.0, default 1.20 | [A] | Shape of the no-plateau model. Lower β = heavier tail (both arms survive long, smaller implied effect); higher β ≈ a plateau. Controls the orange "no-plateau" number only. |
 | Max BAT survival stretch **(×)** | 1.0–3.0×, default 1.5 | [A] | Caps how far the cure-mixture fit may stretch BAT survival past the component medians via the early-hazard multiplier `L` (`L_min = 1/maxStretch`). Tighter cap → less longevity attributed to BAT → more attributed to GPS → **higher** plateau P(success). 3× ≈ unconstrained. |
-| Enrollment back-loading | 0–1, default 0.50 | [A] | Interpolates the monthly accrual between a flat profile (0) and a heavily back-loaded-into-2023 profile (1); replaces the earlier fixed 50/50 marginalization (Section 2.3) with a continuous slider. |
+| Enrollment timing (median) | 0–1, default 0.50 (≈ median Mar 2023) | [A] | Slides the monthly accrual between an earlier (flat) and a later (back-loaded) profile; the **implied median enrollment date** and cumulative-at-anchor counts are displayed live (Section 2.3). The sourced anchors hold the median to ~Q1–Q2 2023. |
 | Per-component shape **k** | ≥0.3, default 1 | [A] | Weibull shape of each BAT component's non-cured tail (Section 2.5). |
 
 ### 2.9 Natural (non-disease) death rate
@@ -237,20 +239,50 @@ base-preset plateau P(success) rises gently with the natural rate (≈ **94% →
 win only where the trigger already fires in ~100% of sims; at the realistic ~2%/yr default the net move is a
 few points.
 
+### 2.10 Interim futility consistency check
+
+A sourced fact that the earlier versions left on the table: at the **60-event interim** the IDMC
+reviewed the trial and recommended continuation — i.e. it **cleared the pre-specified futility look**
+[R4][R5]. That is information about the arm separation, because a scenario in which GPS shows little
+or no benefit by the interim would have been *stopped*, not continued.
+
+The explorer now uses this as a **consistency check on the arm split** rather than leaving the split
+entirely free:
+
+| Control | Range / default | Type | Role |
+|---------|-----------------|------|------|
+| Interim-analysis events | default 60 | [S] | The event count at the IDMC interim (SAP [R2]). |
+| Interim futility HR | default 1.00 | [A] | The trial is taken to have been on track for futility-stop only if the *implied* HR at the interim was below this threshold. 1.00 = "no benefit trend"; tighten it (e.g. 0.85) to impose the stronger reading that continuation implied a real interim signal. |
+
+**Mechanics.** In the Monte-Carlo the model already simulates every event time, so it computes the
+implied Cox/log-rank HR at the moment the 60th death occurs (median across sims) exactly as it does
+for the 80th. If that **implied interim HR exceeds the futility threshold**, the scenario is
+inconsistent with the disclosed "continue past futility" and is flagged as implausible in the metrics
+panel and fit note. This converts the arm split from a fully free knob into a **bounded** one: BAT
+assumptions that imply GPS was barely separating by the interim are ruled out.
+
+**Caveat.** The futility *boundary* itself is an assumption [A], not a published number, so it is an
+adjustable input. At the default 1.00 even the pessimistic **bear corner** clears it (implied interim
+HR ≈ 0.7), so the constraint mainly excludes extreme anti-GPS scenarios; tightening the threshold
+makes it bite harder. It is a soft, user-controlled constraint, deliberately not a hard gate.
+
 ---
 
 ## 3. Calibrated / derived outputs [D]
 
 Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, default β and stretch
-cap); every number is a function of the user controls in Sections 2.5–2.9, so treat these as a centre point, not a
+cap); every number is a function of the user controls in Sections 2.5–2.10, so treat these as a centre point, not a
 fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the default sim budget.
 
 | Quantity | Value (base preset) | Source |
 |----------|---------------------|--------|
+| Median enrollment date | ≈ Mar 2023 (cumulative ≈ 30 / 102 / 126 by Apr 2022 / Nov 2023 / Apr 2024) | `enroll` |
 | BAT cure / median | ~14% · ~9 mo (→ ~14 mo after stretch cap) | `build_cure` |
 | GPS cure / median | ~57% · ~78 mo all-cause (disease-only plateau is never reached) | `build_cure` |
 | Pooled long-term-survivor fraction | ~0.33–0.37 (disease plateau; all-cause survival decays below it) | `build_cure` |
 | Pooled median OS | **~16–21 mo** (above the ≥13.5 floor) | `build_cure` |
+| Implied HR at the 60-event interim | ~0.45 (clears the 1.00 futility threshold) | `mc` |
+| Patients alive at the 80th event | ~34 GPS / ~12 BAT (before censoring) | `mc` |
 | **P(success) — plateau (cure-mixture)** | **~94–97%** | `build_cure` + `mc` |
 | **P(success) — no-plateau (log-logistic, β=1.2)** | **~99–100%** | `build_ll` + `mc` |
 | 80th event reached in MC | ~100% of sims (both shapes) at the 2% natural-death default; the plateau drops to ~82% only at 0% natural death | `mc` |
@@ -336,6 +368,12 @@ the **log-rank score statistic = Cox score test = the trial's actual pre-specifi
 success when `z > z_crit = |ln(HRC)|·√FINAL / 2 = 2.024`. It returns P(significant), the fraction of
 sims that reach the 80th event, and the median simulated HR. The same `mc()` runs on both the
 plateau and the no-plateau model, producing the two headline numbers.
+
+The same pass also reports three diagnostics that make the fit auditable: the **implied Cox HR at the
+60-event interim** (the futility read-through of Section 2.10), a boolean for whether it clears the
+futility threshold, and the mean **per-arm patients alive at the 80th event** (before censoring) —
+e.g. ~34 GPS / ~12 BAT at the base preset. The alive-split is the same quantity external modelers use
+as a sanity check on the arm decomposition.
 
 ### 4.6 Component-mixture BAT and non-responders
 
@@ -434,9 +472,13 @@ the computed results match).
   lever for stress-testing that, but the constant-hazard, disease-independent form is a simplification.
 - **Promotional bias.** Several anchors (e.g. the ~8-mo BAT figure, the "longer-than-expected
   survival" framing) originate with SELLAS or affiliates and should be discounted accordingly.
-- **Not incorporated (conservative):** the interim futility pass; stratification of the Cox model
-  (the trial stratifies; the simulation does not — a minor, likely slightly power-increasing,
-  difference).
+- **Interim futility pass is a soft check, not a hard gate.** The IDMC's continuation past the
+  60-event futility look is now used as an adjustable consistency constraint on the arm split
+  (Section 2.10), flagging implausible scenarios rather than rejecting them outright; the futility
+  boundary itself is an assumed number.
+- **Not incorporated (conservative):** stratification of the Cox model (the trial stratifies; the
+  simulation does not — a minor, likely slightly power-increasing, difference); administrative
+  censoring / loss to follow-up beyond the natural-death competing risk.
 
 ---
 

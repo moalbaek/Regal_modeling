@@ -16,7 +16,7 @@ function, the JavaScript in regal_explorer.html:
 Research/analysis tool, not investment advice.
 """
 import numpy as np
-from datetime import date
+from datetime import date, timedelta
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 
 # ---------------------------------------------------------------- primitives
@@ -59,7 +59,8 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, beta=1.20,
-               maxStretch=1.5, ndr=0.02, comp=[dict(c) for c in DEFAULT_COMP],
+               maxStretch=1.5, ndr=0.02, IA=60, futHR=1.0,
+               comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
     cfg.update(over)
     return cfg
@@ -108,6 +109,20 @@ def median(S):
         if S(m) > 0.5: lo = m
         else: hi = m
     return 0.5 * (lo + hi)
+
+# ---------------------------------------------------------------- enrollment readouts
+def med_enroll(coh):
+    """Month-from-BASE at which cumulative enrollment crosses N/2 (the median enrollment)."""
+    c = np.cumsum(coh[:, 1]); half = c[-1] / 2.0
+    i = int(np.searchsorted(c, half))
+    return coh[min(i, len(coh) - 1), 0]
+
+def month_label(m):
+    return (BASE + timedelta(days=m * DPM)).strftime("%b %Y")
+
+def cum_enroll(coh, y, m, d=28):
+    """Cumulative patients enrolled by a calendar date (for the sourced PR anchors)."""
+    return float(coh[coh[:, 0] <= mo(y, m, d), 1].sum())
 
 # ---------------------------------------------------------------- cure-mixture model
 def build_cure(cfg):
@@ -192,7 +207,9 @@ def build_ll(cfg):
 # ---------------------------------------------------------------- shared Monte-Carlo
 def mc(M, nsim=1500, seed=987654321):
     """Enrollment -> per-arm death draws -> censor at FINAL-th event -> log-rank test.
-    Returns dict(ps, reach, medHR): P(significant), fraction reaching the trigger, median HR."""
+    Returns dict(ps, reach, medHR, medHR_IA, futOK, aliveG, aliveB): P(significant), fraction
+    reaching the trigger, median final HR, median implied HR at the interim (feature 1), whether
+    that clears the futility threshold, and the mean per-arm patients alive at the 80th (feature 3)."""
     cfg = M["cfg"]; N, FINAL, HRC, fnr = cfg["N"], cfg["FINAL"], cfg["HRC"], cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0))                                  # background mortality competing risk
     ZC = abs(np.log(HRC)) * np.sqrt(FINAL) / 2.0
@@ -202,7 +219,19 @@ def mc(M, nsim=1500, seed=987654321):
     ncw = np.array([w[i] * (1 - cm[i]["cure"]) for i in range(len(cm))])
     ncw = ncw / ncw.sum()                                          # BAT non-cured component mix
     n1 = N // 2
-    sig = reached = 0; hrs = []
+    IA = min(int(cfg.get("IA", 60)), FINAL - 1)                    # interim-analysis event count
+    futHR = cfg.get("futHR", 1.0)                                  # interim futility HR threshold
+    sig = reached = 0; hrs = []; hrsIA = []; aliveG = aliveB = 0.0
+
+    def score(time, ev):                                          # log-rank/Cox score test (num, var)
+        idx = np.argsort(time, kind="mergesort")
+        totX = arm.sum(); prefX = 0; num = 0.0; varr = 0.0
+        for p in range(N):
+            i = idx[p]; nAt = N - p; sx = totX - prefX
+            if ev[i] == 1:
+                pb = sx / nAt; num += arm[i] - pb; varr += pb * (1 - pb)
+            prefX += arm[i]
+        return num, varr
 
     def draw_cure_bat(n):
         out = np.empty(n)
@@ -258,22 +287,28 @@ def mc(M, nsim=1500, seed=987654321):
         t80 = fin[FINAL - 1]
         ev = (dcal <= t80).astype(int)
         time = np.minimum(surv, np.clip(t80 - en, 0, None))
-        # log-rank score = Cox score test (the trial's significance test)
-        idx = np.argsort(time, kind="mergesort")
-        totX = arm.sum(); prefX = 0; num = 0.0; varr = 0.0
-        for p in range(N):
-            i = idx[p]; nAt = N - p; sx = totX - prefX
-            if ev[i] == 1:
-                pb = sx / nAt; num += arm[i] - pb; varr += pb * (1 - pb)
-            prefX += arm[i]
+        num, varr = score(time, ev)                              # final-analysis test (the trial's)
         if varr > 0:
             z = -num / np.sqrt(varr)
             if z > ZC: sig += 1
             hrs.append(np.exp(num / varr))
-    hrs.sort()
+        # implied HR at the interim (the futility read-through, feature 1)
+        tIA = fin[IA - 1]
+        evIA = (dcal <= tIA).astype(int)
+        timeIA = np.minimum(surv, np.clip(tIA - en, 0, None))
+        numIA, varrIA = score(timeIA, evIA)
+        if varrIA > 0: hrsIA.append(np.exp(numIA / varrIA))
+        # per-arm patients still alive at the 80th event (feature 3, before censoring)
+        aliveG += np.sum((arm == 1) & (dcal > t80))
+        aliveB += np.sum((arm == 0) & (dcal > t80))
+    hrs.sort(); hrsIA.sort()
+    medHR_IA = hrsIA[len(hrsIA) // 2] if hrsIA else np.nan
     return dict(ps=(sig / reached if reached else 0.0),
                 reach=reached / nsim,
-                medHR=(hrs[len(hrs) // 2] if hrs else np.nan))
+                medHR=(hrs[len(hrs) // 2] if hrs else np.nan),
+                medHR_IA=medHR_IA, futHR=futHR, futOK=bool(medHR_IA <= futHR),
+                aliveG=(aliveG / reached if reached else np.nan),
+                aliveB=(aliveB / reached if reached else np.nan))
 
 # ---------------------------------------------------------------- figure
 NAVY = "#0b2545"; RED = "#9e2b25"; TEAL = "#197278"; GREY = "#6b6f72"; ORANGE = "#e8910b"
@@ -345,10 +380,18 @@ if __name__ == "__main__":
     print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMedRaw'])}->{fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
     print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
     print(f"  calib: survival {1/Mc['L']:.2f}x inputs  poolMed {fmt_med(Mc['poolMed'])}")
+    coh = Mc['coh']
+    print(f"  enrol: median {month_label(med_enroll(coh))}  "
+          f"cum {cum_enroll(coh,2022,4):.0f}/{cum_enroll(coh,2023,11):.0f}/{cum_enroll(coh,2024,4):.0f} "
+          f"by Apr22/Nov23/Apr24 (sourced ~20/104/126)")
     edv = [Mc['ed'](t) for t in Mc['MT']]
     print(f"  fit  : modeled deaths {'/'.join(f'{x:.0f}' for x in edv)}  vs observed {'/'.join(f'{x:.0f}' for x in Mc['MOBS'])}")
+    fut = "OK" if rc['futOK'] else f"VIOLATED (>{base['futHR']:.2f})"
     print(f"\n  P(success) PLATEAU (cure-mixture) : {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
-    print(f"  P(success) NO-PLATEAU (log-logistic β={base['beta']:.2f}): {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}")
+    print(f"         interim: implied HR@{base['IA']} {rc['medHR_IA']:.2f} (futility {fut})   "
+          f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
+    print(f"  P(success) NO-PLATEAU (log-logistic β={base['beta']:.2f}): {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   "
+          f"interim HR {rl['medHR_IA']:.2f}   @80th: {rl['aliveG']:.0f} GPS / {rl['aliveB']:.0f} BAT")
     print(f"  -> shape gap = {abs(round(100*rc['ps'])-round(100*rl['ps']))} points (irreducible from blinded data)\n")
 
     print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} {'P(no-plat)':>10} | {'BATmed':>7} {'GPSmed':>7}")
