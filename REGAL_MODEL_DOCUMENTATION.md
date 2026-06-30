@@ -14,9 +14,9 @@ P(success) for each. The gap between the two headline numbers is the irreducible
 real?" uncertainty that blinded data cannot resolve.
 
 **Deliverables:** `regal_explorer.html` (self-contained interactive explorer) and
-`regal_explorer.py` (the same engine in Python, with a CLI summary and a 3-panel figure).
+`regal_explorer.py` (the same engine in Python, with a CLI summary and an 8-panel figure).
 
-**Last updated:** 2026-06-29 · **Status:** research/analysis tool, not investment advice.
+**Last updated:** 2026-06-30 · **Status:** research/analysis tool, not investment advice.
 
 ---
 
@@ -50,8 +50,8 @@ The current tool is a single unified engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
-| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; live survival chart and the two headline P(success) numbers. | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, per-arm curves |
-| `regal_explorer.py` | The same engine in Python (`build_cure`, `build_ll`, `mc`), with a CLI summary across the four BAT presets and a 3-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, figure |
+| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; the two headline P(success) numbers and a "Trial dynamics" panel of six live charts (survival curves, event-accrual timeline, simulated-HR distribution, plateau-vs-tail divergence band, enrollment validation, and a P(success)-vs-effect power curve). | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, per-arm curves |
+| `regal_explorer.py` | The same engine in Python (`build_cure`, `build_ll`, `mc`), with a CLI summary across the four BAT presets and an 8-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, 8-panel figure |
 
 Both share one enrollment reconstruction, one set of survival primitives, and the same significance
 threshold (Section 2.1). Within each, **two survival models are fit to the identical milestones**:
@@ -470,7 +470,7 @@ the computed results match).
 | `build_ll` / `buildLL` | No-plateau model: fits BAT-median scale `k` and GPS/BAT ratio `r` at fixed β (Section 4.7). |
 | `median(S)` | Bisection median of a survival function (`∞`/"NR" if never below 0.5 within 900 mo). |
 | `mc(M, nsim)` | Monte-Carlo trial: enrollment → per-arm death draws → censor at the 80th event → **log-rank/Cox score test**; returns P(significant), 80th-event-reached fraction, median HR (Section 4.5). |
-| `figure()` / `render` + `chart` | 3-panel figure (py) / live SVG chart and metrics panel (html). |
+| `figure()` / `render` + `chart*` | 8-panel figure (py, 3×3 grid) / live SVG charts and metrics panel (html): `chart` (survival), `chartAccrual`, `chartHist`, `chartDiverge`, `chartEnroll`, `chartPower`. |
 
 ---
 

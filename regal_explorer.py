@@ -24,6 +24,10 @@ DPM = 30.4375
 BASE = date(2020, 9, 1)
 mo = lambda y, m, d: (date(y, m, d) - BASE).days / DPM          # mfb() in the html
 
+def _to_date(t):
+    """Month-from-BASE -> calendar date (e.g. for the accrual-timeline x-axis)."""
+    return BASE + timedelta(days=t * DPM)
+
 Acoef = lambda cure: -np.log((0.5 - cure) / (1 - cure))          # S(med)=0.5 coefficient
 lam   = lambda med, cure, k: med / Acoef(cure) ** (1.0 / k)       # Weibull scale
 def Sc(t, med, cure, k, L):                                       # cure-mixture Weibull, time x L
@@ -128,7 +132,7 @@ def med_enroll(coh):
     return coh[min(i, len(coh) - 1), 0]
 
 def month_label(m):
-    return (BASE + timedelta(days=m * DPM)).strftime("%b %Y")
+    return _to_date(m).strftime("%b %Y")
 
 def cum_enroll(coh, y, m, d=28):
     """Cumulative patients enrolled by a calendar date (for the sourced PR anchors)."""
@@ -172,9 +176,9 @@ def build_cure(cfg):
     Sb = lambda t: Sbat(t, L) * Snat(t, h)
     Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t, L)) + fnr * Sc(t, obs["med"], obs["cure"], obs["k"], L)) * Snat(t, h)
     Sp = lambda t: Spool(t, presp, L) * Snat(t, h)
-    return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS,
+    return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
                 presp=presp, L=L, h=h, pibat=pibat, pgps=pgps, obs=obs,
-                Sbat=Sb, Sgps=Sg, Spool=Sp,
+                Sbat=Sb, Sgps=Sg, Spool=Sp, Lmin=Lmin, Lmax=Lmax, ed_raw=ed,
                 batMed=median(Sb), batMedRaw=median(lambda t: Sbat(t, 1.0) * Snat(t, h)),
                 gpsMed=median(Sg), poolMed=median(Sp),
                 poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp, L))
@@ -210,8 +214,8 @@ def build_ll(cfg):
     Sb = lambda t: Sll(t, mB, beta) * Snat(t, h)
     Sg = lambda t: ((1 - fnr) * Sll(t, r * mB, beta) + fnr * Sll(t, k * mObs, beta)) * Snat(t, h)
     Sp = lambda t: 0.5 * Sb(t) + 0.5 * Sg(t)
-    return dict(kind="ll", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS,
-                beta=beta, k=k, r=r, mB=mB, h=h, mObs=k * mObs,
+    return dict(kind="ll", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
+                beta=beta, k=k, r=r, mB=mB, h=h, mObs=k * mObs, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
                 batMed=median(Sb), gpsMed=median(Sg), ratio=r, poolMed=median(Sp),
                 ed=lambda t: ed(t, k, r))
@@ -335,6 +339,7 @@ def mc(M, nsim=1500, seed=987654321):
     return dict(ps=(sig / reached if reached else 0.0),
                 reach=reached / nsim,
                 medHR=(hrs[len(hrs) // 2] if hrs else np.nan),
+                hrsAll=np.array(hrs),                          # full final-HR distribution (for the histogram)
                 medHR_IA=medHR_IA, futHR=futHR, futOK=bool(medHR_IA <= futHR),
                 aliveG=(aliveG / reached if reached else np.nan),
                 aliveB=(aliveB / reached if reached else np.nan))
@@ -342,15 +347,30 @@ def mc(M, nsim=1500, seed=987654321):
 # ---------------------------------------------------------------- figure
 NAVY = "#0b2545"; RED = "#9e2b25"; TEAL = "#197278"; GREY = "#6b6f72"; ORANGE = "#e8910b"
 
+def proj_cross(ed_fn, target, t0, t1):
+    """First month-from-BASE where cumulative events ed_fn(t) reaches target, or None if it never does
+    within [t0,t1] (a plateau curve can asymptote below the trigger -> the 80th event stalls)."""
+    if ed_fn(t1) < target:
+        return None
+    lo, hi = t0, t1
+    for _ in range(50):
+        m = 0.5 * (lo + hi)
+        if ed_fn(m) < target: lo = m
+        else: hi = m
+    return 0.5 * (lo + hi)
+
 def figure(path, nsim=1500):
     plt.rcParams.update({"font.size": 9, "axes.grid": True, "grid.alpha": .25,
                          "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 140})
-    fig, ax = plt.subplots(1, 3, figsize=(16.5, 5.2)); tg = np.linspace(0, 48, 300)
+    fig, ax = plt.subplots(3, 3, figsize=(16.5, 15.4)); tg = np.linspace(0, 48, 300)
+
+    # base preset is reused by (a),(d),(e),(f); fit both shapes once
+    cfg = apply_preset(default_cfg(), "base")
+    Mc = build_cure(cfg); Ml = build_ll(cfg)
+    rc = mc(Mc, nsim); rl = mc(Ml, nsim)
 
     # (a) survival curves for the base preset, plateau (cure) shape
-    cfg = apply_preset(default_cfg(), "base")
-    Mc = build_cure(cfg)
-    a = ax[0]
+    a = ax[0, 0]
     a.plot(tg, 100 * Mc["Sbat"](tg), color=RED, lw=2.4, label=f"BAT (cure {100*Mc['pibat']:.0f}%)")
     a.plot(tg, 100 * Mc["Sgps"](tg), color=NAVY, lw=2.4, label=f"GPS (cure {100*Mc['pgps']:.0f}%)")
     a.plot(tg, 100 * Mc["Spool"](tg), color="#111", lw=1.6, ls="--", alpha=.75, label="Pooled (blinded)")
@@ -368,7 +388,7 @@ def figure(path, nsim=1500):
         c = apply_preset(default_cfg(fnr=f / 100.0), "base")
         pc.append(100 * mc(build_cure(c), nsim)["ps"])
         pll.append(100 * mc(build_ll(c), nsim)["ps"])
-    b = ax[1]
+    b = ax[0, 1]
     b.plot(fr, pc, color=NAVY, lw=2.4, marker="o", label="Plateau (cure-mixture)")
     b.plot(fr, pll, color=ORANGE, lw=2.2, ls="-.", marker="s", label="No-plateau (log-logistic)")
     b.axhline(50, color=GREY, ls=":", lw=1)
@@ -383,7 +403,7 @@ def figure(path, nsim=1500):
         c = apply_preset(default_cfg(), nm)
         gc.append(100 * mc(build_cure(c), nsim)["ps"])
         gl.append(100 * mc(build_ll(c), nsim)["ps"])
-    c = ax[2]; x = np.arange(len(names))
+    c = ax[0, 2]; x = np.arange(len(names))
     c.bar(x - 0.19, gc, 0.36, color=NAVY, label="Plateau")
     c.bar(x + 0.19, gl, 0.36, color=ORANGE, label="No-plateau")
     c.set_xticks(x); c.set_xticklabels(labels); c.set_ylim(0, 103)
@@ -391,9 +411,116 @@ def figure(path, nsim=1500):
     c.set_title("(c) The plateau-vs-tail gap is the irreducible uncertainty",
                 fontweight="bold", fontsize=9); c.legend(fontsize=7.6)
 
+    # (d) event-accrual timeline — modeled cumulative deaths vs calendar, milestone anchors, 80-event trigger
+    d = ax[1, 0]; N, FINAL = cfg["N"], cfg["FINAL"]
+    t0 = float(Mc["coh"][0, 0]); t1 = 90.0
+    ts = np.linspace(t0, t1, 220); dts = [_to_date(t) for t in ts]
+    edc = np.array([Mc["ed"](t) for t in ts]); edl = np.array([Ml["ed"](t) for t in ts])
+    d.plot(dts, edc, color=NAVY, lw=2.2, label="Plateau accrual")
+    d.plot(dts, edl, color=ORANGE, lw=2.0, ls="-.", label="No-plateau accrual")
+    d.scatter([_to_date(t) for t in Mc["MT"]], Mc["MOBS"], color=RED, s=34, zorder=5,
+              label="Blinded milestones (60/72/78)")
+    d.axhline(FINAL, color=RED, ls="--", lw=1, alpha=.6)
+    d.text(dts[2], FINAL + 1.5, f"{FINAL}-event trigger", color=RED, fontsize=7.5)
+    for ed_fn, col in [(Mc["ed"], NAVY), (Ml["ed"], ORANGE)]:
+        tc = proj_cross(ed_fn, FINAL, float(Mc["MT"][-1]), t1)
+        if tc is not None:
+            d.axvline(_to_date(tc), color=col, ls=":", lw=1, alpha=.65)
+            d.text(_to_date(tc), 6, _to_date(tc).strftime("%b %Y"), color=col,
+                   fontsize=7, rotation=90, va="bottom", ha="right")
+    d.set_ylim(0, max(95.0, float(edc.max()), float(edl.max())) * 1.03); d.set_ylabel("cumulative deaths")
+    d.set_title("(d) When does the 80th event fire? Plateau accrual can stall",
+                fontweight="bold", fontsize=9)
+    d.legend(fontsize=7.2, loc="lower right")
+    for lab in d.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
+
+    # (e) distribution of simulated final HRs — P(success) is the mass left of the threshold
+    e = ax[1, 1]; HRC = cfg["HRC"]
+    bins = np.linspace(0.0, 1.6, 41)
+    hc = rc["hrsAll"]; hl = rl["hrsAll"]
+    hc = np.clip(hc[np.isfinite(hc)], 0, 1.59); hl = np.clip(hl[np.isfinite(hl)], 0, 1.59)
+    e.hist(hc, bins=bins, density=True, color=NAVY, alpha=.55, label=f"Plateau  (P={100*rc['ps']:.0f}%)")
+    e.hist(hl, bins=bins, density=True, color=ORANGE, alpha=.45, label=f"No-plateau  (P={100*rl['ps']:.0f}%)")
+    e.axvspan(0, HRC, color=TEAL, alpha=.07)
+    e.axvline(HRC, color=RED, lw=1.4, ls="--")
+    e.axvline(1.0, color=GREY, lw=1, ls=":")
+    ytop = e.get_ylim()[1]
+    e.text(HRC - 0.02, ytop * 0.92, f"significant\nHR ≤ {HRC:.3f}", color=RED, fontsize=7.2, ha="right", va="top")
+    e.set_xlim(0, 1.6); e.set_xlabel("simulated final hazard ratio (GPS / BAT)"); e.set_ylabel("density")
+    e.set_title("(e) Each trial's HR is a draw; success = mass below the line",
+                fontweight="bold", fontsize=9); e.legend(fontsize=7.2, loc="upper right")
+
+    # (f) plateau-vs-tail divergence — both pooled curves agree at the milestones, fan apart in the tail
+    f = ax[1, 2]
+    sc = 100 * Mc["Spool"](tg); sl = 100 * Ml["Spool"](tg)
+    f.fill_between(tg, sc, sl, color=GREY, alpha=.18, label="shape disagreement")
+    f.plot(tg, sc, color=NAVY, lw=2.2, label="Plateau pooled")
+    f.plot(tg, sl, color=ORANGE, lw=2.0, ls="-.", label="No-plateau pooled")
+    for ev in cfg["ev"]:                                       # event-fraction levels both shapes are pinned to
+        f.axhline(100 * (1 - ev["n"] / N), color=RED, ls=":", lw=.9, alpha=.5)
+    f.set_xlim(0, 48); f.set_ylim(0, 101)
+    f.set_xlabel("months from randomization"); f.set_ylabel("% alive (pooled)")
+    f.set_title("(f) Both shapes pinned at the milestones; the gap is irreducible",
+                fontweight="bold", fontsize=9); f.legend(fontsize=7.2, loc="upper right")
+
+    # (g) enrollment validation — modeled cumulative enrollment vs the sourced public anchors
+    gx = ax[2, 0]; coh = Mc["coh"]; N = cfg["N"]
+    cdate = [_to_date(t) for t in coh[:, 0]]; cum = np.cumsum(coh[:, 1])
+    gx.plot(cdate, cum, color=TEAL, lw=2.4, label="modeled cumulative enrollment")
+    me = med_enroll(coh)
+    gx.axvline(_to_date(me), color=GREY, ls=":", lw=1)
+    gx.text(_to_date(me), 4, f"median {month_label(me)}", color=GREY, fontsize=7.5,
+            rotation=90, va="bottom", ha="right")
+    anchors = [(2022, 4, 20), (2023, 11, 104), (2024, 4, 126)]      # sourced PR cumulative counts
+    gx.scatter([_to_date(mo(y, m, 28)) for (y, m, _) in anchors], [n for (_, _, n) in anchors],
+               color=RED, s=42, zorder=5, label="sourced PR anchors (~20/104/126)")
+    gx.set_ylabel("patients enrolled"); gx.set_ylim(0, N * 1.05)
+    gx.set_title("(g) Modeled enrollment tracks the sourced public milestones",
+                 fontweight="bold", fontsize=9); gx.legend(fontsize=7.2, loc="lower right")
+    for lab in gx.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
+
+    # (h) P(success) as a power curve vs the implied treatment effect; shaded = the effect the data allow
+    hx = ax[2, 1]; nsim_h = max(250, nsim // 3)
+
+    def power_sweep(M, key, vals, fixed):
+        """Sweep one effect knob (presp for plateau, r for no-plateau); return implied HR, P(success),
+        and milestone misfit at each point. The pooled curve is only data-consistent near the fit."""
+        base = M[key]; hr, ps, E = [], [], []
+        for v in vals:
+            M[key] = v; r = mc(M, nsim_h)
+            hr.append(r["medHR"]); ps.append(100 * r["ps"])
+            E.append(sum(M["WT"][k] * (M["ed_raw"](M["MT"][k], *fixed(v)) - M["MOBS"][k]) ** 2 for k in range(3)))
+        M[key] = base
+        hr, ps, E = np.array(hr), np.array(ps), np.array(E)
+        m = np.isfinite(hr) & np.isfinite(ps); hr, ps, E = hr[m], ps[m], E[m]
+        o = np.argsort(hr); return hr[o], ps[o], E[o]
+
+    p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13), lambda pv: (pv, Mc["L"]))
+    l_hr, l_ps, l_E = power_sweep(Ml, "r", np.linspace(1.0, 7.0, 13), lambda rv: (Ml["k"], rv))
+
+    def band(hr, E):                                            # HR span of the data-consistent (low-misfit) points
+        if not len(E): return None
+        ok = hr[E <= E.min() + 0.08 * (E.max() - E.min())]
+        return (float(ok.min()), float(ok.max())) if len(ok) else None
+    for hr, E, col in [(p_hr, p_E, NAVY), (l_hr, l_E, ORANGE)]:
+        bd = band(hr, E)
+        if bd: hx.axvspan(bd[0], bd[1], color=col, alpha=.10)
+    hx.plot(p_hr, p_ps, color=NAVY, lw=2.4, marker="o", ms=3, label="Plateau")
+    hx.plot(l_hr, l_ps, color=ORANGE, lw=2.2, ls="-.", marker="s", ms=3, label="No-plateau")
+    hx.scatter([rc["medHR"]], [100 * rc["ps"]], color=NAVY, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
+    hx.scatter([rl["medHR"]], [100 * rl["ps"]], color=ORANGE, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
+    hx.axvline(HRC, color=RED, ls="--", lw=1.2)
+    hx.text(HRC + 0.012, 6, f"success threshold HR={HRC:.3f}", color=RED, fontsize=7, rotation=90, va="bottom")
+    hx.set_xlim(0, 1.15); hx.set_ylim(0, 103)
+    hx.set_xlabel("implied trial hazard ratio (GPS / BAT)"); hx.set_ylabel("P(success) %")
+    hx.set_title("(h) P(success) vs effect size; ★ = current fit, shaded = effect the data allow",
+                 fontweight="bold", fontsize=9); hx.legend(fontsize=7.2, loc="lower left")
+
+    ax[2, 2].axis("off")
+
     fig.suptitle("REGAL Scenario Explorer — two survival shapes fit the same blinded milestones; "
                  "their P(success) gap is the 'is the plateau real?' uncertainty.",
-                 fontweight="bold", fontsize=10.5, y=1.02)
+                 fontweight="bold", fontsize=10.5, y=1.01)
     fig.tight_layout(); fig.savefig(path, bbox_inches="tight")
     return path
 
