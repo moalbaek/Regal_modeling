@@ -172,9 +172,9 @@ def build_cure(cfg):
     Sb = lambda t: Sbat(t, L) * Snat(t, h)
     Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t, L)) + fnr * Sc(t, obs["med"], obs["cure"], obs["k"], L)) * Snat(t, h)
     Sp = lambda t: Spool(t, presp, L) * Snat(t, h)
-    return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS,
+    return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
                 presp=presp, L=L, h=h, pibat=pibat, pgps=pgps, obs=obs,
-                Sbat=Sb, Sgps=Sg, Spool=Sp,
+                Sbat=Sb, Sgps=Sg, Spool=Sp, Lmin=Lmin, Lmax=Lmax, ed_raw=ed,
                 batMed=median(Sb), batMedRaw=median(lambda t: Sbat(t, 1.0) * Snat(t, h)),
                 gpsMed=median(Sg), poolMed=median(Sp),
                 poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp, L))
@@ -362,7 +362,7 @@ def proj_cross(ed_fn, target, t0, t1):
 def figure(path, nsim=1500):
     plt.rcParams.update({"font.size": 9, "axes.grid": True, "grid.alpha": .25,
                          "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 140})
-    fig, ax = plt.subplots(2, 3, figsize=(16.5, 10.2)); tg = np.linspace(0, 48, 300)
+    fig, ax = plt.subplots(3, 3, figsize=(16.5, 15.4)); tg = np.linspace(0, 48, 300)
 
     # base preset is reused by (a),(d),(e),(f); fit both shapes once
     cfg = apply_preset(default_cfg(), "base")
@@ -462,6 +462,49 @@ def figure(path, nsim=1500):
     f.set_xlabel("months from randomization"); f.set_ylabel("% alive (pooled)")
     f.set_title("(f) Both shapes pinned at the milestones; the gap is irreducible",
                 fontweight="bold", fontsize=9); f.legend(fontsize=7.2, loc="upper right")
+
+    # (g) enrollment validation — modeled cumulative enrollment vs the sourced public anchors
+    gx = ax[2, 0]; coh = Mc["coh"]; N = cfg["N"]
+    cdate = [_to_date(t) for t in coh[:, 0]]; cum = np.cumsum(coh[:, 1])
+    gx.plot(cdate, cum, color=TEAL, lw=2.4, label="modeled cumulative enrollment")
+    me = med_enroll(coh)
+    gx.axvline(_to_date(me), color=GREY, ls=":", lw=1)
+    gx.text(_to_date(me), 4, f"median {month_label(me)}", color=GREY, fontsize=7.5,
+            rotation=90, va="bottom", ha="right")
+    anchors = [(2022, 4, 20), (2023, 11, 104), (2024, 4, 126)]      # sourced PR cumulative counts
+    gx.scatter([_to_date(mo(y, m, 28)) for (y, m, _) in anchors], [n for (_, _, n) in anchors],
+               color=RED, s=42, zorder=5, label="sourced PR anchors (~20/104/126)")
+    gx.set_ylabel("patients enrolled"); gx.set_ylim(0, N * 1.05)
+    gx.set_title("(g) Modeled enrollment tracks the sourced public milestones",
+                 fontweight="bold", fontsize=9); gx.legend(fontsize=7.2, loc="lower right")
+    for lab in gx.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
+
+    # (h) P(success) across the two free fit parameters (cure shape); star = data-consistent fit
+    hx = ax[2, 1]
+    pr_vals = np.linspace(0.0, 0.95, 9); L_vals = np.linspace(Mc["Lmin"], Mc["Lmax"], 7)
+    nsim_h = max(250, nsim // 3)                                # lighter MC per cell — a smooth surface needs less
+    b_pr, b_L = Mc["presp"], Mc["L"]
+    Z = np.zeros((len(L_vals), len(pr_vals))); E = np.zeros_like(Z)
+    WT = Mc["WT"]
+    for i, Lv in enumerate(L_vals):
+        for j, pv in enumerate(pr_vals):
+            Mc["presp"], Mc["L"] = pv, Lv
+            Z[i, j] = 100 * mc(Mc, nsim_h)["ps"]
+            E[i, j] = sum(WT[k] * (Mc["ed_raw"](Mc["MT"][k], pv, Lv) - Mc["MOBS"][k]) ** 2 for k in range(3))
+    Mc["presp"], Mc["L"] = b_pr, b_L
+    im = hx.pcolormesh(pr_vals, L_vals, Z, cmap="viridis", vmin=0, vmax=100, shading="auto")
+    erange = float(E.max() - E.min())                          # data-consistent valley, relative to misfit range
+    hx.contour(pr_vals, L_vals, E, levels=[E.min() + 0.05 * erange, E.min() + 0.2 * erange],
+               colors="white", linewidths=[1.6, 0.9], alpha=.85)
+    hx.plot([b_pr], [b_L], marker="*", color="#fff", markersize=16, markeredgecolor="#111",
+            lw=0, label="fitted (data-consistent)")
+    hx.set_xlabel("GPS responder cure fraction"); hx.set_ylabel("survival calibration L")
+    hx.set_title("(h) P(success) across the arm split; white ridge = data-consistent fits",
+                 fontweight="bold", fontsize=9)
+    cb = fig.colorbar(im, ax=hx, fraction=.046, pad=.04); cb.set_label("P(success) %", fontsize=8)
+    hx.legend(fontsize=7, loc="lower right")
+
+    ax[2, 2].axis("off")
 
     fig.suptitle("REGAL Scenario Explorer — two survival shapes fit the same blinded milestones; "
                  "their P(success) gap is the 'is the plateau real?' uncertainty.",

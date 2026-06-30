@@ -206,6 +206,19 @@
         <span><i style="background:#6b6f72;opacity:.4"></i>irreducible shape gap</span>
         <span><i style="background:#e8910b"></i>event-fraction levels</span>
       </div>
+      <div class="subhead">Enrollment validation <span class="note">modeled cumulative enrollment vs the sourced public PR counts (~20/104/126)</span></div>
+      <div id="chartEnroll"></div>
+      <div class="legend">
+        <span><i style="background:#197278"></i>modeled enrollment</span>
+        <span><i style="background:#9e2b25;border-radius:50%;width:8px;height:8px"></i>sourced PR anchors</span>
+      </div>
+      <div class="subhead">P(success) across the arm split <span class="note">the blinded data pin a ridge of splits (white-outlined cells); the star is the current fit</span></div>
+      <div id="chartHeat"></div>
+      <div class="legend">
+        <span><i style="background:#440154;width:10px;height:10px"></i>low&nbsp;→&nbsp;<i style="background:#fde725;width:10px;height:10px"></i>high P(success)</span>
+        <span><i style="background:#fff;border:1px solid #999;border-radius:50%;width:8px;height:8px"></i>current fit</span>
+        <span><i style="background:#fff;border:1px solid #999"></i>data-consistent ridge</span>
+      </div>
     </div>
   </section>
 </div>
@@ -286,7 +299,7 @@ function buildCure(cfg){
   const[presp,L]=best, pgps=(1-fnr)*presp+fnr*obs.cure;
   // returned curves are all-cause (disease × background mortality).
   const Sb=t=>Sbat(t,L)*Snat(t,h), Sg=t=>((1-fnr)*(presp+(1-presp)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L))*Snat(t,h), Sp=t=>Spool(t,presp,L)*Snat(t,h);
-  return {kind:"cure",cfg,w,cm,coh,MT,MOBS,presp,L,h,pibat,pgps,obs,
+  return {kind:"cure",cfg,w,cm,coh,MT,MOBS,presp,L,h,pibat,pgps,obs,Lmin,Lmax,edRaw:ed,
     Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),batMedRaw:median(t=>Sbat(t,1)*Snat(t,h)),gpsMed:median(Sg),poolMed:median(Sp),
     poolCure:0.5*(pibat+pgps),ed:t=>ed(t,presp,L)};
 }
@@ -302,7 +315,7 @@ function buildLL(cfg){
   for(let it=0;it<3;it++){const[k0,r0]=best,st=.04/(it+1);for(let dk=-3;dk<=3;dk++)for(let dr=-3;dr<=3;dr++){const k=Math.max(.4,k0+dk*st*2),r=Math.max(1,r0+dr*st*4);let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],k,r)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[k,r];}}}
   const[k,r]=best, mB=k*mC;
   const Sb=t=>Sll(t,mB,beta)*Snat(t,h), Sg=t=>((1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta))*Snat(t,h), Sp=t=>0.5*Sb(t)+0.5*Sg(t);
-  return {kind:"ll",cfg,w,cm,coh,MT,MOBS,beta,k,r,mB,h,mObs:k*mObs,
+  return {kind:"ll",cfg,w,cm,coh,MT,MOBS,beta,k,r,mB,h,mObs:k*mObs,edRaw:ed,
     Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),gpsMed:median(Sg),ratio:r,poolMed:median(Sp),ed:t=>ed(t,k,r)};
 }
 // ---------- shared Monte-Carlo ----------
@@ -432,6 +445,65 @@ function chartDiverge(Mc,Ml,cfg){
   document.getElementById("chartDiverge").innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}${band}${refs}${curves}<text x="${pl-30}" y="${pt-2}" font-size="10" fill="#9aa0a6">% alive</text><text x="${W-pr}" y="${H-2}" text-anchor="end" font-size="10" fill="#9aa0a6">months from randomization</text></svg>`;
 }
 const M_uniq=a=>[...new Set(a)];
+// ---------- (g) enrollment validation ----------
+function chartEnroll(M,cfg){
+  const W=600,H=230,pl=40,pr=14,pt=12,pb=34,iw=W-pl-pr,ih=H-pt-pb;
+  const coh=M.coh, N=cfg.N, t0=coh[0][0], t1=Math.max(coh[coh.length-1][0],mfb(2024,5,1)), ymax=N*1.05;
+  let cum=[],c=0; for(const x of coh){c+=x[1];cum.push(c);}
+  const X=t=>pl+(t-t0)/(t1-t0)*iw, Y=v=>pt+(1-v/ymax)*ih;
+  let g="";
+  for(let v=0;v<=N;v+=Math.max(20,Math.round(N/5/10)*10)){const y=Y(v);g+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="#eef1f4"/><text x="${pl-6}" y="${y+3}" text-anchor="end" font-size="10" fill="#9aa0a6">${v}</text>`;}
+  for(let t=Math.ceil(t0/12)*12;t<=t1;t+=12){const x=X(t);g+=`<line x1="${x}" y1="${pt}" x2="${x}" y2="${H-pb}" stroke="#f3f5f7"/><text x="${x}" y="${H-pb+14}" text-anchor="middle" font-size="8.5" fill="#9aa0a6">${monthLabel(t)}</text>`;}
+  const me=medEnroll(coh);
+  let refs=`<line x1="${X(me)}" y1="${pt}" x2="${X(me)}" y2="${H-pb}" stroke="#6b6f72" stroke-dasharray="2 3" opacity=".6"/><text x="${X(me)-3}" y="${H-pb-4}" text-anchor="start" font-size="8" fill="#6b6f72" transform="rotate(-90 ${X(me)-3} ${H-pb-4})">median ${monthLabel(me)}</text>`;
+  const curve=`<path d="${coh.map((x,i)=>(i===0?"M":"L")+X(x[0]).toFixed(1)+" "+Y(cum[i]).toFixed(1)).join(" ")}" fill="none" stroke="#197278" stroke-width="2.4"/>`;
+  const anchors=[[2022,4,20],[2023,11,104],[2024,4,126]];
+  const pts=anchors.map(([y,m,n])=>`<circle cx="${X(mfb(y,m,28))}" cy="${Y(n)}" r="4" fill="#9e2b25" stroke="#fff" stroke-width="1.3"/>`).join("");
+  document.getElementById("chartEnroll").innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}${refs}${curve}${pts}<text x="${pl-34}" y="${pt-2}" font-size="10" fill="#9aa0a6">enrolled</text></svg>`;
+}
+// ---------- (h) P(success) across the two free fit parameters ----------
+const viridis=v=>{const s=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];const t=Math.max(0,Math.min(1,v))*(s.length-1),i=Math.min(s.length-2,Math.floor(t)),f=t-i,a=s[i],b=s[i+1];return `rgb(${Math.round(a[0]+(b[0]-a[0])*f)},${Math.round(a[1]+(b[1]-a[1])*f)},${Math.round(a[2]+(b[2]-a[2])*f)})`;};
+function chartHeat(M,cfg){
+  const W=600,H=300,pl=46,pr=64,pt=14,pb=40,iw=W-pl-pr,ih=H-pt-pb,nx=9,ny=7;
+  const cure=M.kind==="cure";
+  let xs,ys,xlab,ylab,setp,bx,by;
+  if(cure){const Lmin=M.Lmin,Lmax=M.Lmax;
+    xs=Array.from({length:nx},(_,i)=>i/(nx-1)*0.95); ys=Array.from({length:ny},(_,i)=>Lmin+i/(ny-1)*(Lmax-Lmin));
+    xlab="GPS responder cure fraction"; ylab="survival calibration L"; setp=(Mg,x,y)=>{Mg.presp=x;Mg.L=y;}; bx=M.presp; by=M.L;
+  } else {const mC=M.mB/M.k, mObsB=M.mObs/M.k;
+    xs=Array.from({length:nx},(_,i)=>0.6+i/(nx-1)*2.6); ys=Array.from({length:ny},(_,i)=>1+i/(ny-1)*6);
+    xlab="BAT median multiplier k"; ylab="GPS/BAT median ratio r"; setp=(Mg,x,y)=>{Mg.mB=x*mC;Mg.mObs=x*mObsB;Mg.r=y;}; bx=M.k; by=M.r;
+  }
+  const WT=cfg.unweighted?[1,1,1]:[1,2,4], nsimH=120;
+  const Z=[],E=[]; let emin=1e18,emax=0;
+  for(let i=0;i<ny;i++){Z.push([]);E.push([]);for(let j=0;j<nx;j++){
+    const Mg=Object.assign({},M); setp(Mg,xs[j],ys[i]); Z[i][j]=mc(Mg,nsimH).ps;
+    let e=0;for(let k=0;k<3;k++){const d=M.edRaw(M.MT[k],xs[j],ys[i])-M.MOBS[k];e+=WT[k]*d*d;} E[i][j]=e; if(e<emin)emin=e; if(e>emax)emax=e;
+  }}
+  const eridge=emin+0.08*(emax-emin);   // data-consistent valley, relative to the misfit range
+  const cw=iw/nx, chh=ih/ny;
+  const Xc=j=>pl+j*cw, Yc=i=>pt+(ny-1-i)*chh;
+  const vx=x=>pl+cw/2+(x-xs[0])/(xs[nx-1]-xs[0])*(iw-cw);
+  const vy=y=>pt+ih-(chh/2+(y-ys[0])/(ys[ny-1]-ys[0])*(ih-chh));
+  let cells="";
+  for(let i=0;i<ny;i++)for(let j=0;j<nx;j++){const ridge=E[i][j]<=eridge;
+    cells+=`<rect x="${Xc(j).toFixed(1)}" y="${Yc(i).toFixed(1)}" width="${(cw+0.5).toFixed(1)}" height="${(chh+0.5).toFixed(1)}" fill="${viridis(Z[i][j])}" ${ridge?'stroke="#fff" stroke-width="1.4"':''}/>`;}
+  // axis ticks (x: 3, y: 3)
+  let ax="";
+  for(let q=0;q<3;q++){const x=xs[0]+(xs[nx-1]-xs[0])*q/2; ax+=`<text x="${vx(x)}" y="${H-pb+15}" text-anchor="middle" font-size="9" fill="#9aa0a6">${x.toFixed(2)}</text>`;}
+  for(let q=0;q<3;q++){const y=ys[0]+(ys[ny-1]-ys[0])*q/2; ax+=`<text x="${pl-6}" y="${vy(y)+3}" text-anchor="end" font-size="9" fill="#9aa0a6">${y.toFixed(2)}</text>`;}
+  ax+=`<text x="${pl+iw/2}" y="${H-4}" text-anchor="middle" font-size="10" fill="#9aa0a6">${xlab}</text>`;
+  ax+=`<text x="13" y="${pt+ih/2}" text-anchor="middle" font-size="10" fill="#9aa0a6" transform="rotate(-90 13 ${pt+ih/2})">${ylab}</text>`;
+  const star=`<circle cx="${vx(bx).toFixed(1)}" cy="${vy(by).toFixed(1)}" r="5.2" fill="#fff" stroke="#111" stroke-width="1.6"/>`;
+  // colorbar
+  let cb=""; const cbx=W-pr+14, cbw=12, cbtop=pt, cbh=ih, ns=24;
+  for(let s=0;s<ns;s++){const yy=cbtop+cbh*(1-(s+1)/ns); cb+=`<rect x="${cbx}" y="${yy.toFixed(1)}" width="${cbw}" height="${(cbh/ns+0.6).toFixed(1)}" fill="${viridis(s/(ns-1))}"/>`;}
+  cb+=`<text x="${cbx+cbw+2}" y="${cbtop+4}" font-size="8.5" fill="#9aa0a6">100%</text><text x="${cbx+cbw+2}" y="${cbtop+cbh}" font-size="8.5" fill="#9aa0a6">0%</text>`;
+  document.getElementById("chartHeat").innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${cells}${ax}${star}${cb}</svg>`;
+}
+// heatmap is the only mc-heavy chart; debounce it off the main render so slider drags stay snappy
+let heatTimer=null;
+function scheduleHeat(M,cfg){ if(heatTimer)clearTimeout(heatTimer); heatTimer=setTimeout(()=>chartHeat(M,cfg),220); }
 
 // ---------- render ----------
 const $=id=>document.getElementById(id);
@@ -512,6 +584,8 @@ function render(){
   chartAccrual(Mc,Ml,cfg);   // (d) event-accrual timeline
   chartHist(rc,rl,cfg);      // (e) distribution of simulated final HRs
   chartDiverge(Mc,Ml,cfg);   // (f) plateau-vs-tail divergence band
+  chartEnroll(Mc,cfg);       // (g) enrollment validation
+  scheduleHeat(M,cfg);       // (h) P(success) across the split (debounced; follows the mode toggle)
 }
 const metric=(k,v)=>`<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
