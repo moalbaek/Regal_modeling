@@ -24,6 +24,10 @@ DPM = 30.4375
 BASE = date(2020, 9, 1)
 mo = lambda y, m, d: (date(y, m, d) - BASE).days / DPM          # mfb() in the html
 
+def _to_date(t):
+    """Month-from-BASE -> calendar date (e.g. for the accrual-timeline x-axis)."""
+    return BASE + timedelta(days=t * DPM)
+
 Acoef = lambda cure: -np.log((0.5 - cure) / (1 - cure))          # S(med)=0.5 coefficient
 lam   = lambda med, cure, k: med / Acoef(cure) ** (1.0 / k)       # Weibull scale
 def Sc(t, med, cure, k, L):                                       # cure-mixture Weibull, time x L
@@ -128,7 +132,7 @@ def med_enroll(coh):
     return coh[min(i, len(coh) - 1), 0]
 
 def month_label(m):
-    return (BASE + timedelta(days=m * DPM)).strftime("%b %Y")
+    return _to_date(m).strftime("%b %Y")
 
 def cum_enroll(coh, y, m, d=28):
     """Cumulative patients enrolled by a calendar date (for the sourced PR anchors)."""
@@ -343,10 +347,6 @@ def mc(M, nsim=1500, seed=987654321):
 # ---------------------------------------------------------------- figure
 NAVY = "#0b2545"; RED = "#9e2b25"; TEAL = "#197278"; GREY = "#6b6f72"; ORANGE = "#e8910b"
 
-def _to_date(t):
-    """Month-from-BASE -> calendar date (for the accrual-timeline x-axis)."""
-    return BASE + timedelta(days=t * DPM)
-
 def proj_cross(ed_fn, target, t0, t1):
     """First month-from-BASE where cumulative events ed_fn(t) reaches target, or None if it never does
     within [t0,t1] (a plateau curve can asymptote below the trigger -> the 80th event stalls)."""
@@ -428,7 +428,7 @@ def figure(path, nsim=1500):
             d.axvline(_to_date(tc), color=col, ls=":", lw=1, alpha=.65)
             d.text(_to_date(tc), 6, _to_date(tc).strftime("%b %Y"), color=col,
                    fontsize=7, rotation=90, va="bottom", ha="right")
-    d.set_ylim(0, max(95, N * 0.78)); d.set_ylabel("cumulative deaths")
+    d.set_ylim(0, max(95.0, float(edc.max()), float(edl.max())) * 1.03); d.set_ylabel("cumulative deaths")
     d.set_title("(d) When does the 80th event fire? Plateau accrual can stall",
                 fontweight="bold", fontsize=9)
     d.legend(fontsize=7.2, loc="lower right")

@@ -402,7 +402,7 @@ function projCross(edFn,target,t0,t1){
 // ---------- (d) event-accrual timeline ----------
 function chartAccrual(Mc,Ml,cfg){
   const W=600,H=250,pl=40,pr=14,pt=12,pb=34,iw=W-pl-pr,ih=H-pt-pb;
-  const N=cfg.N, FINAL=cfg.FINAL, t0=Mc.coh[0][0], t1=90, ymax=Math.max(95,N*0.78);
+  const N=cfg.N, FINAL=cfg.FINAL, t0=Mc.coh[0][0], t1=90, ymax=Math.max(95,Mc.ed(t1),Ml.ed(t1))*1.03;
   const X=t=>pl+(t-t0)/(t1-t0)*iw, Y=v=>pt+(1-v/ymax)*ih;
   const pathFn=fn=>{let d="";for(let i=0;i<=120;i++){const t=t0+(t1-t0)*i/120;d+=(i===0?"M":"L")+X(t).toFixed(1)+" "+Y(fn(t)).toFixed(1)+" ";}return d;};
   let g="";
