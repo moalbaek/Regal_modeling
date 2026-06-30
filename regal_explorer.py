@@ -210,8 +210,8 @@ def build_ll(cfg):
     Sb = lambda t: Sll(t, mB, beta) * Snat(t, h)
     Sg = lambda t: ((1 - fnr) * Sll(t, r * mB, beta) + fnr * Sll(t, k * mObs, beta)) * Snat(t, h)
     Sp = lambda t: 0.5 * Sb(t) + 0.5 * Sg(t)
-    return dict(kind="ll", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS,
-                beta=beta, k=k, r=r, mB=mB, h=h, mObs=k * mObs,
+    return dict(kind="ll", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
+                beta=beta, k=k, r=r, mB=mB, h=h, mObs=k * mObs, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
                 batMed=median(Sb), gpsMed=median(Sg), ratio=r, poolMed=median(Sp),
                 ed=lambda t: ed(t, k, r))
@@ -479,30 +479,42 @@ def figure(path, nsim=1500):
                  fontweight="bold", fontsize=9); gx.legend(fontsize=7.2, loc="lower right")
     for lab in gx.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
 
-    # (h) P(success) across the two free fit parameters (cure shape); star = data-consistent fit
-    hx = ax[2, 1]
-    pr_vals = np.linspace(0.0, 0.95, 9); L_vals = np.linspace(Mc["Lmin"], Mc["Lmax"], 7)
-    nsim_h = max(250, nsim // 3)                                # lighter MC per cell — a smooth surface needs less
-    b_pr, b_L = Mc["presp"], Mc["L"]
-    Z = np.zeros((len(L_vals), len(pr_vals))); E = np.zeros_like(Z)
-    WT = Mc["WT"]
-    for i, Lv in enumerate(L_vals):
-        for j, pv in enumerate(pr_vals):
-            Mc["presp"], Mc["L"] = pv, Lv
-            Z[i, j] = 100 * mc(Mc, nsim_h)["ps"]
-            E[i, j] = sum(WT[k] * (Mc["ed_raw"](Mc["MT"][k], pv, Lv) - Mc["MOBS"][k]) ** 2 for k in range(3))
-    Mc["presp"], Mc["L"] = b_pr, b_L
-    im = hx.pcolormesh(pr_vals, L_vals, Z, cmap="viridis", vmin=0, vmax=100, shading="auto")
-    erange = float(E.max() - E.min())                          # data-consistent valley, relative to misfit range
-    hx.contour(pr_vals, L_vals, E, levels=[E.min() + 0.05 * erange, E.min() + 0.2 * erange],
-               colors="white", linewidths=[1.6, 0.9], alpha=.85)
-    hx.plot([b_pr], [b_L], marker="*", color="#fff", markersize=16, markeredgecolor="#111",
-            lw=0, label="fitted (data-consistent)")
-    hx.set_xlabel("GPS responder cure fraction"); hx.set_ylabel("survival calibration L")
-    hx.set_title("(h) P(success) across the arm split; white ridge = data-consistent fits",
-                 fontweight="bold", fontsize=9)
-    cb = fig.colorbar(im, ax=hx, fraction=.046, pad=.04); cb.set_label("P(success) %", fontsize=8)
-    hx.legend(fontsize=7, loc="lower right")
+    # (h) P(success) as a power curve vs the implied treatment effect; shaded = the effect the data allow
+    hx = ax[2, 1]; nsim_h = max(250, nsim // 3)
+
+    def power_sweep(M, key, vals, fixed):
+        """Sweep one effect knob (presp for plateau, r for no-plateau); return implied HR, P(success),
+        and milestone misfit at each point. The pooled curve is only data-consistent near the fit."""
+        base = M[key]; hr, ps, E = [], [], []
+        for v in vals:
+            M[key] = v; r = mc(M, nsim_h)
+            hr.append(r["medHR"]); ps.append(100 * r["ps"])
+            E.append(sum(M["WT"][k] * (M["ed_raw"](M["MT"][k], *fixed(v)) - M["MOBS"][k]) ** 2 for k in range(3)))
+        M[key] = base
+        hr, ps, E = np.array(hr), np.array(ps), np.array(E)
+        m = np.isfinite(hr) & np.isfinite(ps); hr, ps, E = hr[m], ps[m], E[m]
+        o = np.argsort(hr); return hr[o], ps[o], E[o]
+
+    p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13), lambda pv: (pv, Mc["L"]))
+    l_hr, l_ps, l_E = power_sweep(Ml, "r", np.linspace(1.0, 7.0, 13), lambda rv: (Ml["k"], rv))
+
+    def band(hr, E):                                            # HR span of the data-consistent (low-misfit) points
+        if not len(E): return None
+        ok = hr[E <= E.min() + 0.08 * (E.max() - E.min())]
+        return (float(ok.min()), float(ok.max())) if len(ok) else None
+    for hr, E, col in [(p_hr, p_E, NAVY), (l_hr, l_E, ORANGE)]:
+        bd = band(hr, E)
+        if bd: hx.axvspan(bd[0], bd[1], color=col, alpha=.10)
+    hx.plot(p_hr, p_ps, color=NAVY, lw=2.4, marker="o", ms=3, label="Plateau")
+    hx.plot(l_hr, l_ps, color=ORANGE, lw=2.2, ls="-.", marker="s", ms=3, label="No-plateau")
+    hx.scatter([rc["medHR"]], [100 * rc["ps"]], color=NAVY, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
+    hx.scatter([rl["medHR"]], [100 * rl["ps"]], color=ORANGE, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
+    hx.axvline(HRC, color=RED, ls="--", lw=1.2)
+    hx.text(HRC + 0.012, 6, f"success threshold HR={HRC:.3f}", color=RED, fontsize=7, rotation=90, va="bottom")
+    hx.set_xlim(0, 1.15); hx.set_ylim(0, 103)
+    hx.set_xlabel("implied trial hazard ratio (GPS / BAT)"); hx.set_ylabel("P(success) %")
+    hx.set_title("(h) P(success) vs effect size; ★ = current fit, shaded = effect the data allow",
+                 fontweight="bold", fontsize=9); hx.legend(fontsize=7.2, loc="lower left")
 
     ax[2, 2].axis("off")
 

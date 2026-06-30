@@ -212,12 +212,13 @@
         <span><i style="background:#197278"></i>modeled enrollment</span>
         <span><i style="background:#9e2b25;border-radius:50%;width:8px;height:8px"></i>sourced PR anchors</span>
       </div>
-      <div class="subhead">P(success) across the arm split <span class="note">the blinded data pin a ridge of splits (white-outlined cells); the star is the current fit</span></div>
-      <div id="chartHeat"></div>
+      <div class="subhead">P(success) vs treatment effect <span class="note">how P(success) moves with the true GPS-vs-BAT effect; the shaded band is the effect the blinded data allow, ★ the current fit</span></div>
+      <div id="chartPower"></div>
       <div class="legend">
-        <span><i style="background:#440154;width:10px;height:10px"></i>low&nbsp;→&nbsp;<i style="background:#fde725;width:10px;height:10px"></i>high P(success)</span>
-        <span><i style="background:#fff;border:1px solid #999;border-radius:50%;width:8px;height:8px"></i>current fit</span>
-        <span><i style="background:#fff;border:1px solid #999"></i>data-consistent ridge</span>
+        <span><i style="background:#0b2545"></i>Plateau</span>
+        <span><i style="background:#e8910b"></i>No-plateau</span>
+        <span><i style="background:#9e2b25;opacity:.6"></i>success threshold (HR≤0.636)</span>
+        <span><i style="background:#6b6f72;opacity:.18"></i>effect the data allow</span>
       </div>
     </div>
   </section>
@@ -461,49 +462,40 @@ function chartEnroll(M,cfg){
   const pts=anchors.map(([y,m,n])=>`<circle cx="${X(mfb(y,m,28))}" cy="${Y(n)}" r="4" fill="#9e2b25" stroke="#fff" stroke-width="1.3"/>`).join("");
   document.getElementById("chartEnroll").innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}${refs}${curve}${pts}<text x="${pl-34}" y="${pt-2}" font-size="10" fill="#9aa0a6">enrolled</text></svg>`;
 }
-// ---------- (h) P(success) across the two free fit parameters ----------
-const viridis=v=>{const s=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];const t=Math.max(0,Math.min(1,v))*(s.length-1),i=Math.min(s.length-2,Math.floor(t)),f=t-i,a=s[i],b=s[i+1];return `rgb(${Math.round(a[0]+(b[0]-a[0])*f)},${Math.round(a[1]+(b[1]-a[1])*f)},${Math.round(a[2]+(b[2]-a[2])*f)})`;};
-function chartHeat(M,cfg){
-  const W=600,H=300,pl=46,pr=64,pt=14,pb=40,iw=W-pl-pr,ih=H-pt-pb,nx=9,ny=7;
-  const cure=M.kind==="cure";
-  let xs,ys,xlab,ylab,setp,bx,by;
-  if(cure){const Lmin=M.Lmin,Lmax=M.Lmax;
-    xs=Array.from({length:nx},(_,i)=>i/(nx-1)*0.95); ys=Array.from({length:ny},(_,i)=>Lmin+i/(ny-1)*(Lmax-Lmin));
-    xlab="GPS responder cure fraction"; ylab="survival calibration L"; setp=(Mg,x,y)=>{Mg.presp=x;Mg.L=y;}; bx=M.presp; by=M.L;
-  } else {const mC=M.mB/M.k, mObsB=M.mObs/M.k;
-    xs=Array.from({length:nx},(_,i)=>0.6+i/(nx-1)*2.6); ys=Array.from({length:ny},(_,i)=>1+i/(ny-1)*6);
-    xlab="BAT median multiplier k"; ylab="GPS/BAT median ratio r"; setp=(Mg,x,y)=>{Mg.mB=x*mC;Mg.mObs=x*mObsB;Mg.r=y;}; bx=M.k; by=M.r;
-  }
-  const WT=cfg.unweighted?[1,1,1]:[1,2,4], nsimH=120;
-  const Z=[],E=[]; let emin=1e18,emax=0;
-  for(let i=0;i<ny;i++){Z.push([]);E.push([]);for(let j=0;j<nx;j++){
-    const Mg=Object.assign({},M); setp(Mg,xs[j],ys[i]); Z[i][j]=mc(Mg,nsimH).ps;
-    let e=0;for(let k=0;k<3;k++){const d=M.edRaw(M.MT[k],xs[j],ys[i])-M.MOBS[k];e+=WT[k]*d*d;} E[i][j]=e; if(e<emin)emin=e; if(e>emax)emax=e;
-  }}
-  const eridge=emin+0.08*(emax-emin);   // data-consistent valley, relative to the misfit range
-  const cw=iw/nx, chh=ih/ny;
-  const Xc=j=>pl+j*cw, Yc=i=>pt+(ny-1-i)*chh;
-  const vx=x=>pl+cw/2+(x-xs[0])/(xs[nx-1]-xs[0])*(iw-cw);
-  const vy=y=>pt+ih-(chh/2+(y-ys[0])/(ys[ny-1]-ys[0])*(ih-chh));
-  let cells="";
-  for(let i=0;i<ny;i++)for(let j=0;j<nx;j++){const ridge=E[i][j]<=eridge;
-    cells+=`<rect x="${Xc(j).toFixed(1)}" y="${Yc(i).toFixed(1)}" width="${(cw+0.5).toFixed(1)}" height="${(chh+0.5).toFixed(1)}" fill="${viridis(Z[i][j])}" ${ridge?'stroke="#fff" stroke-width="1.4"':''}/>`;}
-  // axis ticks (x: 3, y: 3)
-  let ax="";
-  for(let q=0;q<3;q++){const x=xs[0]+(xs[nx-1]-xs[0])*q/2; ax+=`<text x="${vx(x)}" y="${H-pb+15}" text-anchor="middle" font-size="9" fill="#9aa0a6">${x.toFixed(2)}</text>`;}
-  for(let q=0;q<3;q++){const y=ys[0]+(ys[ny-1]-ys[0])*q/2; ax+=`<text x="${pl-6}" y="${vy(y)+3}" text-anchor="end" font-size="9" fill="#9aa0a6">${y.toFixed(2)}</text>`;}
-  ax+=`<text x="${pl+iw/2}" y="${H-4}" text-anchor="middle" font-size="10" fill="#9aa0a6">${xlab}</text>`;
-  ax+=`<text x="13" y="${pt+ih/2}" text-anchor="middle" font-size="10" fill="#9aa0a6" transform="rotate(-90 13 ${pt+ih/2})">${ylab}</text>`;
-  const star=`<circle cx="${vx(bx).toFixed(1)}" cy="${vy(by).toFixed(1)}" r="5.2" fill="#fff" stroke="#111" stroke-width="1.6"/>`;
-  // colorbar
-  let cb=""; const cbx=W-pr+14, cbw=12, cbtop=pt, cbh=ih, ns=24;
-  for(let s=0;s<ns;s++){const yy=cbtop+cbh*(1-(s+1)/ns); cb+=`<rect x="${cbx}" y="${yy.toFixed(1)}" width="${cbw}" height="${(cbh/ns+0.6).toFixed(1)}" fill="${viridis(s/(ns-1))}"/>`;}
-  cb+=`<text x="${cbx+cbw+2}" y="${cbtop+4}" font-size="8.5" fill="#9aa0a6">100%</text><text x="${cbx+cbw+2}" y="${cbtop+cbh}" font-size="8.5" fill="#9aa0a6">0%</text>`;
-  document.getElementById("chartHeat").innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${cells}${ax}${star}${cb}</svg>`;
+// ---------- (h) P(success) vs treatment effect (power curve) ----------
+// sweep one effect knob (presp for plateau, r for no-plateau) -> implied HR, P(success), milestone misfit
+function powerSweep(M,key,vals,fixed,nsimH){
+  const WT=M.cfg.unweighted?[1,1,1]:[1,2,4]; const pts=[];
+  for(const v of vals){ const Mg=Object.assign({},M); Mg[key]=v; const r=mc(Mg,nsimH);
+    if(!isFinite(r.medHR)||!isFinite(r.ps)) continue;
+    const f=fixed(v); let e=0; for(let k=0;k<3;k++){const d=M.edRaw(M.MT[k],f[0],f[1])-M.MOBS[k];e+=WT[k]*d*d;}
+    pts.push({hr:r.medHR,ps:100*r.ps,E:e}); }
+  pts.sort((a,b)=>a.hr-b.hr); return pts;
 }
-// heatmap is the only mc-heavy chart; debounce it off the main render so slider drags stay snappy
-let heatTimer=null;
-function scheduleHeat(M,cfg){ if(heatTimer)clearTimeout(heatTimer); heatTimer=setTimeout(()=>chartHeat(M,cfg),220); }
+const lin=(a,b,n)=>Array.from({length:n},(_,i)=>a+(b-a)*i/(n-1));
+function chartPower(Mc,Ml,rc,rl,cfg){
+  const W=600,H=270,pl=44,pr=16,pt=14,pb=38,iw=W-pl-pr,ih=H-pt-pb,xmax=1.15,HRC=cfg.HRC,nsimH=140;
+  const X=hr=>pl+Math.min(hr,xmax)/xmax*iw, Y=ps=>pt+(1-ps/100)*ih;
+  const P=powerSweep(Mc,"presp",lin(0,0.97,13),pv=>[pv,Mc.L],nsimH);
+  const L=powerSweep(Ml,"r",lin(1,7,13),rv=>[Ml.k,rv],nsimH);
+  const band=pts=>{ if(!pts.length) return null; let emin=1e18,emax=0; pts.forEach(p=>{emin=Math.min(emin,p.E);emax=Math.max(emax,p.E);});
+    const ok=pts.filter(p=>p.E<=emin+0.08*(emax-emin)); return ok.length?[ok[0].hr,ok[ok.length-1].hr]:null; };
+  let g="";
+  for(let ps=0;ps<=100;ps+=20){const y=Y(ps);g+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="#eef1f4"/><text x="${pl-6}" y="${y+3}" text-anchor="end" font-size="10" fill="#9aa0a6">${ps}</text>`;}
+  for(let hr=0;hr<=xmax+1e-6;hr+=0.2){const x=X(hr);g+=`<line x1="${x}" y1="${pt}" x2="${x}" y2="${H-pb}" stroke="#f3f5f7"/><text x="${x}" y="${H-pb+14}" text-anchor="middle" font-size="9" fill="#9aa0a6">${hr.toFixed(1)}</text>`;}
+  // data-consistent effect bands
+  let refs=""; [[band(P),"#0b2545"],[band(L),"#e8910b"]].forEach(([bd,col])=>{ if(bd)refs+=`<rect x="${X(bd[0]).toFixed(1)}" y="${pt}" width="${(X(bd[1])-X(bd[0])).toFixed(1)}" height="${ih}" fill="${col}" opacity=".10"/>`;});
+  refs+=`<line x1="${X(HRC)}" y1="${pt}" x2="${X(HRC)}" y2="${H-pb}" stroke="#9e2b25" stroke-dasharray="4 3"/><text x="${X(HRC)-4}" y="${H-pb-4}" text-anchor="start" font-size="8" fill="#9e2b25" transform="rotate(-90 ${X(HRC)-4} ${H-pb-4})">threshold ${HRC.toFixed(3)}</text>`;
+  const line=(pts,col,dash)=>pts.length?`<path d="${pts.map((p,i)=>(i===0?"M":"L")+X(p.hr).toFixed(1)+" "+Y(p.ps).toFixed(1)).join(" ")}" fill="none" stroke="${col}" stroke-width="2.3" ${dash?`stroke-dasharray="${dash}"`:''}/>`:"";
+  const star=(hr,ps,col)=>isFinite(hr)?`<path d="${starPath(X(hr),Y(ps),7)}" fill="${col}" stroke="#fff" stroke-width="1"/>`:"";
+  const svg=`${g}${refs}${line(P,"#0b2545","")}${line(L,"#e8910b","6 3")}${star(rc.medHR,100*rc.ps,"#0b2545")}${star(rl.medHR,100*rl.ps,"#e8910b")}`+
+    `<text x="${pl-30}" y="${pt-2}" font-size="10" fill="#9aa0a6">P(success) %</text><text x="${W-pr}" y="${H-2}" text-anchor="end" font-size="10" fill="#9aa0a6">implied trial HR (GPS / BAT)</text>`;
+  document.getElementById("chartPower").innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${svg}</svg>`;
+}
+const starPath=(cx,cy,r)=>{let d="";for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,rad=i%2?r*0.42:r;d+=(i?"L":"M")+(cx+rad*Math.cos(a)).toFixed(1)+" "+(cy+rad*Math.sin(a)).toFixed(1)+" ";}return d+"Z";};
+// (h) is the only mc-heavy chart; debounce it off the main render so slider drags stay snappy
+let powerTimer=null;
+function schedulePower(Mc,Ml,rc,rl,cfg){ if(powerTimer)clearTimeout(powerTimer); powerTimer=setTimeout(()=>chartPower(Mc,Ml,rc,rl,cfg),220); }
 
 // ---------- render ----------
 const $=id=>document.getElementById(id);
@@ -585,7 +577,7 @@ function render(){
   chartHist(rc,rl,cfg);      // (e) distribution of simulated final HRs
   chartDiverge(Mc,Ml,cfg);   // (f) plateau-vs-tail divergence band
   chartEnroll(Mc,cfg);       // (g) enrollment validation
-  scheduleHeat(M,cfg);       // (h) P(success) across the split (debounced; follows the mode toggle)
+  schedulePower(Mc,Ml,rc,rl,cfg);  // (h) P(success) vs treatment effect (debounced; both shapes)
 }
 const metric=(k,v)=>`<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
