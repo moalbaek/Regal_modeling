@@ -73,7 +73,7 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, beta=1.20,
-               maxStretch=1.5, ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.0, unweighted=False,
+               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.0, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
     cfg.update(over)
@@ -144,47 +144,43 @@ def build_cure(cfg):
     fnr = cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
     F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # enrollment selection: drop weakest fraction F
-    def Ssel(t, c, L):                              # survival of the healthiest (1-F) of a component
-        return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"], L) / (1 - F))
+    def Ssel(t, c):                                 # survival of the healthiest (1-F) of a component (no survival stretch)
+        return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"], 1.0) / (1 - F))
     pibat = sum(w[i] * cm[i]["cure"] / (1 - F) for i in range(len(cm)))
     obs = cm[0]
-    def Sbat(t, L): return sum(w[i] * Ssel(t, cm[i], L) for i in range(len(cm)))
-    def Snc(t, L):  return (Sbat(t, L) - pibat) / (1 - pibat)
-    def Spool(t, pr, L):
-        return 0.5 * Sbat(t, L) + 0.5 * ((1 - fnr) * (pr + (1 - pr) * Snc(t, L))
-                                         + fnr * Ssel(t, obs, L))
+    def Sbat(t): return sum(w[i] * Ssel(t, cm[i]) for i in range(len(cm)))
+    def Snc(t):  return (Sbat(t) - pibat) / (1 - pibat)
+    def Spool(t, pr):
+        return 0.5 * Sbat(t) + 0.5 * ((1 - fnr) * (pr + (1 - pr) * Snc(t)) + fnr * Ssel(t, obs))
     # observed deaths are all-cause (disease x background mortality) and net of loss-to-follow-up.
-    def ed(T, pr, L):
-        Sf = lambda t: Spool(t, pr, L) * Snat(t, h)
+    def ed(T, pr):
+        Sf = lambda t: Spool(t, pr) * Snat(t, h)
         return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
 
-    Lmin, Lmax = 1.0 / (cfg.get("maxStretch") or 3.0), 2.2
-    best, bs = (0.6, min(1.0, Lmax)), 1e18
-    for ki in range(45):
-        for li in range(31):
-            pr = ki / 45.0; L = Lmin + li / 30.0 * (Lmax - Lmin)
-            e = sum(WT[j] * (ed(MT[j], pr, L) - MOBS[j]) ** 2 for j in range(3))
-            if e < bs: bs, best = e, (pr, L)
+    # Only the GPS responder cure (presp) is free: BAT longevity comes from the component medians
+    # and enrollment selection, not from a survival-stretch knob (L is gone; the scale is fixed at 1).
+    best, bs = 0.6, 1e18
+    for ki in range(91):
+        pr = ki / 90.0
+        e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(3))
+        if e < bs: bs, best = e, pr
     for it in range(3):
-        p0, l0 = best; st = 0.06 / (it + 1)
-        for dp in range(-3, 4):
-            for dl in range(-3, 4):
-                pr = min(0.985, max(0.0, p0 + dp * st))
-                L = max(Lmin, min(Lmax, l0 + dl * st * 4))
-                e = sum(WT[j] * (ed(MT[j], pr, L) - MOBS[j]) ** 2 for j in range(3))
-                if e < bs: bs, best = e, (pr, L)
-    presp, L = best
+        st = 0.05 / (it + 1)
+        for dp in range(-4, 5):
+            pr = min(0.985, max(0.0, best + dp * st))
+            e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(3))
+            if e < bs: bs, best = e, pr
+    presp = best
     pgps = (1 - fnr) * presp + fnr * obs["cure"] / (1 - F)
     # returned curves are all-cause (disease x background mortality).
-    Sb = lambda t: Sbat(t, L) * Snat(t, h)
-    Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t, L)) + fnr * Ssel(t, obs, L)) * Snat(t, h)
-    Sp = lambda t: Spool(t, presp, L) * Snat(t, h)
+    Sb = lambda t: Sbat(t) * Snat(t, h)
+    Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t)) + fnr * Ssel(t, obs)) * Snat(t, h)
+    Sp = lambda t: Spool(t, presp) * Snat(t, h)
     return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
-                presp=presp, L=L, h=h, pibat=pibat, pgps=pgps, obs=obs,
-                Sbat=Sb, Sgps=Sg, Spool=Sp, Lmin=Lmin, Lmax=Lmax, ed_raw=ed,
-                batMed=median(Sb), batMedRaw=median(lambda t: Sbat(t, 1.0) * Snat(t, h)),
-                gpsMed=median(Sg), poolMed=median(Sp),
-                poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp, L))
+                presp=presp, L=1.0, h=h, pibat=pibat, pgps=pgps, obs=obs,
+                Sbat=Sb, Sgps=Sg, Spool=Sp, ed_raw=ed,
+                batMed=median(Sb), gpsMed=median(Sg), poolMed=median(Sp),
+                poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp))
 
 # ---------------------------------------------------------------- log-logistic (no plateau)
 def build_ll(cfg):
@@ -502,7 +498,7 @@ def figure(path, nsim=1500):
         m = np.isfinite(hr) & np.isfinite(ps); hr, ps, E = hr[m], ps[m], E[m]
         o = np.argsort(hr); return hr[o], ps[o], E[o]
 
-    p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13), lambda pv: (pv, Mc["L"]))
+    p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13), lambda pv: (pv,))
     l_hr, l_ps, l_E = power_sweep(Ml, "r", np.linspace(1.0, 7.0, 13), lambda rv: (Ml["k"], rv))
 
     def band(hr, E):                                            # HR span of the data-consistent (low-misfit) points
@@ -523,7 +519,33 @@ def figure(path, nsim=1500):
     hx.set_title("(h) P(success) vs effect size; ★ = current fit, shaded = effect the data allow",
                  fontweight="bold", fontsize=9); hx.legend(fontsize=7.2, loc="lower left")
 
-    ax[2, 2].axis("off")
+    # (i) how enrollment selection q lifts the BAT arm — median OS and cure fraction (the two
+    #     quantities that used to be smuggled into the free survival-stretch L, now made explicit).
+    ix = ax[2, 2]; w0, cm0, h0 = Mc["w"], Mc["cm"], Mc["h"]
+    qs = np.linspace(0.0, 0.5, 26)
+    bat_med, bat_cure = [], []
+    for q in qs:
+        pib = sum(w0[i] * cm0[i]["cure"] / (1 - q) for i in range(len(cm0)))
+        Sbq = lambda t, q=q: (sum(w0[i] * np.minimum(1.0, Sc(t, cm0[i]["med"], cm0[i]["cure"], cm0[i]["k"], 1.0) / (1 - q))
+                                  for i in range(len(cm0)))) * Snat(t, h0)
+        bat_cure.append(100 * pib); bat_med.append(median(Sbq))
+    bat_med = np.array(bat_med); mcap = 60.0                       # clip a "not reached" median for display
+    med_plot = np.where(np.isfinite(bat_med), np.minimum(bat_med, mcap), mcap)
+    ix.axvspan(20, 35, color=GREY, alpha=.10)                      # defensible selection band (~fitness + guarantee-time)
+    ix.text(27.5, 3, "defensible\n~20–35%", color=GREY, fontsize=7, ha="center", va="bottom")
+    ix.plot(100 * qs, med_plot, color=NAVY, lw=2.4, marker="o", ms=2.5, label="BAT median OS (mo)")
+    ix.set_xlabel("enrollment selection q — drop weakest % "); ix.set_ylabel("BAT median OS (months)", color=NAVY)
+    ix.tick_params(axis="y", labelcolor=NAVY); ix.set_xlim(0, 50); ix.set_ylim(0, mcap * 1.02)
+    ix.axhline(mcap, color=NAVY, ls=":", lw=.8, alpha=.4)
+    ix.text(1, mcap - 2, "≥60 / NR", color=NAVY, fontsize=6.8, va="top")
+    ix2 = ix.twinx(); ix2.spines["top"].set_visible(False)
+    ix2.plot(100 * qs, bat_cure, color=TEAL, lw=2.2, ls="-.", marker="s", ms=2.5, label="BAT cure fraction (%)")
+    ix2.set_ylabel("BAT cure fraction (%)", color=TEAL); ix2.tick_params(axis="y", labelcolor=TEAL)
+    ix2.set_ylim(0, max(55.0, 1.15 * max(bat_cure)))
+    ix.set_title("(i) Selection q lifts BAT median & cure (replacing the survival-stretch L)",
+                 fontweight="bold", fontsize=9)
+    h1, l1 = ix.get_legend_handles_labels(); h2, l2 = ix2.get_legend_handles_labels()
+    ix.legend(h1 + h2, l1 + l2, fontsize=7.2, loc="upper left")
 
     fig.suptitle("REGAL Scenario Explorer — two survival shapes fit the same blinded milestones; "
                  "their P(success) gap is the 'is the plateau real?' uncertainty.",
@@ -542,11 +564,11 @@ if __name__ == "__main__":
     wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
     print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
           f"loss-to-FU {100*base['drop']:.0f}%/yr, enrol-selection drop-weakest {100*base['esel']:.0f}%, fit {wmode})")
-    print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMedRaw'])}->{fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
+    print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
     ci_more, ci_few = fit_ci(base, build_cure)
     print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
     print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
-    print(f"  calib: survival {1/Mc['L']:.2f}x inputs  poolMed {fmt_med(Mc['poolMed'])}")
+    print(f"  calib: no survival stretch (L removed)  poolMed {fmt_med(Mc['poolMed'])}")
     coh = Mc['coh']
     print(f"  enrol: median {month_label(med_enroll(coh))}  "
           f"cum {cum_enroll(coh,2022,4):.0f}/{cum_enroll(coh,2023,11):.0f}/{cum_enroll(coh,2024,4):.0f} "
