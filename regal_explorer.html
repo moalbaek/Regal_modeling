@@ -89,6 +89,15 @@
       <div class="sub">Weights auto-normalize. Venetoclax cure is the key bear/bull knob (cure-mixture mode).</div>
       <table id="compTable" style="margin-top:14px"><thead><tr><th>Component</th><th>Median (mo)</th><th>Cure %</th><th>Shape k</th></tr></thead><tbody></tbody></table>
       <div class="sub" style="margin-top:6px">Per-component survival inputs. Non-responders use the <b>Observation</b> row. Shape k: &lt;1 heavy tail (more long-term survivors), 1 = exponential, &gt;1 accelerating. Applies to cure-mixture mode.</div>
+      <div class="row" style="margin-top:14px">
+        <label>Enrollment selection — drop weakest <span class="val" id="eselL">0%</span></label>
+        <input type="range" id="esel" min="0" max="50" step="1" value="0">
+      </div>
+      <div class="sub">The component medians above are for <b>all</b> CR2 transplant-ineligible patients, but the trial's eligibility bar
+        enrols a healthier subset. This drops the weakest X% of every component (by survival) so only the healthiest (100−X)%
+        remain — each curve is lifted to its conditional "top (100−X)%" shape (higher plateau, longer median). Applied to
+        <b>every enrolled patient</b> (both arms, incl. GPS responders/non-responders); the blinded milestones stay pinned, so
+        the fit re-calibrates around the healthier population. 0% = component medians taken at face value.</div>
     </div>
 
     <div class="card">
@@ -287,19 +296,21 @@ const median=(S)=>{ if(S(900)>=0.5) return Infinity; let lo=.01,hi=900; for(let 
 function buildCure(cfg){
   const {w,cm,coh,MT,MOBS,WT}=common(cfg); const {fnr}=cfg;
   const h=natH(cfg.ndr||0), hd=natH(cfg.drop||0);
-  const pibat=cm.reduce((a,c,i)=>a+w[i]*c.cure,0), obs=cm[0];
-  const Sbat=(t,L)=>cm.reduce((a,c,i)=>a+w[i]*Sc(t,c.med,c.cure,c.k,L),0);
+  const F=Math.min(Math.max(cfg.esel||0,0),0.5);                    // enrollment selection: drop weakest fraction F
+  const Ssel=(t,c,L)=>Math.min(1,Sc(t,c.med,c.cure,c.k,L)/(1-F));   // survival of the healthiest (1-F) of a component (conditional on outliving its F-quantile)
+  const pibat=cm.reduce((a,c,i)=>a+w[i]*c.cure/(1-F),0), obs=cm[0];
+  const Sbat=(t,L)=>cm.reduce((a,c,i)=>a+w[i]*Ssel(t,c,L),0);
   const Snc=(t,L)=>(Sbat(t,L)-pibat)/(1-pibat);
-  const Spool=(t,pr,L)=>0.5*Sbat(t,L)+0.5*((1-fnr)*(pr+(1-pr)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L));
+  const Spool=(t,pr,L)=>0.5*Sbat(t,L)+0.5*((1-fnr)*(pr+(1-pr)*Snc(t,L))+fnr*Ssel(t,obs,L));
   // observed deaths are all-cause (disease × background mortality) and net of loss-to-follow-up.
   const ed=(T,pr,L)=>{const Sf=t=>Spool(t,pr,L)*Snat(t,h);return coh.reduce((a,c)=>a+(c[0]<=T?c[1]*obsFrac(Sf,T-c[0],hd):0),0);};
   const Lmin=1/(cfg.maxStretch||3), Lmax=2.2;
   let best=[.6,Math.min(1,Lmax)],bs=1e18;
   for(let ki=0;ki<=44;ki++)for(let li=0;li<=30;li++){const pr=ki/45,L=Lmin+li/30*(Lmax-Lmin);let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr,L)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[pr,L];}}
   for(let it=0;it<3;it++){const[p0,l0]=best,st=.06/(it+1);for(let dp=-3;dp<=3;dp++)for(let dl=-3;dl<=3;dl++){const pr=Math.min(.985,Math.max(0,p0+dp*st)),L=Math.max(Lmin,Math.min(Lmax,l0+dl*st*4));let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr,L)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[pr,L];}}}
-  const[presp,L]=best, pgps=(1-fnr)*presp+fnr*obs.cure;
+  const[presp,L]=best, pgps=(1-fnr)*presp+fnr*obs.cure/(1-F);
   // returned curves are all-cause (disease × background mortality).
-  const Sb=t=>Sbat(t,L)*Snat(t,h), Sg=t=>((1-fnr)*(presp+(1-presp)*Snc(t,L))+fnr*Sc(t,obs.med,obs.cure,obs.k,L))*Snat(t,h), Sp=t=>Spool(t,presp,L)*Snat(t,h);
+  const Sb=t=>Sbat(t,L)*Snat(t,h), Sg=t=>((1-fnr)*(presp+(1-presp)*Snc(t,L))+fnr*Ssel(t,obs,L))*Snat(t,h), Sp=t=>Spool(t,presp,L)*Snat(t,h);
   return {kind:"cure",cfg,w,cm,coh,MT,MOBS,presp,L,h,pibat,pgps,obs,Lmin,Lmax,edRaw:ed,
     Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),batMedRaw:median(t=>Sbat(t,1)*Snat(t,h)),gpsMed:median(Sg),poolMed:median(Sp),
     poolCure:0.5*(pibat+pgps),ed:t=>ed(t,presp,L)};
@@ -308,14 +319,16 @@ function buildCure(cfg){
 function buildLL(cfg){
   const {w,cm,coh,MT,MOBS,WT}=common(cfg); const {fnr,beta}=cfg;
   const h=natH(cfg.ndr||0), hd=natH(cfg.drop||0);
+  const F=Math.min(Math.max(cfg.esel||0,0),0.5);          // enrollment selection: drop weakest fraction F
+  const Ssl=(t,al)=>Math.min(1,Sll(t,al,beta)/(1-F));     // healthiest (1-F) of a log-logistic subgroup
   const mC=cm.reduce((a,c,i)=>a+w[i]*c.med,0), mObs=cm[0].med;
-  const Spool=(t,k,r)=>{const mB=k*mC;return 0.5*Sll(t,mB,beta)+0.5*((1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta));};
+  const Spool=(t,k,r)=>{const mB=k*mC;return 0.5*Ssl(t,mB)+0.5*((1-fnr)*Ssl(t,r*mB)+fnr*Ssl(t,k*mObs));};
   const ed=(T,k,r)=>{const Sf=t=>Spool(t,k,r)*Snat(t,h);return coh.reduce((a,c)=>a+(c[0]<=T?c[1]*obsFrac(Sf,T-c[0],hd):0),0);};
   let best=[1.4,2],bs=1e18;
   for(let ki=0;ki<=48;ki++)for(let ri=0;ri<=60;ri++){const k=.6+ki/48*2.6,r=1+ri/60*6;let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],k,r)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[k,r];}}
   for(let it=0;it<3;it++){const[k0,r0]=best,st=.04/(it+1);for(let dk=-3;dk<=3;dk++)for(let dr=-3;dr<=3;dr++){const k=Math.max(.4,k0+dk*st*2),r=Math.max(1,r0+dr*st*4);let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],k,r)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=[k,r];}}}
   const[k,r]=best, mB=k*mC;
-  const Sb=t=>Sll(t,mB,beta)*Snat(t,h), Sg=t=>((1-fnr)*Sll(t,r*mB,beta)+fnr*Sll(t,k*mObs,beta))*Snat(t,h), Sp=t=>0.5*Sb(t)+0.5*Sg(t);
+  const Sb=t=>Ssl(t,mB)*Snat(t,h), Sg=t=>((1-fnr)*Ssl(t,r*mB)+fnr*Ssl(t,k*mObs))*Snat(t,h), Sp=t=>0.5*Sb(t)+0.5*Sg(t);
   return {kind:"ll",cfg,w,cm,coh,MT,MOBS,beta,k,r,mB,h,mObs:k*mObs,edRaw:ed,
     Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),gpsMed:median(Sg),ratio:r,poolMed:median(Sp),ed:t=>ed(t,k,r)};
 }
@@ -329,7 +342,9 @@ function mc(M,nsim){
   const rnd=mulberry32(987654321), w=M.w, cm=M.cm;
   let a3=0;const cs=M.coh.reduce((a,c)=>a+c[1],0);const cohc=M.coh.map(c=>(a3+=c[1]/cs));
   let a1=0;const cwc=w.map(x=>a1+=x);
-  const ncw=cm.map((c,i)=>w[i]*(1-c.cure));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
+  const F=Math.min(Math.max(M.cfg.esel||0,0),0.5);        // enrollment selection: drop weakest fraction F
+  const snq=cm.map(c=>(1-F-c.cure)/(1-c.cure));           // non-cured survival at the F-quantile (caps the conditional draw)
+  const ncw=cm.map((c,i)=>w[i]*(1-F-c.cure));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
   const surv=new Float64Array(N),time=new Float64Array(N),ev2=new Int8Array(N),arm=new Int8Array(N),dcal=new Float64Array(N),en=new Float64Array(N),isdeath=new Int8Array(N),rawcal=new Float64Array(N);
   let sig=0,reached=0,aliveG=0,aliveB=0; const hrs=[],hrsIA=[];
   // Cox/log-rank score at a calendar cutoff -> [num, varr]
@@ -347,12 +362,12 @@ function mc(M,nsim){
       let u=rnd(),k=0;while(k<cohc.length-1&&u>cohc[k])k++; en[i]=M.coh[k][0]; let sv;
       if(M.kind==="cure"){
         const presp=M.presp,L=M.L,obs=M.obs;
-        if(arm[i]===1){ if(rnd()<fnr) sv=rnd()<obs.cure?1e9:sampNC(obs.med,obs.cure,obs.k,L,rnd());
-          else { if(rnd()<presp) sv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;sv=sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd());} } }
-        else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; sv=rnd()<cm[c].cure?1e9:sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd()); }
+        if(arm[i]===1){ if(rnd()<fnr) sv=rnd()<obs.cure/(1-F)?1e9:sampNC(obs.med,obs.cure,obs.k,L,rnd()*snq[0]);
+          else { if(rnd()<presp) sv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;sv=sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd()*snq[c]);} } }
+        else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; sv=rnd()<cm[c].cure/(1-F)?1e9:sampNC(cm[c].med,cm[c].cure,cm[c].k,L,rnd()*snq[c]); }
       } else {
-        if(arm[i]===1) sv = rnd()<fnr ? sampLL(M.mObs,M.beta,rnd()) : sampLL(M.r*M.mB,M.beta,rnd());
-        else sv = sampLL(M.mB,M.beta,rnd());
+        if(arm[i]===1) sv = rnd()<fnr ? sampLL(M.mObs,M.beta,(1-F)*rnd()) : sampLL(M.r*M.mB,M.beta,(1-F)*rnd());
+        else sv = sampLL(M.mB,M.beta,(1-F)*rnd());
       }
       if(h>0){const tn=-Math.log(rnd())/h; if(tn<sv) sv=tn;}   // natural death may preempt
       const td=hdrop>0?-Math.log(rnd())/hdrop:Infinity;        // loss-to-follow-up time
@@ -502,7 +517,7 @@ const $=id=>document.getElementById(id);
 const cfgFromUI=()=>({N:+$("N").value||126,FINAL:+$("FINAL").value||80,HRC:+$("HRC").value||0.636,
   fnr:(+$("nr").value)/100,bl:+$("bl").value,beta:+$("beta").value,maxStretch:+$("maxL").value||1.5,
   ndr:(+$("ndr").value)/100,IA:+$("IA").value||60,futHR:+$("futHR").value||1.0,
-  drop:(+$("drop").value)/100,unweighted:$("unweighted").checked});
+  drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,unweighted:$("unweighted").checked});
 const fmtMed=m=>m===Infinity?"NR":m.toFixed(0)+"mo";
 // Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts
 function fitCI(cfg,builder){
@@ -604,11 +619,12 @@ const updBl=()=>{$("blL").textContent=monthLabel(medEnroll(enroll(+$("bl").value
 $("bl").addEventListener("input",e=>{updBl();schedule();});
 $("ndr").addEventListener("input",e=>{$("ndrL").textContent=(+e.target.value).toFixed(1)+"%/yr";schedule();});
 $("drop").addEventListener("input",e=>{$("dropL").textContent=(+e.target.value).toFixed(1)+"%/yr";schedule();});
+$("esel").addEventListener("input",e=>{$("eselL").textContent=e.target.value+"%";schedule();});
 $("unweighted").addEventListener("change",schedule);
 ["N","FINAL","HRC","IA","futHR"].forEach(id=>$(id).addEventListener("input",()=>{updBl();schedule();}));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>x.classList.toggle("on",x===b));render();}));
-$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("beta").value=1.2;$("bL").textContent="1.20";$("maxL").value=1.5;$("maxLL").textContent="1.5";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("unweighted").checked=false;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("beta").value=1.2;$("bL").textContent="1.20";$("maxL").value=1.5;$("maxLL").textContent="1.5";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=0;$("eselL").textContent="0%";$("unweighted").checked=false;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
 buildWeightSliders(); buildCompTable(); buildEvTable(); updBl(); render();
