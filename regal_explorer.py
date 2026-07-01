@@ -73,7 +73,7 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, beta=1.20,
-               maxStretch=1.5, ndr=0.02, IA=60, futHR=1.0, drop=0.0, unweighted=False,
+               maxStretch=1.5, ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.0, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
     cfg.update(over)
@@ -143,13 +143,16 @@ def build_cure(cfg):
     w, cm, coh, MT, MOBS, WT = common(cfg)
     fnr = cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
-    pibat = sum(w[i] * cm[i]["cure"] for i in range(len(cm)))
+    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # enrollment selection: drop weakest fraction F
+    def Ssel(t, c, L):                              # survival of the healthiest (1-F) of a component
+        return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"], L) / (1 - F))
+    pibat = sum(w[i] * cm[i]["cure"] / (1 - F) for i in range(len(cm)))
     obs = cm[0]
-    def Sbat(t, L): return sum(w[i] * Sc(t, cm[i]["med"], cm[i]["cure"], cm[i]["k"], L) for i in range(len(cm)))
+    def Sbat(t, L): return sum(w[i] * Ssel(t, cm[i], L) for i in range(len(cm)))
     def Snc(t, L):  return (Sbat(t, L) - pibat) / (1 - pibat)
     def Spool(t, pr, L):
         return 0.5 * Sbat(t, L) + 0.5 * ((1 - fnr) * (pr + (1 - pr) * Snc(t, L))
-                                         + fnr * Sc(t, obs["med"], obs["cure"], obs["k"], L))
+                                         + fnr * Ssel(t, obs, L))
     # observed deaths are all-cause (disease x background mortality) and net of loss-to-follow-up.
     def ed(T, pr, L):
         Sf = lambda t: Spool(t, pr, L) * Snat(t, h)
@@ -171,10 +174,10 @@ def build_cure(cfg):
                 e = sum(WT[j] * (ed(MT[j], pr, L) - MOBS[j]) ** 2 for j in range(3))
                 if e < bs: bs, best = e, (pr, L)
     presp, L = best
-    pgps = (1 - fnr) * presp + fnr * obs["cure"]
+    pgps = (1 - fnr) * presp + fnr * obs["cure"] / (1 - F)
     # returned curves are all-cause (disease x background mortality).
     Sb = lambda t: Sbat(t, L) * Snat(t, h)
-    Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t, L)) + fnr * Sc(t, obs["med"], obs["cure"], obs["k"], L)) * Snat(t, h)
+    Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t, L)) + fnr * Ssel(t, obs, L)) * Snat(t, h)
     Sp = lambda t: Spool(t, presp, L) * Snat(t, h)
     return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
                 presp=presp, L=L, h=h, pibat=pibat, pgps=pgps, obs=obs,
@@ -188,11 +191,13 @@ def build_ll(cfg):
     w, cm, coh, MT, MOBS, WT = common(cfg)
     fnr, beta = cfg["fnr"], cfg["beta"]
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
+    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)          # enrollment selection: drop weakest fraction F
+    def Ssl(t, al): return np.minimum(1.0, Sll(t, al, beta) / (1 - F))   # healthiest (1-F) of a log-logistic subgroup
     mC = sum(w[i] * cm[i]["med"] for i in range(len(cm)))
     mObs = cm[0]["med"]
     def Spool(t, k, r):
         mB = k * mC
-        return 0.5 * Sll(t, mB, beta) + 0.5 * ((1 - fnr) * Sll(t, r * mB, beta) + fnr * Sll(t, k * mObs, beta))
+        return 0.5 * Ssl(t, mB) + 0.5 * ((1 - fnr) * Ssl(t, r * mB) + fnr * Ssl(t, k * mObs))
     def ed(T, k, r):
         Sf = lambda t: Spool(t, k, r) * Snat(t, h)
         return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
@@ -211,8 +216,8 @@ def build_ll(cfg):
                 e = sum(WT[j] * (ed(MT[j], k, r) - MOBS[j]) ** 2 for j in range(3))
                 if e < bs: bs, best = e, (k, r)
     k, r = best; mB = k * mC
-    Sb = lambda t: Sll(t, mB, beta) * Snat(t, h)
-    Sg = lambda t: ((1 - fnr) * Sll(t, r * mB, beta) + fnr * Sll(t, k * mObs, beta)) * Snat(t, h)
+    Sb = lambda t: Ssl(t, mB) * Snat(t, h)
+    Sg = lambda t: ((1 - fnr) * Ssl(t, r * mB) + fnr * Ssl(t, k * mObs)) * Snat(t, h)
     Sp = lambda t: 0.5 * Sb(t) + 0.5 * Sg(t)
     return dict(kind="ll", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
                 beta=beta, k=k, r=r, mB=mB, h=h, mObs=k * mObs, ed_raw=ed,
@@ -244,8 +249,10 @@ def mc(M, nsim=1500, seed=987654321):
     rng = np.random.default_rng(seed)
     coh, w, cm = M["coh"], M["w"], M["cm"]
     cohp = coh[:, 1] / coh[:, 1].sum()                              # cohort enrollment probs
-    ncw = np.array([w[i] * (1 - cm[i]["cure"]) for i in range(len(cm))])
-    ncw = ncw / ncw.sum()                                          # BAT non-cured component mix
+    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)                    # enrollment selection: drop weakest fraction F
+    snq = np.array([(1 - F - cm[i]["cure"]) / (1 - cm[i]["cure"]) for i in range(len(cm))])  # non-cured survival at the F-quantile (caps the conditional draw)
+    ncw = np.array([w[i] * (1 - F - cm[i]["cure"]) for i in range(len(cm))])
+    ncw = ncw / ncw.sum()                                          # BAT non-cured component mix (selected)
     n1 = N // 2
     IA = min(int(cfg.get("IA", 60)), FINAL - 1)                    # interim-analysis event count
     futHR = cfg.get("futHR", 1.0)                                  # interim futility HR threshold
@@ -267,8 +274,8 @@ def mc(M, nsim=1500, seed=987654321):
         for j, c in enumerate(cm):
             idx = np.where(pick == j)[0]
             if idx.size:
-                cured = rng.random(idx.size) < c["cure"]
-                s = sampNC(c["med"], c["cure"], c["k"], M["L"], rng.random(idx.size))
+                cured = rng.random(idx.size) < c["cure"] / (1 - F)
+                s = sampNC(c["med"], c["cure"], c["k"], M["L"], rng.random(idx.size) * snq[j])
                 out[idx] = np.where(cured, 1e9, s)
         return out
 
@@ -278,8 +285,8 @@ def mc(M, nsim=1500, seed=987654321):
         nr = np.where(isnr)[0]; rs = np.where(~isnr)[0]
         obs = M["obs"]
         if nr.size:
-            cured = rng.random(nr.size) < obs["cure"]
-            s = sampNC(obs["med"], obs["cure"], obs["k"], M["L"], rng.random(nr.size))
+            cured = rng.random(nr.size) < obs["cure"] / (1 - F)
+            s = sampNC(obs["med"], obs["cure"], obs["k"], M["L"], rng.random(nr.size) * snq[0])
             out[nr] = np.where(cured, 1e9, s)
         if rs.size:
             cured = rng.random(rs.size) < M["presp"]
@@ -287,7 +294,7 @@ def mc(M, nsim=1500, seed=987654321):
             s = np.empty(rs.size)
             for j, c in enumerate(cm):
                 jj = np.where(pick == j)[0]
-                if jj.size: s[jj] = sampNC(c["med"], c["cure"], c["k"], M["L"], rng.random(jj.size))
+                if jj.size: s[jj] = sampNC(c["med"], c["cure"], c["k"], M["L"], rng.random(jj.size) * snq[j])
             out[rs] = np.where(cured, 1e9, s)
         return out
 
@@ -301,7 +308,7 @@ def mc(M, nsim=1500, seed=987654321):
             surv[a0] = draw_cure_bat(a0.sum())
         else:
             mB, beta, r, mObs = M["mB"], M["beta"], M["r"], M["mObs"]
-            u = rng.random(N)
+            u = rng.random(N) * (1 - F)                              # conditional on outliving the F-quantile (enrollment selection)
             nr = a1 & (rng.random(N) < fnr)
             surv[a0] = sampLL(mB, beta, u[a0])
             surv[a1 & ~nr] = sampLL(r * mB, beta, u[a1 & ~nr])
@@ -534,7 +541,7 @@ if __name__ == "__main__":
     rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)
     wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
     print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
-          f"loss-to-FU {100*base['drop']:.0f}%/yr, fit {wmode})")
+          f"loss-to-FU {100*base['drop']:.0f}%/yr, enrol-selection drop-weakest {100*base['esel']:.0f}%, fit {wmode})")
     print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMedRaw'])}->{fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
     ci_more, ci_few = fit_ci(base, build_cure)
     print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")

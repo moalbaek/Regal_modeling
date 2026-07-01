@@ -50,7 +50,7 @@ The current tool is a single unified engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
-| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; the two headline P(success) numbers and a "Trial dynamics" panel of six live charts (survival curves, event-accrual timeline, simulated-HR distribution, plateau-vs-tail divergence band, enrollment validation, and a P(success)-vs-effect power curve). | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, per-arm curves |
+| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, enrollment selection (eligibility filter), non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; the two headline P(success) numbers and a "Trial dynamics" panel of six live charts (survival curves, event-accrual timeline, simulated-HR distribution, plateau-vs-tail divergence band, enrollment validation, and a P(success)-vs-effect power curve). | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, per-arm curves |
 | `regal_explorer.py` | The same engine in Python (`build_cure`, `build_ll`, `mc`), with a CLI summary across the four BAT presets and an 8-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, 8-panel figure |
 
 Both share one enrollment reconstruction, one set of survival primitives, and the same significance
@@ -172,6 +172,48 @@ Supporting literature anchors for these assumptions [A]:
 Observation 0.15 · Hydroxyurea 0.05 · HMA 0.30 · Venetoclax 0.35 · LDAC 0.15 → implied BAT cure
 ≈ 14%, BAT median ≈ 9.4 mo. Two alternates ("low-venetoclax / early-ex-US", "venetoclax-dominant /
 modern US") bracket the range.
+
+### 2.5.1 Enrollment selection (eligibility filter)
+
+The component medians in Section 2.5 describe **all** CR2 transplant-ineligible patients on each
+therapy. But a trial's eligibility bar (performance status, organ function, blast counts, …) enrols a
+**healthier subset** than the unselected real-world population those medians come from — so the true
+comparator arm can outlive its face-value component inputs. The **enrollment-selection slider**
+(`esel`, 0–50%, default 0%) makes that gap an explicit lever.
+
+| Parameter | Value | Type | Source / reasoning |
+|-----------|-------|------|--------------------|
+| Enrollment selection (drop weakest) | 0–50%, default 0% | [A] | Fraction of the *weakest* patients (by survival) the eligibility criteria are assumed to screen out. 0% = component medians taken at face value; 50% = only the healthiest half of each component is enrolled. |
+
+**Mechanism.** Keeping the healthiest fraction `1−f` of any distribution is exactly its survival
+conditioned on outliving its `f`-quantile `t_f` (where `S(t_f)=1−f`):
+
+```
+S_sel(t) = min(1, S(t) / (1 − f))
+```
+
+for each component (and, in the no-plateau model, each log-logistic subgroup). This lifts every curve
+to its "top `100(1−f)`%" shape: the long-term/cure fraction rises from `c` to `c/(1−f)` and the median
+lengthens, with no re-anchoring of the Weibull scale (so the `c < 0.5` parameterization never breaks).
+The matching Monte-Carlo draw is closed-form — a patient is a long-term survivor with probability
+`c/(1−f)`, otherwise its non-cured time is drawn conditioned on exceeding `t_f`
+(`u → u·(1−f−c)/(1−c)`); the GPS-responder non-cured mixture reweights to `w·(1−f−c)`. For
+log-logistic subgroups the conditional draw is simply `u → u·(1−f)`. At `f = 0` every expression
+collapses back to the unselected model exactly.
+
+**Applies to both arms.** Enrollment eligibility screens *every* randomized patient, so selection is
+applied to the BAT components, the GPS responders (who draw from the BAT non-cured components), and
+the GPS non-responders (who track Observation) alike. It is a property of the enrolled population, not
+a treatment effect.
+
+**Effect (base preset).** Because the blinded milestones stay pinned, the fit re-calibrates around the
+healthier population: as `f` rises 0 → 25 → 50%, the BAT cure fraction climbs ~14 → 19 → 29%, the BAT
+survival-stretch calibration relaxes from 1.50× toward compression (0.74×), and the **plateau**
+P(success) falls ~96 → 88 → 46% — a healthier, harder-to-beat comparator shrinks the treatment effect
+the blinded data can support. The **no-plateau** number barely moves: with no plateau to lift,
+selection only shifts medians and is absorbed by the log-logistic `k/r` fit. Enrollment selection is
+therefore a *plateau-shape* lever, and a natural companion to the venetoclax-cure and composition
+knobs for building a bear case on the comparator arm.
 
 ### 2.6 Bayesian priors on the BAT plateau (an alternative to the composition lever)
 
@@ -529,6 +571,12 @@ the computed results match).
 - **Loss to follow-up is modeled as a flat, independent rate.** Administrative censoring (Section 2.11)
   enters both the fit and the simulation, but as a single constant all-cause-independent hazard
   (default 0); real dropout is time- and arm-varying.
+- **Enrollment selection is an idealized sharp filter.** The eligibility lever (Section 2.5.1) screens
+  on *realized* survival — it assumes the criteria perfectly remove the patients who would in fact die
+  soonest. Real criteria select on covariates only *correlated* with survival, so a given `esel` is an
+  upper bound on how cleanly eligibility can enrich the cohort; treat it as "how much healthier could
+  the enrolled population plausibly be," not a literal drop-rate. It is applied within each component
+  (holding the composition weights fixed) and equally to both arms.
 - **Not incorporated (conservative):** stratification of the Cox model (the trial stratifies; the
   simulation does not — a minor, likely slightly power-increasing, difference).
 
