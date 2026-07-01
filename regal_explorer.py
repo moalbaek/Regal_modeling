@@ -30,10 +30,10 @@ def _to_date(t):
 
 Acoef = lambda cure: -np.log((0.5 - cure) / (1 - cure))          # S(med)=0.5 coefficient
 lam   = lambda med, cure, k: med / Acoef(cure) ** (1.0 / k)       # Weibull scale
-def Sc(t, med, cure, k, L):                                       # cure-mixture Weibull, time x L
-    return cure + (1 - cure) * np.exp(-(L * np.clip(t, 0, None) / lam(med, cure, k)) ** k)
-def sampNC(med, cure, k, L, u):                                  # sample a NON-cured Weibull time
-    return (lam(med, cure, k) / L) * (-np.log(u)) ** (1.0 / k)
+def Sc(t, med, cure, k):                                          # cure-mixture Weibull survival
+    return cure + (1 - cure) * np.exp(-(np.clip(t, 0, None) / lam(med, cure, k)) ** k)
+def sampNC(med, cure, k, u):                                     # sample a NON-cured Weibull time
+    return lam(med, cure, k) * (-np.log(u)) ** (1.0 / k)
 Sll   = lambda t, al, be: 1.0 / (1.0 + (np.clip(t, 1e-9, None) / al) ** be)   # log-logistic survival
 sampLL = lambda al, be, u: al * (1.0 / u - 1.0) ** (1.0 / be)                 # log-logistic sample
 # natural (non-disease) all-cause mortality as an independent competing risk.
@@ -73,7 +73,7 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, beta=1.20,
-               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.0, unweighted=False,
+               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.25, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
     cfg.update(over)
@@ -144,8 +144,8 @@ def build_cure(cfg):
     fnr = cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
     F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # enrollment selection: drop weakest fraction F
-    def Ssel(t, c):                                 # survival of the healthiest (1-F) of a component (no survival stretch)
-        return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"], 1.0) / (1 - F))
+    def Ssel(t, c):                                 # survival of the healthiest (1-F) of a component
+        return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"]) / (1 - F))
     pibat = sum(w[i] * cm[i]["cure"] / (1 - F) for i in range(len(cm)))
     obs = cm[0]
     def Sbat(t): return sum(w[i] * Ssel(t, cm[i]) for i in range(len(cm)))
@@ -157,8 +157,8 @@ def build_cure(cfg):
         Sf = lambda t: Spool(t, pr) * Snat(t, h)
         return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
 
-    # Only the GPS responder cure (presp) is free: BAT longevity comes from the component medians
-    # and enrollment selection, not from a survival-stretch knob (L is gone; the scale is fixed at 1).
+    # The GPS responder cure (presp) is the only free parameter; the BAT arm is fixed by the
+    # component medians and enrollment selection.
     best, bs = 0.6, 1e18
     for ki in range(91):
         pr = ki / 90.0
@@ -177,7 +177,7 @@ def build_cure(cfg):
     Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t)) + fnr * Ssel(t, obs)) * Snat(t, h)
     Sp = lambda t: Spool(t, presp) * Snat(t, h)
     return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
-                presp=presp, L=1.0, h=h, pibat=pibat, pgps=pgps, obs=obs,
+                presp=presp, h=h, pibat=pibat, pgps=pgps, obs=obs,
                 Sbat=Sb, Sgps=Sg, Spool=Sp, ed_raw=ed,
                 batMed=median(Sb), gpsMed=median(Sg), poolMed=median(Sp),
                 poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp))
@@ -271,7 +271,7 @@ def mc(M, nsim=1500, seed=987654321):
             idx = np.where(pick == j)[0]
             if idx.size:
                 cured = rng.random(idx.size) < c["cure"] / (1 - F)
-                s = sampNC(c["med"], c["cure"], c["k"], M["L"], rng.random(idx.size) * snq[j])
+                s = sampNC(c["med"], c["cure"], c["k"], rng.random(idx.size) * snq[j])
                 out[idx] = np.where(cured, 1e9, s)
         return out
 
@@ -282,7 +282,7 @@ def mc(M, nsim=1500, seed=987654321):
         obs = M["obs"]
         if nr.size:
             cured = rng.random(nr.size) < obs["cure"] / (1 - F)
-            s = sampNC(obs["med"], obs["cure"], obs["k"], M["L"], rng.random(nr.size) * snq[0])
+            s = sampNC(obs["med"], obs["cure"], obs["k"], rng.random(nr.size) * snq[0])
             out[nr] = np.where(cured, 1e9, s)
         if rs.size:
             cured = rng.random(rs.size) < M["presp"]
@@ -290,7 +290,7 @@ def mc(M, nsim=1500, seed=987654321):
             s = np.empty(rs.size)
             for j, c in enumerate(cm):
                 jj = np.where(pick == j)[0]
-                if jj.size: s[jj] = sampNC(c["med"], c["cure"], c["k"], M["L"], rng.random(jj.size) * snq[j])
+                if jj.size: s[jj] = sampNC(c["med"], c["cure"], c["k"], rng.random(jj.size) * snq[j])
             out[rs] = np.where(cured, 1e9, s)
         return out
 
@@ -519,14 +519,14 @@ def figure(path, nsim=1500):
     hx.set_title("(h) P(success) vs effect size; ★ = current fit, shaded = effect the data allow",
                  fontweight="bold", fontsize=9); hx.legend(fontsize=7.2, loc="lower left")
 
-    # (i) how enrollment selection q lifts the BAT arm — median OS and cure fraction (the two
-    #     quantities that used to be smuggled into the free survival-stretch L, now made explicit).
+    # (i) how enrollment selection q lifts the BAT arm — median OS and cure fraction, the two
+    #     quantities the comparator assumption turns on, shown explicitly.
     ix = ax[2, 2]; w0, cm0, h0 = Mc["w"], Mc["cm"], Mc["h"]
     qs = np.linspace(0.0, 0.5, 26)
     bat_med, bat_cure = [], []
     for q in qs:
         pib = sum(w0[i] * cm0[i]["cure"] / (1 - q) for i in range(len(cm0)))
-        Sbq = lambda t, q=q: (sum(w0[i] * np.minimum(1.0, Sc(t, cm0[i]["med"], cm0[i]["cure"], cm0[i]["k"], 1.0) / (1 - q))
+        Sbq = lambda t, q=q: (sum(w0[i] * np.minimum(1.0, Sc(t, cm0[i]["med"], cm0[i]["cure"], cm0[i]["k"]) / (1 - q))
                                   for i in range(len(cm0)))) * Snat(t, h0)
         bat_cure.append(100 * pib); bat_med.append(median(Sbq))
     bat_med = np.array(bat_med); mcap = 60.0                       # clip a "not reached" median for display
@@ -542,7 +542,7 @@ def figure(path, nsim=1500):
     ix2.plot(100 * qs, bat_cure, color=TEAL, lw=2.2, ls="-.", marker="s", ms=2.5, label="BAT cure fraction (%)")
     ix2.set_ylabel("BAT cure fraction (%)", color=TEAL); ix2.tick_params(axis="y", labelcolor=TEAL)
     ix2.set_ylim(0, max(55.0, 1.15 * max(bat_cure)))
-    ix.set_title("(i) Selection q lifts BAT median & cure (replacing the survival-stretch L)",
+    ix.set_title("(i) Enrollment selection q lifts BAT median OS & cure fraction",
                  fontweight="bold", fontsize=9)
     h1, l1 = ix.get_legend_handles_labels(); h2, l2 = ix2.get_legend_handles_labels()
     ix.legend(h1 + h2, l1 + l2, fontsize=7.2, loc="upper left")
@@ -568,7 +568,7 @@ if __name__ == "__main__":
     ci_more, ci_few = fit_ci(base, build_cure)
     print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
     print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
-    print(f"  calib: no survival stretch (L removed)  poolMed {fmt_med(Mc['poolMed'])}")
+    print(f"  pool : median {fmt_med(Mc['poolMed'])}")
     coh = Mc['coh']
     print(f"  enrol: median {month_label(med_enroll(coh))}  "
           f"cum {cum_enroll(coh,2022,4):.0f}/{cum_enroll(coh,2023,11):.0f}/{cum_enroll(coh,2024,4):.0f} "
