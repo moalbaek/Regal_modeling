@@ -50,15 +50,15 @@ The current tool is a single unified engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
-| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, enrollment selection (eligibility filter), non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, tail heaviness β, and the BAT survival-stretch cap, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; the two headline P(success) numbers and a "Trial dynamics" panel of six live charts (survival curves, event-accrual timeline, simulated-HR distribution, plateau-vs-tail divergence band, enrollment validation, and a P(success)-vs-effect power curve). | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, per-arm curves |
+| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, enrollment selection (eligibility filter), non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, tail heaviness β, and per-component shape k, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; the two headline P(success) numbers and a "Trial dynamics" panel of live charts (survival curves, event-accrual timeline, simulated-HR distribution, plateau-vs-tail divergence band, enrollment validation, a P(success)-vs-effect power curve, and a BAT-median-&-cure-vs-selection sweep). | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, per-arm curves |
 | `regal_explorer.py` | The same engine in Python (`build_cure`, `build_ll`, `mc`), with a CLI summary across the four BAT presets and an 8-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, 8-panel figure |
 
 Both share one enrollment reconstruction, one set of survival primitives, and the same significance
 threshold (Section 2.1). Within each, **two survival models are fit to the identical milestones**:
 
 - **`build_cure` / `buildCure` — plateau (cure-mixture).** A weighted mixture of per-component
-  Weibull cure-models; the GPS responder plateau and an early-hazard calibration `L` are fit to the
-  events (Sections 4.3–4.4).
+  Weibull cure-models; only the GPS responder plateau is fit to the events — the BAT arm is fixed by
+  the component medians plus enrollment selection (Sections 4.3–4.4).
 - **`build_ll` / `buildLL` — no-plateau (log-logistic).** Both arms are log-logistic tails with a
   shared shape β; a single BAT-median scale `k` and a GPS/BAT median ratio `r` are fit to the same
   events (Section 4.7).
@@ -206,21 +206,30 @@ applied to the BAT components, the GPS responders (who draw from the BAT non-cur
 the GPS non-responders (who track Observation) alike. It is a property of the enrolled population, not
 a treatment effect.
 
-**Effect (base preset).** Because the blinded milestones stay pinned, the fit re-calibrates around the
-healthier population: as `f` rises 0 → 25 → 50%, the BAT cure fraction climbs ~14 → 19 → 29%, the BAT
-survival-stretch calibration relaxes from 1.50× toward compression (0.74×), and the **plateau**
-P(success) falls ~96 → 88 → 46% — a healthier, harder-to-beat comparator shrinks the treatment effect
-the blinded data can support. The **no-plateau** number barely moves: with no plateau to lift,
-selection only shifts medians and is absorbed by the log-logistic `k/r` fit. Enrollment selection is
-therefore a *plateau-shape* lever, and a natural companion to the venetoclax-cure and composition
-knobs for building a bear case on the comparator arm.
+**`q` is the single BAT-side lever.** With the BAT arm otherwise fixed by the component medians, `q`
+is what determines how much of the milestone deceleration is attributed to a healthier enrolled cohort
+versus to the GPS effect; the plateau fit's *only* free parameter is the GPS responder cure `π_resp`.
+The default is **`q = 25%`** (mid-band; see below).
+
+**Effect (base preset).** As `q` rises 0 → 25 → 50% the BAT median OS lifts ~9 → 14 → 22 mo and the BAT
+cure fraction climbs ~14 → 19 → 29% (both plotted live in panel *(i)* / the "enrollment selection lifts
+the BAT arm" chart, `S_BAT` and `π_BAT/(1−q)`, independent of the Monte-Carlo). To keep the pooled
+60/72/78 pinned, the fitted GPS responder cure falls ~0.81 → 0.70 → 0.48, so the **plateau** P(success)
+drops steeply ~100 → 94 → 13% — a healthier, harder-to-beat comparator leaves less residual to
+attribute to GPS. Note the direction of the fit-check: at `q = 0` the raw medians *over*-produce early
+deaths (modeled ~65/74/76 vs 60/72/78) and `π_resp` cannot slow BAT, so a residual misfit at low `q` is
+the signal that *some* selection is needed; the fit tightens through the defensible band and, past it,
+the first milestone starts to *under*-fire (BAT too healthy). The **no-plateau** number barely moves:
+with no plateau to lift, selection only shifts medians and is absorbed by the log-logistic `k/r` fit.
+Enrollment selection is therefore the *plateau-shape* lever, and the natural companion to the
+venetoclax-cure and composition knobs for building a bear case on the comparator arm.
 
 ### 2.6 Bayesian priors on the BAT plateau (an alternative to the composition lever)
 
 One way to set the BAT-arm long-term-survivor fraction (π_c) is a Beta prior, with the
 GPS plateau following from the data constraint (Section 4.4). The explorer replaces this abstract
-prior with the clinically-grounded **BAT composition** (Section 2.5) and the **stretch cap**
-(Section 2.8), which together set π_BAT directly; the Beta priors below are retained only as the
+prior with the clinically-grounded **BAT composition** (Section 2.5) and the **enrollment-selection
+lever** (Section 2.5.1), which together set π_BAT directly; the Beta priors below are retained only as the
 historical mapping from a one-number prior to a P(success). Priors are **analyst choices [A]**:
 
 | Prior | Beta(a,b) | Mean π_c | Rationale |
@@ -245,7 +254,6 @@ unidentified question. All are user-controlled in the explorer.
 | Control | Range / default | Type | Role |
 |---------|-----------------|------|------|
 | Tail heaviness **β** (log-logistic) | 0.6–2.0, default 1.20 | [A] | Shape of the no-plateau model. Lower β = heavier tail (both arms survive long, smaller implied effect); higher β ≈ a plateau. Controls the orange "no-plateau" number only. |
-| Max BAT survival stretch **(×)** | 1.0–3.0×, default 1.5 | [A] | Caps how far the cure-mixture fit may stretch BAT survival past the component medians via the early-hazard multiplier `L` (`L_min = 1/maxStretch`). Tighter cap → less longevity attributed to BAT → more attributed to GPS → **higher** plateau P(success). 3× ≈ unconstrained. |
 | Enrollment timing (median) | 0–1, default 0.50 (≈ median Mar 2023) | [A] | Slides the monthly accrual between an earlier (flat) and a later (back-loaded) profile; the **implied median enrollment date** and cumulative-at-anchor counts are displayed live (Section 2.3). The sourced anchors hold the median to ~Q1–Q2 2023. |
 | Per-component shape **k** | ≥0.3, default 1 | [A] | Weibull shape of each BAT component's non-cured tail (Section 2.5). |
 
@@ -352,23 +360,23 @@ controls expose the robustness of that fit:
 
 ## 3. Calibrated / derived outputs [D]
 
-Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, default β and stretch
-cap, 0% loss-to-follow-up, weighted fit); every number is a function of the user controls in Sections
+Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, default β, enrollment
+selection q = 25%, 0% loss-to-follow-up, weighted fit); every number is a function of the user controls in Sections
 2.5–2.12, so treat these as a centre point, not a
 fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the default sim budget.
 
 | Quantity | Value (base preset) | Source |
 |----------|---------------------|--------|
 | Median enrollment date | ≈ Mar 2023 (cumulative ≈ 30 / 102 / 126 by Apr 2022 / Nov 2023 / Apr 2024) | `enroll` |
-| BAT cure / median | ~14% · ~9 mo (→ ~14 mo after stretch cap) | `build_cure` |
-| GPS cure / median | ~57% · ~78 mo all-cause (disease-only plateau is never reached) | `build_cure` |
-| GPS median Poisson 68% CI | ~23 – 222 mo (from 60/72/78 ±√n) — wide: three counts barely pin the tail | `fit_ci` |
-| Pooled long-term-survivor fraction | ~0.33–0.37 (disease plateau; all-cause survival decays below it) | `build_cure` |
-| Pooled median OS | **~16–21 mo** (above the ≥13.5 floor) | `build_cure` |
-| Implied HR at the 60-event interim | ~0.45 (clears the 1.00 futility threshold) | `mc` |
-| Patients alive at the 80th event | ~34 GPS / ~12 BAT (before censoring) | `mc` |
-| **P(success) — plateau (cure-mixture)** | **~94–97%** | `build_cure` + `mc` |
-| **P(success) — no-plateau (log-logistic, β=1.2)** | **~99–100%** | `build_ll` + `mc` |
+| BAT cure / median | ~19% · ~14 mo at the q=25% default; selection sweeps it ~14% · ~9 mo (q=0) → ~29% · ~22 mo (q=50%) (Section 2.5.1) | `build_cure` |
+| GPS cure / median | ~58% · ~90 mo all-cause (disease-only plateau is never reached); both fall as selection rises and `π_resp` re-fits down | `build_cure` |
+| GPS median Poisson 68% CI | ~21 – 234 mo (from 60/72/78 ±√n) — wide: three counts barely pin the tail | `fit_ci` |
+| Pooled long-term-survivor fraction | ~0.39 (disease plateau; all-cause survival decays below it) | `build_cure` |
+| Pooled median OS | **~20 mo** (above the ≥13.5 floor) | `build_cure` |
+| Implied HR at the 60-event interim | ~0.48 (clears the 1.00 futility threshold); drifts toward 1 as selection rises | `mc` |
+| Patients alive at the 80th event | ~33 GPS / ~13 BAT (before censoring) | `mc` |
+| **P(success) — plateau (cure-mixture)** | **~95% at the q=25% default**; selection sweeps it ~100% (q=0) → ~13% (q=50%) (Section 2.5.1) | `build_cure` + `mc` |
+| **P(success) — no-plateau (log-logistic, β=1.2)** | **~99–100%** (largely selection-insensitive) | `build_ll` + `mc` |
 | 80th event reached in MC | ~100% of sims (both shapes) at the 2% natural-death default; the plateau drops to ~82% only at 0% natural death | `mc` |
 
 The 2% natural-death default (Section 2.9) raises the GPS arm cure to ~57% and, because it guarantees
@@ -397,10 +405,10 @@ main output.
 
 The explorer carries **two** primitives, fit independently to the same milestones:
 
-- **Plateau (cure-mixture, Weibull):** `Sc(t) = π + (1−π)·exp(−(L·t / λ)^k)`, a cured/long-term-survivor
+- **Plateau (cure-mixture, Weibull):** `Sc(t) = π + (1−π)·exp(−(t / λ)^k)`, a cured/long-term-survivor
   fraction π plus a Weibull-decaying remainder. λ is set so the non-cured median equals the component
-  median (`λ = median / A(π)^{1/k}`, `A(π) = −ln[(0.5−π)/(1−π)]`); `k = 1` recovers the original pure
-  exponential; `L` is the early-hazard calibration multiplier (Section 4.3). Rationale: cancer-vaccine
+  median (`λ = median / A(π)^{1/k}`, `A(π) = −ln[(0.5−π)/(1−π)]`); `k = 1` recovers the pure
+  exponential. Rationale: cancer-vaccine
   effects classically manifest as a durable-remission (plateau) difference rather than a uniform hazard
   shift, and the steep post-interim event deceleration cannot be fit by any single smooth non-plateau
   curve.
@@ -429,11 +437,14 @@ up-weight the most recent (and most informative) milestone (a **toggle** switche
 `[1, 1, 1]` to check the choice is not load-bearing — at base it shifts the GPS median by ~1 mo), over
 a coarse grid followed by three local-refinement passes. Sampling uncertainty in the counts is
 propagated by refitting at each milestone ±√n, giving a ~68% Poisson interval on the derived medians
-(Section 2.12). For the plateau model the two free parameters are the GPS responder cure
-`π_resp` and the early-hazard multiplier `L` (bounded by `L ∈ [1/maxStretch, 2.2]`); the displayed
-"survival calibration" is `1/L`. The enrollment shape is set by the back-loading slider (Section 2.8)
-rather than marginalized. (An earlier Bayesian formulation used a Poisson log-likelihood with a
-prior on π_BAT; the explorer replaces that with this transparent point-fit + composition lever.)
+(Section 2.12). For the plateau model there is a **single** free parameter — the GPS responder
+cure `π_resp` — fit over a 1-D grid plus local refinement. The BAT arm is fully determined by the
+component medians and the enrollment-selection fraction `q` (Section 2.5.1): any longevity the
+milestones demand beyond the raw component medians is supplied *explicitly* by `q` — a healthier
+enrolled cohort — rather than by any hidden calibration. The enrollment shape is set by the
+back-loading slider (Section 2.8) rather than marginalized. (An earlier Bayesian formulation used a
+Poisson log-likelihood with a prior on π_BAT; the explorer replaces that with this transparent
+point-fit + composition/selection levers.)
 
 ### 4.4 Arm decomposition (the unidentified step)
 
@@ -503,12 +514,12 @@ the computed results match).
 | Function | Purpose |
 |----------|---------|
 | `Acoef` / `lam` | Weibull coefficient `A(π) = −ln[(0.5−π)/(1−π)]` and scale `λ = median / A^{1/k}`. |
-| `Sc(t, med, cure, k, L)` | Per-component cure-mixture Weibull survival (the plateau primitive, Section 4.1). |
+| `Sc(t, med, cure, k)` | Per-component cure-mixture Weibull survival (the plateau primitive, Section 4.1). |
 | `Sll(t, α, β)` | Log-logistic survival (the no-plateau primitive). |
 | `sampNC` / `sampLL` | Inverse-CDF samplers for non-cured Weibull and log-logistic times (Monte-Carlo draws). |
 | `enroll(bl, N)` | Monthly enrollment cohorts summing to `N`, interpolating flat↔back-loaded by `bl` (Section 2.3). |
 | `common(cfg)` | Shared setup: normalized weights, clamped per-component params, cohorts, milestones, fit weights. |
-| `build_cure` / `buildCure` | Plateau model: fits `π_resp` and the stretch multiplier `L` to the milestones; returns per-arm `Sbat/Sgps/Spool`, cures, medians (Sections 4.3–4.4). |
+| `build_cure` / `buildCure` | Plateau model: fits the single free parameter `π_resp` (GPS responder cure) to the milestones with the BAT arm fixed by components + selection `q`; returns per-arm `Sbat/Sgps/Spool`, cures, medians (Sections 4.3–4.4). |
 | `build_ll` / `buildLL` | No-plateau model: fits BAT-median scale `k` and GPS/BAT ratio `r` at fixed β (Section 4.7). |
 | `median(S)` | Bisection median of a survival function (`∞`/"NR" if never below 0.5 within 900 mo). |
 | `mc(M, nsim)` | Monte-Carlo trial: enrollment → per-arm death draws → censor at the 80th event → **log-rank/Cox score test**; returns P(significant), 80th-event-reached fraction, median HR (Section 4.5). |
