@@ -1,21 +1,22 @@
 """REGAL Scenario Explorer — Python engine (port of regal_explorer.html).
 
 The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is
-always re-calibrated and only the *split between arms* moves. BOTH panels share one
-responder curve — a Weibull (shape < 1 = heavier tail) — and differ by a single
-assumption, whether long-term responders are cured:
+always re-calibrated and only the *split between arms* moves. The headline is the
+PLATEAU (GPS-cure) probability of success. The SECOND panel is a NULL TEST, not a
+co-equal probability: it holds the BAT arm bit-for-bit identical and swaps only the
+GPS *responder* component:
 
-  * a PLATEAU shape    — the shared Weibull PLUS a cured fraction (cure-mixture),
-  * a NO-PLATEAU shape  — the same Weibull with NO cure and a *fitted* tail shape.
+  * plateau (GPS cure)  — GPS responders get a durable-remission plateau (cure-mixture),
+  * no-GPS-cure null    — GPS responders are a fitted NO-CURE Weibull (median mG, tail sG).
 
-The gap between the two headline numbers is the irreducible "is the plateau real?"
-uncertainty that the blinded data cannot resolve. The no-plateau tail shape is a
-fitted parameter (alongside the BAT median and GPS/BAT ratio); if the fit lands on a
-parameter boundary the panel is reported as degenerate/excluded rather than as a
-falsely confident number. This file mirrors, function for function, the JavaScript
-in regal_explorer.html:
+GPS non-responders (fnr) track Observation in BOTH panels. The null asks whether the
+milestone plateau *requires* a GPS-specific durable benefit, and emits a three-state
+verdict — A rejected (non-identified: mG/sG runs to a boundary), B rejected
+(inconsistent: milestone residual too large), or C not excluded (a no-cure GPS heavy
+tail also fits, given this BAT). Only State C carries a second P(success). This file
+mirrors, function for function, the JavaScript in regal_explorer.html:
 
-  enroll · common · build_plateau · build_no_plateau · mc · median · chart(figure)
+  enroll · common · bat_arm · build_plateau · build_no_gps_cure · mc · median · chart(figure)
 
 Research/analysis tool, not investment advice.
 """
@@ -40,7 +41,7 @@ def sampNC(med, cure, k, u):                                     # sample a NON-
     return lam(med, cure, k) * (-np.log(u)) ** (1.0 / k)
 # Shared responder family used by BOTH panels: a Weibull (shape<1 = heavier tail, monotone
 # non-increasing hazard). The plateau panel wraps it in a cured fraction (Sc above); the
-# no-plateau panel uses it bare. wscale maps a target median to the Weibull scale (S(median)=0.5).
+# no-GPS-cure null uses it bare for GPS responders. wscale maps a median to the scale (S(median)=0.5).
 def Sweib(t, scale, shape):                                      # bare Weibull survival
     return np.exp(-(np.clip(t, 0, None) / scale) ** shape)
 sampWeib = lambda scale, shape, u: scale * (-np.log(u)) ** (1.0 / shape)      # inverse-transform Weibull sample
@@ -81,7 +82,7 @@ PRESETS = {
 }
 
 def default_cfg(**over):
-    cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, shape=0.90, shapeOverride=False,
+    cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, shape=0.60, shapeOverride=False,
                ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.25, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
@@ -147,21 +148,32 @@ def cum_enroll(coh, y, m, d=28):
     """Cumulative patients enrolled by a calendar date (for the sourced PR anchors)."""
     return float(coh[coh[:, 0] <= mo(y, m, d), 1].sum())
 
-# ---------------------------------------------------------------- plateau model (cure-mixture)
-def build_plateau(cfg):
+# ---------------------------------------------------------------- shared BAT arm (both panels)
+def bat_arm(cfg):
+    """The BAT arm construction shared byte-for-byte by BOTH panels. The two panels are literally
+    one biological lever apart: same per-component medians, cures, shapes and left-truncation."""
     w, cm, coh, MT, MOBS, WT = common(cfg)
-    fnr = cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
     F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # enrollment selection: left-truncate weakest fraction F
     # Left-truncation (keep the strongest 1-F): the flat pre-quantile segment is guarantee time
     # (REGAL's "life expectancy > 6mo" enrolment floor), not an artifact. As t->inf the cured
-    # fraction is RAISED to cure/(1-F). Shared, identical to the no-plateau panel.
+    # fraction is RAISED to cure/(1-F).
     def Ssel(t, c):
         return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"]) / (1 - F))
     pibat = sum(w[i] * cm[i]["cure"] / (1 - F) for i in range(len(cm)))
     obs = cm[0]
     def Sbat(t): return sum(w[i] * Ssel(t, cm[i]) for i in range(len(cm)))
-    def Snc(t):  return (Sbat(t) - pibat) / (1 - pibat)
+    def Snc(t):  return (Sbat(t) - pibat) / (1 - pibat)   # non-cured BAT shape (plateau panel only)
+    return dict(w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT, h=h, hd=hd, F=F,
+                Ssel=Ssel, pibat=pibat, obs=obs, Sbat=Sbat, Snc=Snc)
+
+# ---------------------------------------------------------------- plateau (GPS-cure) model
+def build_plateau(cfg):
+    # "plateau"/"cure" here means the GPS-cure model: GPS responders get a durable-remission plateau.
+    B = bat_arm(cfg)
+    w, cm, coh, MT, MOBS, WT = B["w"], B["cm"], B["coh"], B["MT"], B["MOBS"], B["WT"]
+    h, hd, F, Ssel, pibat, obs, Sbat, Snc = B["h"], B["hd"], B["F"], B["Ssel"], B["pibat"], B["obs"], B["Sbat"], B["Snc"]
+    fnr = cfg["fnr"]
     def Spool(t, pr):
         return 0.5 * Sbat(t) + 0.5 * ((1 - fnr) * (pr + (1 - pr) * Snc(t)) + fnr * Ssel(t, obs))
     # observed deaths are all-cause (disease x background mortality) and net of loss-to-follow-up.
@@ -194,78 +206,91 @@ def build_plateau(cfg):
                 batMed=median(Sb), gpsMed=median(Sg), poolMed=median(Sp),
                 poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp))
 
-# ------------------------------------------------- no-plateau model (Weibull, NO cure; tail fitted)
-def build_no_plateau(cfg):
-    w, cm, coh, MT, MOBS, WT = common(cfg)
-    h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
-    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)          # enrollment selection: left-truncate weakest fraction F
-    SHMIN, SHMAX, KMIN, KMAX, RMIN, RMAX = 0.35, 1.5, 0.5, 3.0, 1.0, 8.0   # fit bounds (shape free to go heavy)
-    fit_shape = not cfg.get("shapeOverride", False)       # AUTO fits shape; override holds the slider value fixed
-    # Left-truncation (keep the strongest 1-F): the SAME operator as the plateau panel. §3: the GPS
-    # arm is a SINGLE responder curve (no fnr seam), so no spurious plateau shoulder can appear.
-    def Strunc(t, med, sh): return np.minimum(1.0, Sweib(t, wscale(med, sh), sh) / (1 - F))
-    mC = sum(w[i] * cm[i]["med"] for i in range(len(cm)))  # weighted-mean component median (pooled scale anchor)
-    def Spool(t, k, r, sh):
-        mB = k * mC
-        return 0.5 * Strunc(t, mB, sh) + 0.5 * Strunc(t, r * mB, sh)
-    def ed(T, k, r, sh):
-        Sf = lambda t: Spool(t, k, r, sh) * Snat(t, h)
+# ---------------------------------- no-GPS-cure NULL test (shared BAT + a NO-CURE Weibull GPS responder)
+def build_no_gps_cure(cfg):
+    """Identical BAT to the plateau panel; GPS responders swap the cure-mixture for a fitted no-cure
+    Weibull (median mG, tail shape sG); GPS non-responders (fnr) still track Observation in BOTH
+    panels. Tests the null 'the milestone plateau does not require a GPS-specific durable benefit.'
+    Emits a three-state verdict (A rejected/non-identified, B rejected/inconsistent, C not excluded)."""
+    B = bat_arm(cfg)
+    w, cm, coh, MT, MOBS, WT = B["w"], B["cm"], B["coh"], B["MT"], B["MOBS"], B["WT"]
+    h, hd, F, Ssel, pibat, obs, Sbat = B["h"], B["hd"], B["F"], B["Ssel"], B["pibat"], B["obs"], B["Sbat"]
+    fnr = cfg["fnr"]
+    bat_med = median(lambda t: Sbat(t) * Snat(t, h))
+    fit_shape = not cfg.get("shapeOverride", False)       # AUTO fits sG; override holds the slider value fixed
+    MGLO = min(bat_med if np.isfinite(bat_med) else 60.0, 110.0); MGHI = 120.0; SGMIN, SGMAX = 0.15, 1.5
+    # GPS responder = a single NO-CURE Weibull, left-truncated exactly like BAT (same selection lever).
+    def Sresp(t, mG, sG): return np.minimum(1.0, Sweib(t, wscale(mG, sG), sG) / (1 - F))
+    # GPS non-responders (fnr) track Observation — unchanged and identical to the plateau panel.
+    def Sgps(t, mG, sG): return (1 - fnr) * Sresp(t, mG, sG) + fnr * Ssel(t, obs)
+    def Spool(t, mG, sG): return 0.5 * Sbat(t) + 0.5 * Sgps(t, mG, sG)
+    def ed(T, mG, sG):
+        Sf = lambda t: Spool(t, mG, sG) * Snat(t, h)
         return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
-    def resid(k, r, sh):
-        return sum(WT[j] * (ed(MT[j], k, r, sh) - MOBS[j]) ** 2 for j in range(3))
+    def resid(mG, sG):
+        return sum(WT[j] * (ed(MT[j], mG, sG) - MOBS[j]) ** 2 for j in range(3))
 
-    # §2: fit BAT median scaler k, GPS/BAT ratio r, AND (auto) the Weibull tail shape to the 3
-    # milestones. BAT (k) stays free and shape is free to go heavy — the two §2 guardrails.
-    shN = 12 if fit_shape else 0
-    best, bs = (1.4, 2.0, 0.9 if fit_shape else cfg["shape"]), 1e18
-    for si in range(shN + 1):
-        sh = (SHMIN + (SHMAX - SHMIN) * si / shN) if fit_shape else cfg["shape"]
-        for ki in range(19):
-            k = KMIN + (KMAX - KMIN) * ki / 18.0
-            for ri in range(25):
-                r = RMIN + (RMAX - RMIN) * ri / 24.0
-                e = resid(k, r, sh)
-                if e < bs: bs, best = e, (k, r, sh)
-    for it in range(3):
-        k0, r0, s0 = best; st = 1.0 / (it + 1)
-        for dk in range(-2, 3):
-            for dr in range(-2, 3):
-                for ds in range(-2, 3):
-                    if not fit_shape and ds != 0: continue
-                    k = min(KMAX, max(KMIN, k0 + dk * 0.07 * st))
-                    r = min(RMAX, max(RMIN, r0 + dr * 0.22 * st))
-                    sh = min(SHMAX, max(SHMIN, s0 + ds * 0.05 * st)) if fit_shape else s0
-                    e = resid(k, r, sh)
-                    if e < bs: bs, best = e, (k, r, sh)
-    k, r, shape = best; mB = k * mC
-    # §5: a boundary-bound fit is non-identified, not a result. Raise the ratio cap and re-fit r;
-    # if the fitted ratio tracks the higher cap, the milestones don't pin it (unidentified).
-    r_track = False
-    if r >= RMAX - 0.25:
-        RMAX2 = RMAX * 1.6; r2b, bs2 = r, 1e18
-        for ri in range(25):
-            r2 = RMIN + (RMAX2 - RMIN) * ri / 24.0
-            e = resid(k, r2, shape)
-            if e < bs2: bs2, r2b = e, r2
-        r_track = r2b > RMAX + 0.25
-    r_cap = r >= RMAX - 0.15
-    k_cap = (k >= KMAX - 0.03) or (k <= KMIN + 0.02)
-    sh_edge = fit_shape and (shape <= SHMIN + 0.02 or shape >= SHMAX - 0.02)
-    degenerate = bool(r_track or r_cap or k_cap or sh_edge)
-    edv = [ed(t, k, r, shape) for t in MT]                 # modeled deaths at the milestones (residual evidence)
-    parts = ([] + (["median ratio at cap"] if (r_cap or r_track) else [])
-             + (["BAT median at bound"] if k_cap else [])
-             + (["tail shape at range edge"] if sh_edge else []))
-    boundary_note = ("boundary-bound: " + ", ".join(parts)) if degenerate else ""
-    Sb = lambda t: Strunc(t, mB, shape) * Snat(t, h)
-    Sg = lambda t: Strunc(t, r * mB, shape) * Snat(t, h)
-    Sp = lambda t: 0.5 * Sb(t) + 0.5 * Sg(t)
-    return dict(kind="noplateau", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
-                shape=shape, k=k, r=r, mB=mB, h=h, ratio=r, fitShape=fit_shape,
-                degenerate=degenerate, boundaryNote=boundary_note, edv=edv, ed_raw=ed,
+    # §2/§3: fit the GPS responder median mG and (auto) tail shape sG to the 3 milestones. §3: BAT is
+    # FIXED on purpose here (control the confound, vary the thesis parameter); sG is free to go heavy.
+    sgN = 18 if fit_shape else 0
+    best, bs = (min(MGHI, (bat_med or 12.0) * 2), 0.6 if fit_shape else cfg["shape"]), 1e18
+    for mi in range(31):
+        mG = MGLO + (MGHI - MGLO) * mi / 30.0
+        for si in range(sgN + 1):
+            sG = (SGMIN + (SGMAX - SGMIN) * si / (sgN or 1)) if fit_shape else cfg["shape"]
+            e = resid(mG, sG)
+            if e < bs: bs, best = e, (mG, sG)
+    for it in range(4):
+        m0, s0 = best; st = 1.0 / (it + 1)
+        for dm in range(-3, 4):
+            for ds in range(-3, 4):
+                if not fit_shape and ds != 0: continue
+                mG = min(MGHI, max(MGLO, m0 + dm * 1.2 * st))
+                sG = min(SGMAX, max(SGMIN, s0 + ds * 0.04 * st)) if fit_shape else s0
+                e = resid(mG, sG)
+                if e < bs: bs, best = e, (mG, sG)
+    mG, sG = best
+    edv = [ed(t, mG, sG) for t in MT]
+    rms_resid = float(np.sqrt(sum((edv[i] - MOBS[i]) ** 2 for i in range(3)) / 3.0))
+    max_off = float(max(abs(edv[i] - MOBS[i]) for i in range(3)))
+    # §5 boundary detection (relocated from the old ratio runaway onto the GPS knobs).
+    mg_cap = mG >= MGHI - 0.5; mg_floor = mG <= MGLO + 0.5
+    sg_heavy = fit_shape and sG <= SGMIN + 0.01; sg_light = fit_shape and sG >= SGMAX - 0.01
+    mg_track = False
+    if mg_cap:                                             # raise the mG cap; if the fit tracks it, mG is unidentified
+        MGHI2 = MGHI * 1.6; m2b, b2 = mG, 1e18
+        for mi in range(21):
+            mm = MGLO + (MGHI2 - MGLO) * mi / 20.0
+            e = resid(mm, sG)
+            if e < b2: b2, m2b = e, mm
+        mg_track = m2b > MGHI + 1.0
+    # §5 three-state verdict (RMS-based tolerance so the weighted fit's deliberate middle-milestone
+    # trade-off does not by itself trip State B).
+    RMS_TOL, OFF_TOL = 2.0, 3.0
+    if mg_cap or mg_track or sg_heavy or sg_light:
+        state = "A"
+        reason = (("GPS median runs to its %dmo cap%s — a de-facto cure" % (MGHI, " and tracks a raised cap" if mg_track else ""))
+                  if (mg_cap or mg_track) else
+                  ("tail shape pinned at the heavy edge (%.2f) — a near-degenerate tail faking the plateau" % SGMIN) if sg_heavy else
+                  ("tail shape pinned at the light edge (%.2f) — a near-step (delayed-cliff) responder faking the plateau" % SGMAX))
+    elif rms_resid > RMS_TOL or max_off > OFF_TOL:
+        state = "B"
+        reason = "residual RMS %.1f (modeled %s vs %s)" % (rms_resid, "/".join("%.0f" % x for x in edv), "/".join("%.0f" % x for x in MOBS))
+    else:
+        state = "C"
+        reason = ("GPS ~= BAT — essentially no GPS separation needed (median %.0fmo)" % mG) if mg_floor \
+                 else ("interior fit (median %.0fmo, tail shape %.2f)" % (mG, sG))
+    degenerate = state in ("A", "B")
+    Sb = lambda t: Sbat(t) * Snat(t, h)
+    Sg = lambda t: Sgps(t, mG, sG) * Snat(t, h)
+    Sp = lambda t: Spool(t, mG, sG) * Snat(t, h)
+    return dict(kind="nogpscure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
+                h=h, pibat=pibat, obs=obs, fnr=fnr, mG=mG, sG=sG, shape=sG, fitShape=fit_shape,
+                batMed=bat_med, ratio=(mG / bat_med if np.isfinite(bat_med) else np.nan),
+                edv=edv, rmsResid=rms_resid, maxOff=max_off, state=state, reason=reason,
+                boundaryNote=reason, degenerate=degenerate, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
-                batMed=median(Sb), gpsMed=median(Sg), poolMed=median(Sp),
-                ed=lambda t: ed(t, k, r, shape))
+                gpsMed=median(Sg), poolMed=median(Sp), ed=lambda t: ed(t, mG, sG))
 
 # ---------------------------------------------------------------- fit uncertainty
 def fit_ci(cfg, builder):
@@ -340,6 +365,19 @@ def mc(M, nsim=1500, seed=987654321):
             out[rs] = np.where(cured, 1e9, s)
         return out
 
+    def draw_nogpscure_gps(n):   # BAT + GPS non-responder identical to draw_cure_gps; responder = NO-CURE Weibull
+        out = np.empty(n)
+        isnr = rng.random(n) < fnr
+        nr = np.where(isnr)[0]; rs = np.where(~isnr)[0]
+        obs = M["obs"]
+        if nr.size:
+            cured = rng.random(nr.size) < obs["cure"] / (1 - F)
+            s = sampNC(obs["med"], obs["cure"], obs["k"], rng.random(nr.size) * snq[0])
+            out[nr] = np.where(cured, 1e9, s)
+        if rs.size:
+            out[rs] = sampWeib(wscale(M["mG"], M["sG"]), M["sG"], rng.random(rs.size) * (1 - F))
+        return out
+
     for _ in range(nsim):
         arm = rng.permutation(np.r_[np.ones(n1), np.zeros(N - n1)]).astype(int)
         en = coh[rng.choice(len(coh), size=N, p=cohp), 0]
@@ -348,11 +386,9 @@ def mc(M, nsim=1500, seed=987654321):
         if M["kind"] == "plateau":
             surv[a1] = draw_cure_gps(a1.sum())
             surv[a0] = draw_cure_bat(a0.sum())
-        else:   # no-plateau: a SINGLE left-truncated Weibull responder per arm — no fnr seam (§3)
-            mB, shape, r = M["mB"], M["shape"], M["r"]
-            u = rng.random(N) * (1 - F)                              # U~Unif(0,1-F): inverse-transform keeps the strongest 1-F
-            surv[a0] = sampWeib(wscale(mB, shape), shape, u[a0])
-            surv[a1] = sampWeib(wscale(r * mB, shape), shape, u[a1])
+        else:   # nogpscure: BAT + GPS non-responder identical to plateau; GPS responder = no-cure Weibull
+            surv[a0] = draw_cure_bat(a0.sum())
+            surv[a1] = draw_nogpscure_gps(a1.sum())
         if h > 0:                                                   # natural death may preempt disease death
             surv = np.minimum(surv, -np.log(rng.random(N)) / h)
         # loss-to-follow-up: an independent censoring time; if it precedes death the patient is censored
@@ -411,12 +447,12 @@ def figure(path, nsim=1500):
                          "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 140})
     fig, ax = plt.subplots(3, 3, figsize=(16.5, 15.4)); tg = np.linspace(0, 48, 300)
 
-    # base preset is reused by (a),(d),(e),(f); fit both shapes once
+    # base preset is reused by (a),(d),(e),(f); fit both panels once
     cfg = apply_preset(default_cfg(), "base")
-    Mc = build_plateau(cfg); Ml = build_no_plateau(cfg)
+    Mc = build_plateau(cfg); Ml = build_no_gps_cure(cfg)
     rc = mc(Mc, nsim); rl = mc(Ml, nsim)
 
-    # (a) survival curves for the base preset, plateau (cure) shape
+    # (a) survival curves for the base preset, plateau (GPS-cure) panel
     a = ax[0, 0]
     a.plot(tg, 100 * Mc["Sbat"](tg), color=RED, lw=2.4, label=f"BAT (cure {100*Mc['pibat']:.0f}%)")
     a.plot(tg, 100 * Mc["Sgps"](tg), color=NAVY, lw=2.4, label=f"GPS (cure {100*Mc['pgps']:.0f}%)")
@@ -429,42 +465,47 @@ def figure(path, nsim=1500):
     a.set_xlabel("months from randomization"); a.set_ylabel("% alive")
     a.set_xlim(0, 48); a.set_ylim(0, 101); a.legend(fontsize=7.4, loc="upper right")
 
-    # (b) dual P(success) across the non-responder sweep (base preset)
+    # helper: no-GPS-cure PoS only where State C (the null yields a P(success) only when not excluded)
+    def nullPoS(c):
+        m = build_no_gps_cure(c)
+        return (100 * mc(m, nsim)["ps"]) if m["state"] == "C" else np.nan
+
+    # (b) plateau PoS + no-GPS-cure PoS (State C only) across the non-responder sweep (base preset)
     fr = [0, 10, 20, 30, 40]; pc = []; pll = []
     for f in fr:
         c = apply_preset(default_cfg(fnr=f / 100.0), "base")
         pc.append(100 * mc(build_plateau(c), nsim)["ps"])
-        pll.append(100 * mc(build_no_plateau(c), nsim)["ps"])
+        pll.append(nullPoS(c))
     b = ax[0, 1]
-    b.plot(fr, pc, color=NAVY, lw=2.4, marker="o", label="Plateau (cured fraction)")
-    b.plot(fr, pll, color=ORANGE, lw=2.2, ls="-.", marker="s", label="No-plateau (fitted Weibull tail)")
+    b.plot(fr, pc, color=NAVY, lw=2.4, marker="o", label="Plateau (GPS cure)")
+    b.plot(fr, pll, color=ORANGE, lw=2.2, ls="-.", marker="s", label="No-GPS-cure (State C only)")
     b.axhline(50, color=GREY, ls=":", lw=1)
     b.set_ylim(0, 103); b.set_xlabel("% GPS non-responders"); b.set_ylabel("P(success) %")
-    b.set_title("(b) Non-responders barely move either shape's P(success)",
+    b.set_title("(b) Non-responders barely move the plateau P(success)",
                 fontweight="bold", fontsize=9); b.legend(fontsize=7.6)
 
-    # (c) dual P(success) across the four BAT-composition presets
+    # (c) plateau PoS + no-GPS-cure PoS (State C only) across the four BAT-composition presets
     names = ["base", "low", "dom", "bear"]; labels = ["Base", "Low-ven", "Ven-dom", "Bear"]
     gc = []; gl = []
     for nm in names:
         c = apply_preset(default_cfg(), nm)
         gc.append(100 * mc(build_plateau(c), nsim)["ps"])
-        gl.append(100 * mc(build_no_plateau(c), nsim)["ps"])
+        v = nullPoS(c); gl.append(0.0 if np.isnan(v) else v)
     c = ax[0, 2]; x = np.arange(len(names))
-    c.bar(x - 0.19, gc, 0.36, color=NAVY, label="Plateau")
-    c.bar(x + 0.19, gl, 0.36, color=ORANGE, label="No-plateau")
+    c.bar(x - 0.19, gc, 0.36, color=NAVY, label="Plateau (GPS cure)")
+    c.bar(x + 0.19, gl, 0.36, color=ORANGE, label="No-GPS-cure (State C; 0 = rejected)")
     c.set_xticks(x); c.set_xticklabels(labels); c.set_ylim(0, 103)
     c.set_ylabel("P(success) %")
-    c.set_title("(c) The plateau-vs-tail gap is the irreducible uncertainty",
-                fontweight="bold", fontsize=9); c.legend(fontsize=7.6)
+    c.set_title("(c) Plateau is the headline; the null is a verdict, not a rival PoS",
+                fontweight="bold", fontsize=9); c.legend(fontsize=7.0)
 
     # (d) event-accrual timeline — modeled cumulative deaths vs calendar, milestone anchors, 80-event trigger
     d = ax[1, 0]; N, FINAL = cfg["N"], cfg["FINAL"]
     t0 = float(Mc["coh"][0, 0]); t1 = 90.0
     ts = np.linspace(t0, t1, 220); dts = [_to_date(t) for t in ts]
     edc = np.array([Mc["ed"](t) for t in ts]); edl = np.array([Ml["ed"](t) for t in ts])
-    d.plot(dts, edc, color=NAVY, lw=2.2, label="Plateau accrual")
-    d.plot(dts, edl, color=ORANGE, lw=2.0, ls="-.", label="No-plateau accrual")
+    d.plot(dts, edc, color=NAVY, lw=2.2, label="Plateau (GPS-cure) accrual")
+    d.plot(dts, edl, color=ORANGE, lw=2.0, ls="-.", label=f"No-GPS-cure accrual (State {Ml['state']})")
     d.scatter([_to_date(t) for t in Mc["MT"]], Mc["MOBS"], color=RED, s=34, zorder=5,
               label="Blinded milestones (60/72/78)")
     d.axhline(FINAL, color=RED, ls="--", lw=1, alpha=.6)
@@ -486,8 +527,9 @@ def figure(path, nsim=1500):
     bins = np.linspace(0.0, 1.6, 41)
     hc = rc["hrsAll"]; hl = rl["hrsAll"]
     hc = np.clip(hc[np.isfinite(hc)], 0, 1.59); hl = np.clip(hl[np.isfinite(hl)], 0, 1.59)
-    e.hist(hc, bins=bins, density=True, color=NAVY, alpha=.55, label=f"Plateau  (P={100*rc['ps']:.0f}%)")
-    e.hist(hl, bins=bins, density=True, color=ORANGE, alpha=.45, label=f"No-plateau  (P={100*rl['ps']:.0f}%)")
+    e.hist(hc, bins=bins, density=True, color=NAVY, alpha=.55, label=f"Plateau (GPS cure)  (P={100*rc['ps']:.0f}%)")
+    _npl = f"P={100*rl['ps']:.0f}%" if Ml["state"] == "C" else f"State {Ml['state']}"
+    e.hist(hl, bins=bins, density=True, color=ORANGE, alpha=.45, label=f"No-GPS-cure  ({_npl})")
     e.axvspan(0, HRC, color=TEAL, alpha=.07)
     e.axvline(HRC, color=RED, lw=1.4, ls="--")
     e.axvline(1.0, color=GREY, lw=1, ls=":")
@@ -497,17 +539,17 @@ def figure(path, nsim=1500):
     e.set_title("(e) Each trial's HR is a draw; success = mass below the line",
                 fontweight="bold", fontsize=9); e.legend(fontsize=7.2, loc="upper right")
 
-    # (f) plateau-vs-tail divergence — both pooled curves agree at the milestones, fan apart in the tail
+    # (f) GPS-cure vs no-GPS-cure pooled divergence — both pinned at the milestones, fan apart in the tail
     f = ax[1, 2]
     sc = 100 * Mc["Spool"](tg); sl = 100 * Ml["Spool"](tg)
-    f.fill_between(tg, sc, sl, color=GREY, alpha=.18, label="shape disagreement")
-    f.plot(tg, sc, color=NAVY, lw=2.2, label="Plateau pooled")
-    f.plot(tg, sl, color=ORANGE, lw=2.0, ls="-.", label="No-plateau pooled")
-    for ev in cfg["ev"]:                                       # event-fraction levels both shapes are pinned to
+    f.fill_between(tg, sc, sl, color=GREY, alpha=.18, label="pooled disagreement")
+    f.plot(tg, sc, color=NAVY, lw=2.2, label="Plateau (GPS-cure) pooled")
+    f.plot(tg, sl, color=ORANGE, lw=2.0, ls="-.", label=f"No-GPS-cure pooled (State {Ml['state']})")
+    for ev in cfg["ev"]:                                       # event-fraction levels both are pinned to
         f.axhline(100 * (1 - ev["n"] / N), color=RED, ls=":", lw=.9, alpha=.5)
     f.set_xlim(0, 48); f.set_ylim(0, 101)
     f.set_xlabel("months from randomization"); f.set_ylabel("% alive (pooled)")
-    f.set_title("(f) Both shapes pinned at the milestones; the gap is irreducible",
+    f.set_title("(f) Same milestones, different tail: is the plateau GPS-specific?",
                 fontweight="bold", fontsize=9); f.legend(fontsize=7.2, loc="upper right")
 
     # (g) enrollment validation — modeled cumulative enrollment vs the sourced public anchors
@@ -530,8 +572,8 @@ def figure(path, nsim=1500):
     hx = ax[2, 1]; nsim_h = max(250, nsim // 3)
 
     def power_sweep(M, key, vals, fixed):
-        """Sweep one effect knob (presp for plateau, r for no-plateau); return implied HR, P(success),
-        and milestone misfit at each point. The pooled curve is only data-consistent near the fit."""
+        """Sweep one effect knob (presp for plateau, GPS median mG for the null); return implied HR,
+        P(success), and milestone misfit at each point. The pooled curve is only data-consistent near the fit."""
         base = M[key]; hr, ps, E = [], [], []
         for v in vals:
             M[key] = v; r = mc(M, nsim_h)
@@ -543,7 +585,8 @@ def figure(path, nsim=1500):
         o = np.argsort(hr); return hr[o], ps[o], E[o]
 
     p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13), lambda pv: (pv,))
-    l_hr, l_ps, l_E = power_sweep(Ml, "r", np.linspace(1.0, 7.0, 13), lambda rv: (Ml["k"], rv, Ml["shape"]))
+    mg_lo = Ml["batMed"] if np.isfinite(Ml["batMed"]) else 12.0
+    l_hr, l_ps, l_E = power_sweep(Ml, "mG", np.linspace(mg_lo, 120.0, 13), lambda mv: (mv, Ml["sG"]))
 
     def band(hr, E):                                            # HR span of the data-consistent (low-misfit) points
         if not len(E): return None
@@ -552,8 +595,8 @@ def figure(path, nsim=1500):
     for hr, E, col in [(p_hr, p_E, NAVY), (l_hr, l_E, ORANGE)]:
         bd = band(hr, E)
         if bd: hx.axvspan(bd[0], bd[1], color=col, alpha=.10)
-    hx.plot(p_hr, p_ps, color=NAVY, lw=2.4, marker="o", ms=3, label="Plateau")
-    hx.plot(l_hr, l_ps, color=ORANGE, lw=2.2, ls="-.", marker="s", ms=3, label="No-plateau")
+    hx.plot(p_hr, p_ps, color=NAVY, lw=2.4, marker="o", ms=3, label="Plateau (GPS cure)")
+    hx.plot(l_hr, l_ps, color=ORANGE, lw=2.2, ls="-.", marker="s", ms=3, label="No-GPS-cure (vary mG)")
     hx.scatter([rc["medHR"]], [100 * rc["ps"]], color=NAVY, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
     hx.scatter([rl["medHR"]], [100 * rl["ps"]], color=ORANGE, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
     hx.axvline(HRC, color=RED, ls="--", lw=1.2)
@@ -591,8 +634,8 @@ def figure(path, nsim=1500):
     h1, l1 = ix.get_legend_handles_labels(); h2, l2 = ix2.get_legend_handles_labels()
     ix.legend(h1 + h2, l1 + l2, fontsize=7.2, loc="upper left")
 
-    fig.suptitle("REGAL Scenario Explorer — two survival shapes fit the same blinded milestones; "
-                 "their P(success) gap is the 'is the plateau real?' uncertainty.",
+    fig.suptitle("REGAL Scenario Explorer — plateau (GPS-cure) P(success) is the headline; the second panel is a "
+                 "no-GPS-cure NULL test (shared BAT) asking whether the plateau requires a GPS-specific durable benefit.",
                  fontweight="bold", fontsize=10.5, y=1.01)
     fig.tight_layout(); fig.savefig(path, bbox_inches="tight")
     return path
@@ -603,7 +646,7 @@ def fmt_med(m): return "NR" if not np.isfinite(m) else f"{m:.0f}mo"
 if __name__ == "__main__":
     NSIM = 800   # matches the html's interactive budget (~600); raise for tighter MC error
     base = apply_preset(default_cfg(), "base")
-    Mc, Ml = build_plateau(base), build_no_plateau(base)
+    Mc, Ml = build_plateau(base), build_no_gps_cure(base)
     rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)
     wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
     print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
@@ -625,29 +668,34 @@ if __name__ == "__main__":
         ia = f"{rc['medHR_IA']:.2f} (futility {fut})"
     else:
         ia = "n/a (80th not reached)"
-    print(f"\n  P(success) PLATEAU (cured fraction) : {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
+    print(f"\n  HEADLINE  PLATEAU (GPS cure) : P(success) {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
     print(f"         interim: implied HR@{base['IA']} {ia}   "
           f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
-    sh_tag = f"shape={Ml['shape']:.2f} fitted" if Ml['fitShape'] else f"shape={Ml['shape']:.2f} override"
-    if Ml['degenerate']:
-        print(f"  P(success) NO-PLATEAU (Weibull, {sh_tag}): EXCLUDED — {Ml['boundaryNote']}")
-        print(f"         boundary-bound fit; modeled deaths {'/'.join(f'{x:.0f}' for x in Ml['edv'])} "
-              f"vs observed {'/'.join(f'{x:.0f}' for x in Ml['MOBS'])} (data are plateau-shaped)")
-    else:
+    sh_tag = "fitted" if Ml['fitShape'] else "override"
+    if Ml['state'] == "C":
         ia_np = f"{rl['medHR_IA']:.2f}" if np.isfinite(rl['medHR_IA']) else "n/a"
-        print(f"  P(success) NO-PLATEAU (Weibull, {sh_tag}): {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   "
-              f"ratio {Ml['ratio']:.1f}x   interim HR {ia_np}   @80th: {rl['aliveG']:.0f} GPS / {rl['aliveB']:.0f} BAT")
-        print(f"  -> shape gap = {abs(round(100*rc['ps'])-round(100*rl['ps']))} points (irreducible from blinded data)")
+        print(f"  NULL TEST no-GPS-cure : State C — NOT excluded. A no-cure GPS responder "
+              f"(median {Ml['mG']:.0f}mo, tail sG={Ml['sG']:.2f} {sh_tag}) also fits.")
+        print(f"         P(success) {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   ratio {Ml['ratio']:.1f}x   "
+              f"resid RMS {Ml['rmsResid']:.1f}  (GPS cure not required to fit, given this BAT)")
+    else:
+        verdict = "A (non-identified)" if Ml['state'] == "A" else "B (inconsistent)"
+        print(f"  NULL TEST no-GPS-cure : State {verdict} — REJECTED. {Ml['reason']}.")
+        print(f"         no PoS shown; GPS-specific durable benefit is required "
+              f"(modeled {'/'.join(f'{x:.0f}' for x in Ml['edv'])} vs {'/'.join(f'{x:.0f}' for x in Ml['MOBS'])}).")
     print()
 
-    print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} {'P(no-plat)':>10} | {'BATmed':>7} {'GPSmed':>7}")
+    print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | {'BATmed':>7} {'GPSmed':>7}")
     for nm in ["base", "low", "dom", "bear"]:
         c = apply_preset(default_cfg(), nm)
-        mcc, mll = build_plateau(c), build_no_plateau(c)
-        rcc, rll = mc(mcc, NSIM), mc(mll, NSIM)
-        np_ps = "  EXCL" if mll['degenerate'] else f"{100*rll['ps']:8.0f}%"
-        print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% {np_ps:>10} | "
-              f"{fmt_med(mcc['batMed']):>7} {fmt_med(mcc['gpsMed']):>7}")
+        mcc, mll = build_plateau(c), build_no_gps_cure(c)
+        rcc = mc(mcc, NSIM)
+        if mll['state'] == "C":
+            rll = mc(mll, NSIM); nv = f"C · not excl (P={100*rll['ps']:.0f}%)"
+        else:
+            nv = f"{mll['state']} · REJECTED"
+        print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% | {nv:>26} | "
+              f"{fmt_med(mcc['batMed']):>7} {fmt_med(mll['mG']):>7}")
 
     out = figure("regal_explorer_panel.png", NSIM)
     print(f"\nsaved {out}")

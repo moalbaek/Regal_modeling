@@ -8,14 +8,18 @@ remission (CR2), non-transplant.
 probability of a positive readout, by (1) calibrating the pooled (both-arm) survival curve to the
 disclosed death-event milestones, (2) decomposing it into arm-level survival under explicit
 assumptions, and (3) Monte-Carlo simulating the trial's pre-specified test to get a probability of
-statistical success. Both survival shapes share **one responder curve** — a Weibull (shape < 1 =
-heavier tail) — and differ by a **single assumption**: whether long-term responders are *cured*. The
-**plateau** shape adds a cured fraction to the shared Weibull; the **no-plateau** shape uses the same
-Weibull with **no cure and a fitted tail shape**. The tool fits both to the **same milestones** and
-reports a P(success) for each. The gap between the two headline numbers is the irreducible "is the
-plateau real?" uncertainty that blinded data cannot resolve. When the no-plateau fit lands on a
-parameter boundary (a light-tailed, no-cure family cannot reproduce the decelerating milestones) it
-is reported as **degenerate / excluded** rather than as a falsely confident number.
+statistical success. The **headline** is the **plateau (GPS-cure)** probability of success. The
+**second panel is a null test, not a co-equal probability**: it holds the **BAT arm bit-for-bit
+identical** to the plateau panel and swaps **only the GPS responder component** — a durable-remission
+cure versus a fitted heavy-tailed Weibull with **no cure** — to ask whether the milestone plateau
+*requires* a GPS-specific durable benefit, or whether BAT's own (venetoclax-driven) plateau plus a GPS
+heavy tail can explain it. GPS immunological non-responders track the Observation row in **both** panels.
+The null returns a **three-state verdict**: **A — rejected (non-identified)** when a no-cure GPS fit runs
+to a parameter boundary (a de-facto cure is required); **B — rejected (inconsistent)** when it cannot
+match the milestones; or **C — not excluded** when a no-cure GPS heavy tail *also* fits the milestones
+given this BAT. Only State C carries a second P(success), reported as the "GPS cure not required" bracket.
+State C is **conditional on crediting BAT** at the chosen component medians/cures — the bear presets and
+selection slider are the intended stress controls on that structure.
 
 **Deliverables:** `regal_explorer.html` (self-contained interactive explorer) and
 `regal_explorer.py` (the same engine in Python, with a CLI summary and a 9-panel figure).
@@ -42,9 +46,10 @@ biotech equity research. It does not access, infer, or attempt to unblind confid
 A recurring finding (Section 6): because the blinded data only pin the *pooled* curve, every
 structural refinement we add to the arms — component-mixture BAT, immunological non-responders —
 gets **absorbed by the pooled fit and barely moves the answer.** The one thing that materially
-moves P(success) is whether the pooled *plateau* is real. The explorer makes this concrete by
-fitting **two survival shapes** to the same milestones and reporting both P(success) numbers side
-by side (Sections 4.7, 7).
+moves P(success) is whether the pooled *plateau* is real — and, specifically, whether it is
+*GPS-specific*. The explorer makes this concrete with a **null test** (Sections 4.7, 7): it holds BAT
+identical and asks whether the milestone plateau can be reproduced *without* a GPS cure (a no-cure GPS
+heavy tail on top of BAT's own plateau), returning a three-state verdict rather than a rival percentage.
 
 ---
 
@@ -54,23 +59,22 @@ The current tool is a single unified engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
-| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, enrollment selection (eligibility filter), non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, the no-plateau Weibull tail shape (fitted by default, with a manual override), and per-component shape k, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; the two headline P(success) numbers and a "Trial dynamics" panel of live charts (survival curves, event-accrual timeline, simulated-HR distribution, plateau-vs-tail divergence band, enrollment validation, a P(success)-vs-effect power curve, and a BAT-median-&-cure-vs-selection sweep). | dual P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, degenerate-fit flag, per-arm curves |
-| `regal_explorer.py` | The same engine in Python (`build_plateau`, `build_no_plateau`, `mc`), with a CLI summary across the four BAT presets and a 9-panel figure (`regal_explorer_panel.png`). | dual P(success) table, preset/non-responder sweeps, 9-panel figure |
+| `regal_explorer.html` | Self-contained interactive explorer (no build, no dependencies): sliders for BAT composition, venetoclax cure, enrollment selection (eligibility filter), non-responder fraction, enrollment median timing, natural (non-disease) death rate, loss-to-follow-up, the no-GPS-cure test's GPS tail shape s<sub>G</sub> (fitted by default, with a manual override), and per-component shape k, plus an interim futility-HR consistency check and a weighted/unweighted fit toggle; the plateau P(success), the no-GPS-cure three-state verdict, and a "Trial dynamics" panel of live charts (survival curves, event-accrual timeline, simulated-HR distribution, GPS-cure-vs-no-GPS-cure divergence band, enrollment validation, a P(success)-vs-effect power curve, and a BAT-median-&-cure-vs-selection sweep). | plateau P(success), median HR, implied interim HR, per-arm alive-at-80th, GPS-median Poisson CI, fit-check, the null verdict (A/B/C), per-arm curves |
+| `regal_explorer.py` | The same engine in Python (`bat_arm`, `build_plateau`, `build_no_gps_cure`, `mc`), with a CLI summary across the four BAT presets and a 9-panel figure (`regal_explorer_panel.png`). | plateau P(success) + null-verdict table, preset/non-responder sweeps, 9-panel figure |
 
-Both share one enrollment reconstruction, one set of survival primitives, and the same significance
-threshold (Section 2.1). Both survival models are built on **one shared responder curve** — a
-Weibull `Sweib(t) = exp(−(t/scale)^shape)` (shape < 1 = heavier tail) — and fit to the **identical
-milestones**; they differ by a single downstream assumption, the cured fraction:
+Both share one enrollment reconstruction, one set of survival primitives, the same significance
+threshold (Section 2.1), and — critically — **one shared BAT arm** (`bat_arm`): the plateau and null
+panels consume byte-identical BAT (same per-component medians, cures, shapes, and left-truncation
+selection), so they are literally **one biological lever apart**. Both are fit to the **identical
+milestones**; they differ only in the GPS **responder** component:
 
-- **`build_plateau` — plateau (cured fraction).** The shared Weibull responder **plus a cured
-  fraction** (a weighted mixture of per-component Weibull cure-models). Only the GPS responder cure
-  is fit to the events; the BAT arm is fixed by the component medians plus enrollment selection
-  (Sections 4.3–4.4).
-- **`build_no_plateau` — no-plateau (fitted tail).** The **same** Weibull responder with **no cured
-  fraction**. Three parameters are fit to the milestones — a BAT-median scale `k`, a GPS/BAT median
-  ratio `r`, and the **Weibull tail shape** itself — and the GPS arm is a *single* responder curve
-  (no non-responder mixture). If the fit sits on a parameter boundary it is flagged as
-  degenerate/excluded (Section 4.7).
+- **`build_plateau` — plateau (GPS cure).** The shared BAT plus GPS responders modelled as a Weibull
+  **cure-mixture**. Only the GPS responder cure `π_resp` is fit to the events; the BAT arm is fixed by
+  the component medians plus enrollment selection (Sections 4.3–4.4). This is the **headline**.
+- **`build_no_gps_cure` — no-GPS-cure null.** The **same** BAT; GPS responders swap the cure-mixture
+  for a **no-cure Weibull** with two fitted parameters — a GPS responder median `m_G` and a tail shape
+  `s_G` (GPS non-responders still track Observation). BAT is *fixed on purpose* here (Section 3). The
+  fit yields a three-state verdict; on a parameter boundary the null is *rejected* (Section 4.7).
 
 ---
 
@@ -202,26 +206,26 @@ exactly its survival conditioned on outliving its `f`-quantile `t_f` (where `S(t
 S_sel(t) = min(1, S(t) / (1 − f))
 ```
 
-for each plateau component (and, in the no-plateau model, each Weibull arm). This lifts every curve
-to its "top `100(1−f)`%" shape: the long-term/cure fraction **rises** from `c` to `c/(1−f)` and the
-median lengthens, with no re-anchoring of the Weibull scale (so the `c < 0.5` parameterization never
-breaks). The `min(1, ·)` clip is **kept on purpose**: the near-flat segment before `t_f` is real
-**guarantee time**, with a direct correlate in REGAL's *"estimated life expectancy > 6 months"*
-enrolment criterion — it is a feature, not an artifact. The matching Monte-Carlo draw is the
-inverse-transform of the same left-truncation: draw `u ~ Unif(0, 1−f)` (which keeps the strongest
-`1−f`), so a plateau patient is a long-term survivor with probability `c/(1−f)`, otherwise its
-non-cured time is drawn conditioned on exceeding `t_f` (`u → u·(1−f−c)/(1−c)`), and the GPS-responder
-non-cured mixture reweights to `w·(1−f−c)`. For the no-plateau Weibull arms the draw is simply
-`u = (1−f)·rnd()`. At `f = 0` every expression collapses back to the unselected model exactly.
+for each BAT component, for the plateau panel's GPS responders (cure-mixture), and for the no-GPS-cure
+panel's GPS responder Weibull alike. This lifts every curve to its "top `100(1−f)`%" shape: the
+long-term/cure fraction **rises** from `c` to `c/(1−f)` and the median lengthens, with no re-anchoring
+of the Weibull scale (so the `c < 0.5` parameterization never breaks). The `min(1, ·)` clip is **kept
+on purpose**: the near-flat segment before `t_f` is real **guarantee time**, with a direct correlate in
+REGAL's *"estimated life expectancy > 6 months"* enrolment criterion — it is a feature, not an artifact.
+The matching Monte-Carlo draw is the inverse-transform of the same left-truncation: draw
+`u ~ Unif(0, 1−f)` (which keeps the strongest `1−f`), so a cured patient survives with probability
+`c/(1−f)`, otherwise its non-cured time is drawn conditioned on exceeding `t_f`; the no-cure GPS
+responder simply draws `u = (1−f)·rnd()`. At `f = 0` every expression collapses back to the unselected
+model exactly.
 
-**Applies to both panels, before the arm split.** Enrollment eligibility screens *every* randomized
-patient, so this left-truncation is an **upstream transform of the pooled CR2 pool, applied
-identically in both panels and both arms** — it is shared infrastructure, not one of the assumptions
-that distinguishes the panels (that one assumption, the cured fraction, lives downstream). Because the
-truncation is non-differential across arms it cannot bias the within-trial comparison, so the fitted
-**HR is roughly invariant to `f`** at the default settings while the milestone fit and P(success)
-shift. (At extreme `f` the re-fit can be pushed onto a parameter boundary in the no-plateau panel, in
-which case that panel is flagged degenerate/excluded — see Section 4.7.)
+**Applies to both panels, before the arm split.** Because BAT is **shared code** (`bat_arm`), the
+selection is literally an **upstream transform of the pooled CR2 pool, applied identically in both
+panels** — there is no second BAT copy to keep in sync. It is shared infrastructure, not one of the
+assumptions that distinguishes the panels (that one assumption, the GPS cured fraction, lives
+downstream). Because the truncation is non-differential across arms it cannot bias the within-trial
+comparison, so the fitted **HR is roughly invariant to `f`** at the default settings while the milestone
+fit and P(success) shift. (At extreme `f` the re-fit can be pushed onto a parameter boundary in the
+no-GPS-cure panel, which then reports its verdict as *rejected* — see Section 4.7.)
 
 **`q` is the single BAT-side lever.** With the BAT arm otherwise fixed by the component medians, `q`
 is what determines how much of the milestone deceleration is attributed to a healthier enrolled cohort
@@ -236,12 +240,12 @@ drops steeply ~100 → 94 → 13% — a healthier, harder-to-beat comparator lea
 attribute to GPS. Note the direction of the fit-check: at `q = 0` the raw medians *over*-produce early
 deaths (modeled ~65/74/76 vs 60/72/78) and `π_resp` cannot slow BAT, so a residual misfit at low `q` is
 the signal that *some* selection is needed; the fit tightens through the defensible band and, past it,
-the first milestone starts to *under*-fire (BAT too healthy). The **no-plateau** number is largely a
-different story: with no plateau to lift, the left-truncation only shifts medians and is absorbed by
-the Weibull `k`/`r`/shape fit, so the HR stays roughly invariant to `f` — until, at high `f`, the fit
-is pushed onto a boundary and the panel is flagged degenerate/excluded. Enrollment selection is
-therefore chiefly the *plateau-shape* lever, and the natural companion to the venetoclax-cure and
-composition knobs for building a bear case on the comparator arm.
+the first milestone starts to *under*-fire (BAT too healthy). Because BAT is shared, the **no-GPS-cure
+null** rides the same BAT: as `q` rises the null's fitted GPS median `m_G` and tail `s_G` re-fit, and the
+verdict can flip (a healthier BAT makes it *easier* for a no-cure GPS to explain the plateau, pushing
+toward State C; an extreme `q` can instead push the fit onto a boundary → State A/B rejected).
+Enrollment selection is therefore chiefly the *plateau-shape* lever, and the natural companion to the
+venetoclax-cure and composition knobs for building a bear case on the comparator arm.
 
 ### 2.6 Bayesian priors on the BAT plateau (an alternative to the composition lever)
 
@@ -272,7 +276,7 @@ unidentified question. All are user-controlled in the explorer.
 
 | Control | Range / default | Type | Role |
 |---------|-----------------|------|------|
-| No-plateau tail **shape** (Weibull) | 0.35–1.5, **fitted** by default (manual override) | [D]/[A] | Shape of the no-plateau responder Weibull. In **auto** mode it is a *fitted* parameter of the no-plateau model (alongside the BAT median and GPS/BAT ratio) and the slider merely displays the fitted value. Tick **override** to pin it and explore: **shape < 1 = heavier tail** (both arms survive long, smaller implied effect); shape → 1 is exponential. Controls the orange "no-plateau" number only. |
+| No-GPS-cure GPS tail shape **s<sub>G</sub>** (Weibull) | 0.15–1.5, **fitted** by default (manual override) | [D]/[A] | Shape of the no-GPS-cure panel's GPS responder Weibull. In **auto** mode it is a *fitted* parameter of the null (alongside the GPS responder median m<sub>G</sub>) and the slider merely displays the fitted value. Tick **override** to pin it and explore: **s<sub>G</sub> < 1 = heavier tail**; s<sub>G</sub> → 1 is exponential. s<sub>G</sub> is free to reach a genuinely heavy tail — that is what lets a no-cure Weibull *try* to mimic a plateau, so a State-C fit is real evidence. Controls the null verdict only. |
 | Enrollment timing (median) | 0–1, default 0.50 (≈ median Mar 2023) | [A] | Slides the monthly accrual between an earlier (flat) and a later (back-loaded) profile; the **implied median enrollment date** and cumulative-at-anchor counts are displayed live (Section 2.3). The sourced anchors hold the median to ~Q1–Q2 2023. |
 | Per-component shape **k** | ≥0.3, default 1 | [A] | Weibull shape of each BAT component's non-cured tail (Section 2.5). |
 
@@ -379,7 +383,7 @@ controls expose the robustness of that fit:
 
 ## 3. Calibrated / derived outputs [D]
 
-Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, fitted no-plateau tail,
+Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, fitted GPS tail s<sub>G</sub>,
 enrollment selection q = 25%, 0% loss-to-follow-up, weighted fit); every number is a function of the user controls in Sections
 2.5–2.12, so treat these as a centre point, not a
 fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the default sim budget.
@@ -394,30 +398,31 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Pooled median OS | **~20 mo** (above the ≥13.5 floor) | `build_plateau` |
 | Implied HR at the 60-event interim | ~0.48 (clears the 1.00 futility threshold); drifts toward 1 as selection rises | `mc` |
 | Patients alive at the 80th event | ~33 GPS / ~13 BAT (before censoring) | `mc` |
-| **P(success) — plateau (cured fraction)** | **~94% at the q=25% default**; selection sweeps it ~100% (q=0) → ~13% (q=50%) (Section 2.5.1) | `build_plateau` + `mc` |
-| **P(success) — no-plateau (fitted Weibull tail)** | **~4%** at base: with the tail free to fit, the deceleration is absorbed by a heavy shape (~0.45) rather than a large effect, so the honest fitted GPS/BAT ratio is only ~1.1× (HR ~0.94). At some presets (e.g. *low-venetoclax*) the fit hits a boundary and is reported **degenerate/excluded** | `build_no_plateau` + `mc` |
-| 80th event reached in MC | ~100% of sims (both shapes) at the 2% natural-death default; the plateau drops to ~82% only at 0% natural death | `mc` |
+| **P(success) — plateau (GPS cure)** — the headline | **~94% at the q=25% default**; selection sweeps it ~100% (q=0) → ~13% (q=50%) (Section 2.5.1) | `build_plateau` + `mc` |
+| **No-GPS-cure null verdict** | **State C (not excluded) at base**: a no-cure GPS responder (median m<sub>G</sub> ≈ 47 mo, tail s<sub>G</sub> ≈ 0.46) plus BAT's plateau also fits (milestone residual RMS ≈ 1.5), so a State-C P(success) ≈ 97% is reported as the "GPS cure not required" bracket. At extreme selection or a light-BAT corner the fit runs to a boundary (s<sub>G</sub> edge or m<sub>G</sub> cap) → **State A rejected** (GPS cure required); a large residual → **State B rejected** | `build_no_gps_cure` + `mc` |
+| 80th event reached in MC | ~100% of sims (both panels) at the 2% natural-death default; because BAT is shared, the null inherits the plateau's event-stall sensitivity and can also stall if BAT cure is pushed hard | `mc` |
 
 The 2% natural-death default (Section 2.9) raises the GPS arm cure to ~57% and, because it guarantees
 the trigger eventually fires, lifts the plateau "reached" fraction from ~82% (at 0%) to ~100%; that
 removes the stalled sims and nudges the plateau P(success) up a few points relative to a no-mortality
 run.
 
-Sweeping the BAT composition shows how differently the two shapes read the same milestones. At the
-**base preset** the plateau P(success) is ~94% but the honest, fitted-tail no-plateau P(success) is
-only ~4% — with the tail free to fit, the milestone deceleration is explained by a heavy shape
-(~0.45) rather than by a large treatment effect, so the implied GPS/BAT ratio is ~1.1×. At the **bear
-corner** the ordering flips (plateau ~6%, no-plateau ~100%), and at the **low-venetoclax** preset the
-no-plateau fit is boundary-bound and reported as **excluded**. That shape-dependence — not any single
-central estimate — is the analysis's main output.
+Sweeping the BAT composition shows what the null verdict is worth. At the **base preset** the plateau
+P(success) is ~94% and the null lands in **State C** — a no-cure GPS heavy tail (median ~47 mo, shape
+~0.46) also fits, so the plateau is *not provably GPS-specific* given this BAT. At the **bear corner**
+the plateau P(success) collapses (~6%) and the null is still State C (a small no-cure separation
+suffices). Push selection to an extreme, or credit BAT so little that a no-cure GPS must run to a
+boundary to fit, and the null flips to **State A/B rejected** — GPS-specific cure *is* required. That
+verdict, and its **conditionality on the BAT structure**, is the analysis's main output — not a rival
+percentage.
 
 > The plateau model's ultimate *disease* dead fraction (~63%) nearly coincides with the 80-event
 > trigger (63.5%), which is *why* real-world accrual has stalled at 78 — the cohort is essentially at
 > its modeled disease asymptote, and the few remaining events are expected to come slowly from
-> background (natural) mortality. The no-plateau model has no asymptote, so it reaches the 80th event
-> readily; the real trial's stall at 78/80 therefore *mildly* favors the plateau model, though the
-> milestones alone cannot adjudicate. (In the Monte-Carlo, the natural-death overlay lets the plateau
-> model also reach the trigger in ~100% of sims, on a longer timeline than the disease process alone.)
+> background (natural) mortality. Because the null panel shares BAT, it inherits the same plateau and
+> the same event-stall sensitivity (unlike an earlier design whose second-panel BAT decayed to zero and
+> trivially reached the trigger) — so "80th event reached" is a *real* metric on both panels now. In the
+> Monte-Carlo the natural-death overlay lets the trigger fire in ~100% of sims on a longer timeline.
 
 ---
 
@@ -425,24 +430,23 @@ central estimate — is the analysis's main output.
 
 ### 4.1 Survival primitives
 
-Both survival models are built on **one shared responder curve**, fit independently to the same
-milestones. The shared primitive is a **Weibull** `Sweib(t) = exp(−(t/scale)^shape)` whose `scale` is
-set so its median equals a target (`scale = median / (ln 2)^{1/shape}`); **shape < 1 gives a heavier
-tail** and a monotone non-increasing hazard (no non-monotone hazard "hump"). The two panels differ by
-one thing — the cured fraction:
+Both panels share a **Weibull** primitive `Sweib(t) = exp(−(t/scale)^shape)` whose `scale` is set so
+its median equals a target (`scale = median / (ln 2)^{1/shape}`); **shape < 1 gives a heavier tail**
+and a monotone non-increasing hazard (no non-monotone hazard "hump"). The BAT arm is identical in both
+panels (`bat_arm`); the panels differ only in the GPS **responder** family:
 
-- **Plateau (cured fraction):** `Sc(t) = π + (1−π)·exp(−(t / λ)^k)` — the shared Weibull responder
-  **plus** a cured/long-term-survivor fraction π. λ is set so the non-cured median equals the
-  component median (`λ = median / A(π)^{1/k}`, `A(π) = −ln[(0.5−π)/(1−π)]`); `k = 1` recovers the pure
-  exponential. Rationale: cancer-vaccine effects classically manifest as a durable-remission (plateau)
-  difference rather than a uniform hazard shift.
-- **No-plateau (fitted Weibull tail):** the **same** Weibull `Sweib` with **no cured fraction** and a
-  **fitted `shape`**. This is the explicit "the plateau may not be real" alternative. Freeing the tail
-  shape is the key repair: the steep post-interim deceleration can now be absorbed by a heavy tail
-  instead of forcing the treatment-effect parameter to a boundary (Section 4.7).
+- **Plateau — GPS cure:** GPS responders (and every BAT component) use the cure-mixture Weibull
+  `Sc(t) = π + (1−π)·exp(−(t / λ)^k)` — a Weibull **plus** a cured/long-term-survivor fraction π. λ is
+  set so the non-cured median equals the component median (`λ = median / A(π)^{1/k}`,
+  `A(π) = −ln[(0.5−π)/(1−π)]`); `k = 1` recovers the pure exponential. Rationale: cancer-vaccine effects
+  classically manifest as a durable-remission (plateau) difference.
+- **No-GPS-cure — GPS responder Weibull:** GPS responders use the **bare** Weibull `Sweib` with **no
+  cured fraction**, fitted median `m_G` and **fitted shape `s_G`**. This is the explicit "the plateau
+  may not be *GPS-specific*" alternative: with `s_G` free to go heavy, a no-cure GPS heavy tail can
+  *try* to reproduce the milestone deceleration on top of BAT's own plateau (Section 4.7).
 
-Both share the matching inverse-CDF samplers used by the Monte-Carlo (`sampNC` for the plateau
-non-cured Weibull, `sampWeib` for the bare no-plateau Weibull).
+Both share the matching inverse-CDF samplers used by the Monte-Carlo (`sampNC` for the cure-mixture
+non-cured Weibull, `sampWeib` for the bare no-GPS-cure GPS responder Weibull).
 
 ### 4.2 Enrollment → expected deaths
 
@@ -495,8 +499,9 @@ independent loss-to-follow-up time and censors the subject (no event) if it prec
 computes
 the **log-rank score statistic = Cox score test = the trial's actual pre-specified test**, declaring
 success when `z > z_crit = |ln(HRC)|·√FINAL / 2 = 2.024`. It returns P(significant), the fraction of
-sims that reach the 80th event, and the median simulated HR. The same `mc()` runs on both the
-plateau and the no-plateau model, producing the two headline numbers.
+sims that reach the 80th event, and the median simulated HR. The same `mc()` runs on both panels; on
+the null panel it draws GPS responders from the no-cure Weibull (all other draws identical to the
+plateau branch), and its P(success) is reported only when the fit is State C (Section 4.7).
 
 The same pass also reports three diagnostics that make the fit auditable: the **implied Cox HR at the
 60-event interim** (the futility read-through of Section 2.10), a boolean for whether it clears the
@@ -511,66 +516,72 @@ These replace any abstract π_BAT prior with clinically-grounded structure (Sect
 pooled curve, so refits absorb the new structure and leave P(success) largely unchanged
 (Section 6).
 
-### 4.7 The no-plateau (fitted-tail) model, the shape gap, and degenerate fits
+### 4.7 The no-GPS-cure null test and its three-state verdict
 
-To make "is the plateau real?" answerable rather than merely flagged, the explorer fits a second,
-plateau-free model to the **identical** milestones. Both arms are the shared **Weibull** (`Sweib`)
-with **no cured fraction**; **three** parameters are fit — a single BAT-median scale `k`
-(`median_BAT = k·m̄`, with `m̄` the weight-averaged component median), the GPS/BAT median ratio `r`,
-and the **Weibull tail `shape`** itself. The GPS arm is a **single** responder curve: unlike the
-plateau panel it carries no non-responder (`f_nr`) sub-mixture, because under a true no-cure model
-"responder vs non-responder" collapses to two medians on the same eventually-fatal family, which a
-single fitted-tail curve already captures in aggregate — and dropping it removes the ~18–20 mo seam
-(a spurious plateau shoulder) that the old two-component GPS arm produced. The same Monte-Carlo
-(Section 4.5) then scores it.
+The second panel asks a sharper question than "is the plateau real": **does the milestone plateau
+require a *GPS-specific* durable benefit, or can it be explained by BAT's own (venetoclax-driven)
+plateau plus a GPS heavy tail?** It holds BAT **bit-for-bit identical** to the plateau panel (shared
+`bat_arm`) and changes only the GPS **responder** component from the cure-mixture to a **no-cure
+Weibull** with two fitted parameters: a GPS responder median `m_G ∈ [median_BAT, 120]` months and a
+tail shape `s_G ∈ [0.15, 1.5]`. GPS immunological non-responders (`f_nr`) still track Observation, in
+both panels. The same Monte-Carlo (Section 4.5) then scores it in State C.
 
-**Why fit the shape (the actual repair).** Previously the tail was held fixed at the slider value,
-leaving only `k` and `r` to match three *decelerating* milestones. Deceleration is a plateau signal a
-single fixed-shape family cannot reproduce, so the optimizer drove `r` to its cap to fake the late
-flattening — a degenerate fit that rendered as a falsely confident "HR ≈ 0.25, P(success) 100%,
-median ratio pinned at ~6.9×". Making the **tail shape a free parameter** (range 0.35–1.5, free to go
-heavy) lets the deceleration be absorbed by a heavy tail instead of by the effect size. At the base
-preset the fit is now well-behaved: shape ≈ 0.45, GPS/BAT ratio ≈ 1.1×, milestones matched to
-~59/74/77, giving an honest HR ≈ 0.94 and P(success) ≈ 4%. Two guardrails prevent the old
-degeneracy from creeping back: **BAT (`k`) stays a free fitted parameter** (fixing it would delete the
-very uncertainty the tool exists to represent), and **the tail is free to go heavy** (a light-tail
-floor would re-force the boundary run-away).
+**BAT is fixed on purpose.** The global "is there any plateau" question needs BAT free (the arm split
+is unknowable). *This* null tests a different thing, so it deliberately reverses that guardrail: fixing
+BAT is **controlling the confound and varying the thesis parameter**. The identifiability boundary is
+not removed, only relocated — the parameter that runs to a cap under a plateau-shaped milestone set is
+now the GPS median `m_G` or its tail `s_G`, which is cleaner to detect than the old ratio runaway. The
+**"tail free to go heavy" guardrail is retained and load-bearing**: `s_G` must be free to reach a
+genuinely heavy tail, because only then can a State-C "fit" be real evidence (a heavy Weibull *can*
+mimic a plateau over 48 months) and a State-A "can't fit" be real evidence.
 
-**Degenerate-fit detection (the failure mode is the signal).** After fitting, the model tests whether
-the solution sits on a parameter boundary — median ratio at its cap, BAT median at a bound, or tail
-shape at the edge of its range — and adds a diagnostic that raises the ratio cap and checks whether
-the fitted ratio *tracks* it (a sign the milestones do not pin it). If the fit is boundary-bound the
-no-plateau panel is **not** shown as an HR/P(success); it is labelled **"degenerate — non-identified
-(excluded)"** and the **milestone residual** (modeled vs observed 60/72/78) is surfaced as the
-evidence that the data are plateau-shaped and a light-tailed, no-cure family cannot fit them. This is
-by design: an unidentified boundary solution is a diagnostic, not a result, and must never render as a
-clean number.
+**The three-state verdict.** Compute the verdict from the fitted `(m_G, s_G)` plus boundary detection;
+a boundary solution is **never** stabilized into a clean number:
 
-The signed difference between the two P(success) numbers (when both are identified) is the explorer's
-headline output: a small gap means the conclusion is shape-robust; a large gap means the verdict
-hinges on an assumption the blinded data cannot test. The trial's current stall at 78/80 is a weak,
-data-side tilt toward the plateau model (a no-plateau curve reaches the 80th event readily; Section 3).
+- **State A — null REJECTED (non-identified).** The fit lands on a boundary: `m_G` at its 120-mo cap
+  (a raise-the-cap diagnostic confirms it *tracks* the higher cap → unidentified), or `s_G` pinned at
+  either edge (heavy = a near-degenerate tail faking the plateau; light = a near-step "delayed-cliff"
+  high-median Weibull faking a plateau shoulder). Either way a de-facto cure is required. **No PoS is
+  shown** — the panel reports the verdict and the milestone residual.
+- **State B — null REJECTED (inconsistent).** The best interior fit still misses the milestones (RMS
+  residual above tolerance). A no-cure GPS responder cannot reproduce the milestones given this BAT.
+  **No PoS is shown.**
+- **State C — null NOT excluded.** An interior, low-residual fit exists: a no-cure GPS heavy tail
+  (median `m_G`, shape `s_G`) plus BAT's plateau also fits. Here the panel reports `m_G`, `s_G`, the
+  derived median ratio, the implied HR **and** a P(success), framed as the "GPS cure not required"
+  bracket. **Expect State C at the default** — because BAT keeps its plateau, some of the milestone
+  deceleration is already explained on the BAT side, so a no-cure GPS heavy tail has less work to do. A
+  frequent State C is not the tool failing; it is the honest statement of what the blinded data cannot
+  resolve given a generous BAT.
+
+**Conditionality caveat.** State C is only as strong as the BAT structure: it means "GPS cure not
+required *if* BAT is credited at these component medians/cures and this selection." The bear presets and
+the selection slider are the intended stress controls — and the literature bounds a defensible BAT
+(venetoclax as re-induction/transplant-bridging rather than established CR2 maintenance; transplant-
+ineligible non-transplanted CR2 collapsing to ~4–5 mo median OS), so a defensible BAT is *not*
+unboundedly generous, which is what keeps State C from being vacuous.
 
 ---
 
 ## 5. Key functions (reference)
 
 Names below use the Python spelling; the JavaScript in `regal_explorer.html` uses the camelCase
-equivalents (`build_plateau` → `buildPlateau`, `build_no_plateau` → `buildNoPlateau`, and the shared
-`Sweib`/`sampWeib`/`wscale` primitives). The two implementations are function-for-function equivalent
-(the Python `common()` reads its inputs from the `cfg` dict, where the JavaScript reads module-level
-state, but the computed results match).
+equivalents (`bat_arm` → `batArm`, `build_plateau` → `buildPlateau`, `build_no_gps_cure` →
+`buildNoGPSCure`, and the shared `Sweib`/`sampWeib`/`wscale` primitives). The two implementations are
+function-for-function equivalent (the Python `common()` reads its inputs from the `cfg` dict, where the
+JavaScript reads module-level state, but the computed results match).
 
 | Function | Purpose |
 |----------|---------|
 | `Acoef` / `lam` | Weibull coefficient `A(π) = −ln[(0.5−π)/(1−π)]` and scale `λ = median / A^{1/k}`. |
-| `Sc(t, med, cure, k)` | Per-component cure-mixture Weibull survival (the plateau primitive = shared Weibull + cure, Section 4.1). |
-| `Sweib(t, scale, shape)` / `wscale(med, shape)` | The shared Weibull responder survival (the no-plateau primitive; shape < 1 = heavier tail) and the median→scale map `scale = median/(ln 2)^{1/shape}`. |
-| `sampNC` / `sampWeib` | Inverse-CDF samplers for the plateau non-cured Weibull and the bare no-plateau Weibull times (Monte-Carlo draws). |
+| `Sc(t, med, cure, k)` | Per-component cure-mixture Weibull survival (BAT components + plateau-panel GPS responders, Section 4.1). |
+| `Sweib(t, scale, shape)` / `wscale(med, shape)` | The bare Weibull survival (the no-GPS-cure GPS responder; shape < 1 = heavier tail) and the median→scale map `scale = median/(ln 2)^{1/shape}`. |
+| `sampNC` / `sampWeib` | Inverse-CDF samplers for the cure-mixture non-cured Weibull and the bare no-GPS-cure Weibull times (Monte-Carlo draws). |
 | `enroll(bl, N)` | Monthly enrollment cohorts summing to `N`, interpolating flat↔back-loaded by `bl` (Section 2.3). |
 | `common(cfg)` | Shared setup: normalized weights, clamped per-component params, cohorts, milestones, fit weights. |
-| `build_plateau` | Plateau model: fits the single free parameter `π_resp` (GPS responder cure) to the milestones with the BAT arm fixed by components + selection `q`; returns per-arm `Sbat/Sgps/Spool`, cures, medians (Sections 4.3–4.4). |
-| `build_no_plateau` | No-plateau model: fits BAT-median scale `k`, GPS/BAT ratio `r`, **and the Weibull tail `shape`** (auto), with a single-curve GPS arm; flags boundary-bound solutions as degenerate/excluded (Section 4.7). |
+| `bat_arm(cfg)` | The **shared BAT arm** consumed byte-identically by both panels: per-component cure-mixture with left-truncation selection; returns `Sbat/Snc/Ssel`, `pibat`, `obs`. Guarantees "BAT identical" by construction. |
+| `build_plateau` | Plateau (GPS-cure) headline: shares `bat_arm`, fits the single free parameter `π_resp` (GPS responder cure) to the milestones; returns per-arm `Sbat/Sgps/Spool`, cures, medians (Sections 4.3–4.4). |
+| `build_no_gps_cure` | No-GPS-cure null: shares `bat_arm`, fits GPS responder median `m_G` and tail shape `s_G` (auto) with GPS non-responders tracking Observation; emits the three-state verdict (A/B/C), boundary flags, and milestone residual (Section 4.7). |
 | `median(S)` | Bisection median of a survival function (`∞`/"NR" if never below 0.5 within 900 mo). |
 | `mc(M, nsim)` | Monte-Carlo trial: enrollment → per-arm death draws → censor at the 80th event → **log-rank/Cox score test**; returns P(significant), 80th-event-reached fraction, median HR (Section 4.5). |
 | `figure()` / `render` + `chart*` | 9-panel figure (py, 3×3 grid) / live SVG charts and metrics panel (html): `chart` (survival), `chartAccrual`, `chartHist`, `chartDiverge`, `chartEnroll`, `chartPower`, `chartSelect`. |
@@ -592,29 +603,28 @@ state, but the computed results match).
    non-responder subgroup each leave P(success) ≈ unchanged, because the data fix the pooled
    plateau and refits merely redistribute it (e.g. raising the non-responder fraction forces the
    responder cure up). This *localizes* the uncertainty rather than resolving it.
-5. **The shape assumption — not the arm split — is what moves the answer.** The no-plateau model
-   fits the same milestones with a *fitted* Weibull tail and no cured fraction. When identified, it
-   reads the milestones very differently from the plateau model (at base: plateau ~94% vs a fitted-tail
-   no-plateau ~4%, because a heavy tail explains the deceleration with almost no arm separation);
-   the ordering flips under other compositions (bear corner: plateau ~6% vs no-plateau ~100%). Where a
-   free, heavy tail *still* cannot fit the decelerating milestones, the no-plateau fit is boundary-bound
-   and reported as **degenerate/excluded** rather than as a number — that exclusion is itself evidence
-   the data are plateau-shaped. That plateau-vs-tail gap (or the exclusion) is the irreducible,
-   blinded-data-proof uncertainty the explorer reports as the headline.
+5. **The load-bearing question is whether the plateau is *GPS-specific*.** Holding BAT identical and
+   swapping only the GPS responder to a no-cure Weibull, the null test asks whether the milestones can
+   be fit *without* a GPS cure. At the base preset the answer is **State C — not excluded**: a no-cure
+   GPS heavy tail (median ~47 mo, shape ~0.46) plus BAT's plateau also fits (P(success) ~97%), so the
+   blinded milestones **cannot prove** the plateau is GPS-specific *given a generous BAT*. Only when BAT
+   is credited so little (or selection pushed so hard) that a no-cure GPS must run to a boundary to fit
+   does the null flip to **State A/B rejected** — GPS cure required. That verdict, and its explicit
+   conditionality on the BAT structure, is what the explorer reports — never a rival percentage.
 
 ---
 
 ## 7. Limitations and the load-bearing assumption
 
-- **The plateau may not be real — now operationalized, not eliminated.** The pooled plateau is
-  extrapolated from three event counts under a mixture-cure assumption. The explorer addresses this
-  head-on by also fitting a heavy-tailed, no-cure **Weibull** model with a *fitted* tail shape
-  (Section 4.7) and reporting both P(success) numbers. This *quantifies* the sensitivity but does not
-  resolve it: whether long-term responders are truly cured remains the single load-bearing,
-  blinded-data-proof assumption. The divergence is composition-dependent (the plateau is *not*
-  uniformly the optimistic choice), and where even a free heavy tail cannot reproduce the
-  decelerating milestones the no-plateau fit is non-identified and reported as excluded — a signal
-  that the data themselves lean plateau-shaped, though the milestones alone cannot prove it.
+- **Whether the plateau is GPS-specific is not resolvable — only tested.** The pooled plateau is
+  extrapolated from three event counts. The explorer addresses this head-on with the no-GPS-cure null
+  (Section 4.7): holding BAT identical, it fits a heavy-tailed no-cure GPS responder and returns a
+  three-state verdict. This *quantifies* the sensitivity but does not resolve it — at the default the
+  null is **not excluded** (State C), so the milestones cannot prove GPS-specific cure given a generous
+  BAT. Crucially, **State C is conditional on the BAT structure**: the test is only as strong as the
+  BAT medians/cures credited, so the bear presets and selection slider are the intended stress
+  controls, and the reported State-C P(success) is the *pessimistic* ("GPS cure not required") bracket
+  around the plateau headline — not a co-equal probability.
 - **Decomposition is unidentified.** All arm-level conclusions are prior-/assumption-driven; the
   blinded data cannot adjudicate them.
 - **Delayed vs sustained separation.** The cure-difference structure assumes early, sustained
