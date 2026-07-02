@@ -222,10 +222,17 @@ model exactly.
 selection is literally an **upstream transform of the pooled CR2 pool, applied identically in both
 panels** — there is no second BAT copy to keep in sync. It is shared infrastructure, not one of the
 assumptions that distinguishes the panels (that one assumption, the GPS cured fraction, lives
-downstream). Because the truncation is non-differential across arms it cannot bias the within-trial
-comparison, so the fitted **HR is roughly invariant to `f`** at the default settings while the milestone
-fit and P(success) shift. (At extreme `f` the re-fit can be pushed onto a parameter boundary in the
-no-GPS-cure panel, which then reports its verdict as *rejected* — see Section 4.7.)
+downstream). The truncation is non-differential across arms, so applied to a *fixed* arm split it
+cannot bias the within-trial comparison. **Note, though, that the fitted HR is *not* strictly invariant
+to `f`** here: because the milestones are held fixed and the arm split is *re-fit* at each `f` (the
+plateau's `π_resp`, the null's `m_G`/`s_G`), selection re-attributes survival to BAT and the fitted HR
+drifts — e.g. the plateau `medHR` moves ~0.29 → 0.42 → 0.61 as `f` goes 0 → 0.25 → 0.40. This drift is
+inherited from the (unchanged) plateau fit and is the correct consequence of pinning the blinded
+milestones while the split re-calibrates; what selection cannot do is bias the comparison *at a fixed
+split*. What clearly *does* move with `f` is the milestone fit, the P(success), and the BAT cured
+fraction (which rises as `π_BAT → π_BAT/(1−f)`). (At extreme `f` the re-fit can be pushed onto a
+parameter boundary in the no-GPS-cure panel, which then reports its verdict as *rejected* — see
+Section 4.7.)
 
 **`q` is the single BAT-side lever.** With the BAT arm otherwise fixed by the component medians, `q`
 is what determines how much of the milestone deceleration is attributed to a healthier enrolled cohort
@@ -538,11 +545,18 @@ mimic a plateau over 48 months) and a State-A "can't fit" be real evidence.
 **The three-state verdict.** Compute the verdict from the fitted `(m_G, s_G)` plus boundary detection;
 a boundary solution is **never** stabilized into a clean number:
 
-- **State A — null REJECTED (non-identified).** The fit lands on a boundary: `m_G` at its 120-mo cap
-  (a raise-the-cap diagnostic confirms it *tracks* the higher cap → unidentified), or `s_G` pinned at
-  either edge (heavy = a near-degenerate tail faking the plateau; light = a near-step "delayed-cliff"
-  high-median Weibull faking a plateau shoulder). Either way a de-facto cure is required. **No PoS is
-  shown** — the panel reports the verdict and the milestone residual.
+- **State A — non-identified (no PoS shown).** The fit lands on a box boundary. Two sub-cases:
+  - **Cure required** (`cure_req = true`): `m_G` at its 120-mo cap (a raise-the-cap diagnostic confirms
+    it *tracks* the higher cap → unidentified), or `s_G` at the **heavy** edge (a near-degenerate tail
+    faking the plateau). Both mean a de-facto GPS cure is required — the thesis-supporting rejection.
+  - **Ambiguous** (`cure_req = false`): `s_G` at the **light** edge (`s_G → 1.5`). A light Weibull has an
+    *increasing* hazard — the opposite of a plateau — so this is **not** a "cure required" signal; it
+    just means the milestones want an even sharper responder tail than the box allows, leaving the
+    no-cure fit unidentified. It neither supports nor refutes the thesis, and (like the plateau panel's
+    own low-selection misfit) appears only near zero enrollment selection.
+
+  Either sub-case is a boundary solution, so **no PoS is shown** — the panel reports the verdict and the
+  milestone residual.
 - **State B — null REJECTED (inconsistent).** The best interior fit still misses the milestones (RMS
   residual above tolerance). A no-cure GPS responder cannot reproduce the milestones given this BAT.
   **No PoS is shown.**

@@ -389,17 +389,21 @@ function buildNoGPSCure(cfg){
   // boundary-tracking diagnostic: raise the mG cap; if the fit tracks it, mG is unidentified.
   let mgTrack=false;
   if(mgCap){const MGHI2=MGHI*1.6;let m2=mG,b2=1e18;for(let mi=0;mi<=20;mi++){const mm=MGLO+(MGHI2-MGLO)*mi/20;const e=resid(mm,sG);if(e<b2){b2=e;m2=mm;}}mgTrack=m2>MGHI+1;}
-  // §5 three-state verdict. State A = null REJECTED (non-identified): mG runs to its cap, or sG pins
-  // to EITHER edge — heavy (near-degenerate tail faking a plateau) or light (a near-step "delayed
-  // cliff" high-median Weibull faking a plateau shoulder). Both mean a de-facto cure is required.
-  // Verdict tolerance is RMS-based (the weighted fit deliberately trades the middle milestone for
-  // the most-recent one, so a single-milestone miss must not by itself trip State B).
+  // §5 verdict. All non-interior fits are non-identified (State A) and show no PoS, but only the
+  // "cure-side" boundaries imply a GPS-specific cure: mG at its cap (or tracking a raised cap), or sG
+  // at the HEAVY edge (a near-degenerate tail faking the plateau). The LIGHT edge (sG→1.5) is the
+  // opposite — an increasing-hazard tail, NOT a plateau/cure signal — so it is flagged as
+  // non-identified/ambiguous (cureReq=false), not as "cure required". Verdict tolerance is RMS-based
+  // (the weighted fit deliberately trades the middle milestone for the most-recent one, so a
+  // single-milestone miss must not by itself trip State B).
   const RMS_TOL=2.0, OFF_TOL=3;
-  let state, reason;
-  if(mgCap||mgTrack||sgHeavy||sgLight){ state="A";
+  const cureBound=mgCap||mgTrack||sgHeavy;                 // boundaries that imply a de-facto GPS cure
+  let state, reason, cureReq=false;
+  if(cureBound){ state="A"; cureReq=true;
     reason = (mgCap||mgTrack) ? ("GPS median runs to its "+MGHI+"mo cap"+(mgTrack?" and tracks a raised cap":"")+" — a de-facto cure")
-      : sgHeavy ? ("tail shape pinned at the heavy edge ("+SGMIN+") — a near-degenerate tail faking the plateau")
-      : ("tail shape pinned at the light edge ("+SGMAX+") — a near-step (delayed-cliff) responder faking the plateau"); }
+      : ("tail shape pinned at the heavy edge ("+SGMIN+") — a near-degenerate tail faking the plateau"); }
+  else if(sgLight){ state="A"; cureReq=false;
+    reason = "GPS tail pinned at the light edge ("+SGMAX+"): the milestones want an even lighter (sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This is not a plateau/cure signal — it neither requires nor excludes a GPS-specific cure"; }
   else if(rmsResid>RMS_TOL||maxOff>OFF_TOL){ state="B";
     reason = "residual RMS "+rmsResid.toFixed(1)+" (modeled "+edv.map(x=>x.toFixed(0)).join("/")+" vs "+MOBS.join("/")+")"; }
   else { state="C";
@@ -408,7 +412,7 @@ function buildNoGPSCure(cfg){
   const degenerate=(state==="A"||state==="B");            // A/B render a verdict, not a PoS
   const Sb=t=>Sbat(t)*Snat(t,h), Sg=t=>Sgps(t,mG,sG)*Snat(t,h), Sp=t=>Spool(t,mG,sG)*Snat(t,h);
   return {kind:"nogpscure",cfg,w,cm,coh,MT,MOBS,h,pibat,obs,fnr,mG,sG,shape:sG,fitShape,
-    batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,maxOff,state,reason,boundaryNote:reason,
+    batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,maxOff,state,reason,cureReq,boundaryNote:reason,
     degenerate,edRaw:ed,Sbat:Sb,Sgps:Sg,Spool:Sp,gpsMed:median(Sg),poolMed:median(Sp),ed:t=>ed(t,mG,sG)};
 }
 // ---------- shared Monte-Carlo ----------
@@ -638,11 +642,13 @@ function render(){
   // headline: plateau (GPS-cure) PoS/HR is the PRIMARY result; the null panel is a verdict annotation.
   $("psucc").textContent=pc+"%";
   $("hr").textContent=isNaN(rc.medHR)?"–":rc.medHR.toFixed(2);
-  $("psuccLL").textContent = (state==="C") ? pn+"%" : (state==="A"?"rejected":"inconsistent");
+  const cureReq=Ml.cureReq;                        // State A boundary that implies a de-facto GPS cure
+  const aWord = state==="A" ? (cureReq?"rejected":"ambiguous") : "inconsistent";  // A(cure)/A(light)/B
+  $("psuccLL").textContent = (state==="C") ? pn+"%" : aWord;
   $("psuccLL").style.fontSize = (state==="C") ? "" : "18px";
   $("hrLL").textContent = (state==="C") ? (isNaN(rl.medHR)?"–":rl.medHR.toFixed(2)) : "—";
   // second-column sub-label reflects the null verdict / the fitted GPS knobs in State C
-  $("bsh").textContent = (state==="C") ? `median ${Ml.mG.toFixed(0)}mo, shape ${Ml.sG.toFixed(2)}` : "null "+(state==="A"?"rejected":"rejected");
+  $("bsh").textContent = (state==="C") ? `median ${Ml.mG.toFixed(0)}mo, shape ${Ml.sG.toFixed(2)}` : "null "+(state==="A"?(cureReq?"rejected":"non-identified"):"inconsistent");
   $("hrc2").textContent=cfg.HRC.toFixed(3);
   // sync the shape slider to the fitted sG in auto mode (the slider is display-only unless override)
   if(Ml.fitShape){ $("shape").value=Ml.sG.toFixed(2); $("bL").textContent=Ml.sG.toFixed(2)+" (fit)"; }
@@ -654,12 +660,15 @@ function render(){
   else{pcls="Moderate";vb.style.background="#f6efe1";vb.style.color="#8a6d1e";}
   vb.textContent = pcls + (state==="C"
     ? " · GPS cure not required to fit (null not excluded)"
-    : state==="A" ? " · GPS-cure required (null rejected)"
-    : " · null rejected (inconsistent)");
+    : state==="B" ? " · null rejected (inconsistent)"
+    : cureReq ? " · GPS-cure required (null rejected)"
+    : " · null non-identified (ambiguous)");
   // §6 #spread: state-based null-test narrative
   const mgS=Ml.mG.toFixed(0), sgS=Ml.sG.toFixed(2);
   $("spread").innerHTML = (state==="C")
     ? `GPS-cure result: <b>${pc}%</b>. But a <b>no-GPS-cure</b> fit also matches (BAT's plateau plus a GPS heavy tail, median <b>${mgS}mo</b>, shape <b>${sgS}</b>, implied HR ${isNaN(rl.medHR)?"–":rl.medHR.toFixed(2)}, PoS ${pn}%) — the blinded milestones cannot prove the plateau is <i>GPS-specific</i>${pn<pc?`, so <b>${pc}%</b> is the optimistic bracket`:``}. State C is conditional on crediting BAT at these medians/cures.`
+    : (state==="A" && !cureReq)
+    ? `GPS-cure result: <b>${pc}%</b>. The no-GPS-cure fit is <b>non-identified</b> (${Ml.reason}) — a boundary solution, so no PoS is shown. This is neither thesis-supporting nor thesis-refuting; it typically appears only at near-zero selection where the plateau panel itself misfits.`
     : `GPS-cure result: <b>${pc}%</b>. The <b>no-GPS-cure null is rejected</b> (${Ml.reason}), so the milestone plateau is <i>not</i> explained by BAT alone — a GPS-specific durable benefit is required to fit the milestones (modeled ${Ml.edv.map(x=>x.toFixed(0)).join("/")} vs observed ${Ml.MOBS.join("/")}).`;
   // detail panel follows the toggle
   const M = mode==="plateau"?Mc:Ml, r = mode==="plateau"?rc:rl;
@@ -704,8 +713,10 @@ function render(){
   } else {
     const rch=Math.round(r.reach*100);
     note += rch<70 ? `<span class="warn">⚠ 80th event reached in only ${rch}% of sims — survival so high the trigger may stall.</span> ` : "";
-    if(M.state==="A"){
+    if(M.state==="A" && M.cureReq){
       note += `<span class="warn">⚠ No-GPS-cure null REJECTED — non-identified (${M.reason}).</span> Even crediting BAT fully, the milestones cannot be fit without a boundary GPS solution, so a GPS-specific durable benefit is <b>required</b>. No PoS is shown. `;
+    } else if(M.state==="A"){
+      note += `<span class="warn">⚠ No-GPS-cure fit non-identified — ${M.reason}.</span> The fit ran to the light-tail edge (an increasing-hazard, non-plateau tail), so it is a boundary solution with no valid PoS — but this is <i>not</i> a "GPS cure required" signal; it neither supports nor refutes the thesis. It appears only near zero selection, where the plateau panel also misfits. `;
     } else if(M.state==="B"){
       note += `<span class="warn">⚠ No-GPS-cure null REJECTED — inconsistent (${M.reason}).</span> A no-cure GPS responder cannot reproduce the milestones given this BAT. No PoS is shown. `;
     } else {

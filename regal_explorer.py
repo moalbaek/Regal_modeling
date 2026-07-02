@@ -264,15 +264,24 @@ def build_no_gps_cure(cfg):
             e = resid(mm, sG)
             if e < b2: b2, m2b = e, mm
         mg_track = m2b > MGHI + 1.0
-    # §5 three-state verdict (RMS-based tolerance so the weighted fit's deliberate middle-milestone
-    # trade-off does not by itself trip State B).
+    # §5 verdict. All non-interior fits are non-identified (State A) with no PoS, but only the
+    # "cure-side" boundaries imply a GPS-specific cure (mg cap/track, or sG heavy edge). The LIGHT
+    # edge (sG->1.5) is an increasing-hazard tail — the OPPOSITE of a plateau — so it is flagged
+    # non-identified/ambiguous (cure_req=False), NOT "cure required". RMS-based tolerance so the
+    # weighted fit's deliberate middle-milestone trade-off does not by itself trip State B.
     RMS_TOL, OFF_TOL = 2.0, 3.0
-    if mg_cap or mg_track or sg_heavy or sg_light:
-        state = "A"
+    cure_bound = mg_cap or mg_track or sg_heavy
+    cure_req = False
+    if cure_bound:
+        state = "A"; cure_req = True
         reason = (("GPS median runs to its %dmo cap%s — a de-facto cure" % (MGHI, " and tracks a raised cap" if mg_track else ""))
                   if (mg_cap or mg_track) else
-                  ("tail shape pinned at the heavy edge (%.2f) — a near-degenerate tail faking the plateau" % SGMIN) if sg_heavy else
-                  ("tail shape pinned at the light edge (%.2f) — a near-step (delayed-cliff) responder faking the plateau" % SGMAX))
+                  ("tail shape pinned at the heavy edge (%.2f) — a near-degenerate tail faking the plateau" % SGMIN))
+    elif sg_light:
+        state = "A"
+        reason = ("GPS tail pinned at the light edge (%.2f): the milestones want an even lighter "
+                  "(sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This is "
+                  "not a plateau/cure signal — it neither requires nor excludes a GPS-specific cure" % SGMAX)
     elif rms_resid > RMS_TOL or max_off > OFF_TOL:
         state = "B"
         reason = "residual RMS %.1f (modeled %s vs %s)" % (rms_resid, "/".join("%.0f" % x for x in edv), "/".join("%.0f" % x for x in MOBS))
@@ -288,7 +297,7 @@ def build_no_gps_cure(cfg):
                 h=h, pibat=pibat, obs=obs, fnr=fnr, mG=mG, sG=sG, shape=sG, fitShape=fit_shape,
                 batMed=bat_med, ratio=(mG / bat_med if np.isfinite(bat_med) else np.nan),
                 edv=edv, rmsResid=rms_resid, maxOff=max_off, state=state, reason=reason,
-                boundaryNote=reason, degenerate=degenerate, ed_raw=ed,
+                cureReq=cure_req, boundaryNote=reason, degenerate=degenerate, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
                 gpsMed=median(Sg), poolMed=median(Sp), ed=lambda t: ed(t, mG, sG))
 
@@ -678,6 +687,9 @@ if __name__ == "__main__":
               f"(median {Ml['mG']:.0f}mo, tail sG={Ml['sG']:.2f} {sh_tag}) also fits.")
         print(f"         P(success) {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   ratio {Ml['ratio']:.1f}x   "
               f"resid RMS {Ml['rmsResid']:.1f}  (GPS cure not required to fit, given this BAT)")
+    elif Ml['state'] == "A" and not Ml['cureReq']:
+        print(f"  NULL TEST no-GPS-cure : State A — NON-IDENTIFIED (ambiguous). {Ml['reason']}.")
+        print(f"         no PoS shown; a boundary (light-edge) solution — neither requires nor excludes a GPS-specific cure.")
     else:
         verdict = "A (non-identified)" if Ml['state'] == "A" else "B (inconsistent)"
         print(f"  NULL TEST no-GPS-cure : State {verdict} — REJECTED. {Ml['reason']}.")
