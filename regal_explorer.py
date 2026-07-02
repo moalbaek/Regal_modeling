@@ -1,17 +1,21 @@
 """REGAL Scenario Explorer — Python engine (port of regal_explorer.html).
 
 The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is
-always re-calibrated and only the *split between arms* moves. Two survival shapes
-are fit to the same milestones and each yields its own P(success):
+always re-calibrated and only the *split between arms* moves. BOTH panels share one
+responder curve — a Weibull (shape < 1 = heavier tail) — and differ by a single
+assumption, whether long-term responders are cured:
 
-  * a PLATEAU shape  — cure-mixture (Weibull per component, optional shape k),
-  * a NO-PLATEAU shape — log-logistic tail.
+  * a PLATEAU shape    — the shared Weibull PLUS a cured fraction (cure-mixture),
+  * a NO-PLATEAU shape  — the same Weibull with NO cure and a *fitted* tail shape.
 
 The gap between the two headline numbers is the irreducible "is the plateau real?"
-uncertainty that the blinded data cannot resolve. This file mirrors, function for
-function, the JavaScript in regal_explorer.html:
+uncertainty that the blinded data cannot resolve. The no-plateau tail shape is a
+fitted parameter (alongside the BAT median and GPS/BAT ratio); if the fit lands on a
+parameter boundary the panel is reported as degenerate/excluded rather than as a
+falsely confident number. This file mirrors, function for function, the JavaScript
+in regal_explorer.html:
 
-  enroll · common · buildCure · buildLL · mc · median · chart(figure)
+  enroll · common · build_plateau · build_no_plateau · mc · median · chart(figure)
 
 Research/analysis tool, not investment advice.
 """
@@ -34,8 +38,13 @@ def Sc(t, med, cure, k):                                          # cure-mixture
     return cure + (1 - cure) * np.exp(-(np.clip(t, 0, None) / lam(med, cure, k)) ** k)
 def sampNC(med, cure, k, u):                                     # sample a NON-cured Weibull time
     return lam(med, cure, k) * (-np.log(u)) ** (1.0 / k)
-Sll   = lambda t, al, be: 1.0 / (1.0 + (np.clip(t, 1e-9, None) / al) ** be)   # log-logistic survival
-sampLL = lambda al, be, u: al * (1.0 / u - 1.0) ** (1.0 / be)                 # log-logistic sample
+# Shared responder family used by BOTH panels: a Weibull (shape<1 = heavier tail, monotone
+# non-increasing hazard). The plateau panel wraps it in a cured fraction (Sc above); the
+# no-plateau panel uses it bare. wscale maps a target median to the Weibull scale (S(median)=0.5).
+def Sweib(t, scale, shape):                                      # bare Weibull survival
+    return np.exp(-(np.clip(t, 0, None) / scale) ** shape)
+sampWeib = lambda scale, shape, u: scale * (-np.log(u)) ** (1.0 / shape)      # inverse-transform Weibull sample
+wscale   = lambda med, shape: med / (np.log(2.0)) ** (1.0 / shape)            # median -> Weibull scale
 # natural (non-disease) all-cause mortality as an independent competing risk.
 # ndr is an annual death fraction; convert to a constant monthly hazard.
 natH  = lambda p: (-np.log(1.0 - p) / 12.0) if p > 0 else 0.0                 # monthly hazard from annual fraction
@@ -72,7 +81,7 @@ PRESETS = {
 }
 
 def default_cfg(**over):
-    cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, beta=1.20,
+    cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, shape=0.90, shapeOverride=False,
                ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.25, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
@@ -138,13 +147,16 @@ def cum_enroll(coh, y, m, d=28):
     """Cumulative patients enrolled by a calendar date (for the sourced PR anchors)."""
     return float(coh[coh[:, 0] <= mo(y, m, d), 1].sum())
 
-# ---------------------------------------------------------------- cure-mixture model
-def build_cure(cfg):
+# ---------------------------------------------------------------- plateau model (cure-mixture)
+def build_plateau(cfg):
     w, cm, coh, MT, MOBS, WT = common(cfg)
     fnr = cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
-    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # enrollment selection: drop weakest fraction F
-    def Ssel(t, c):                                 # survival of the healthiest (1-F) of a component
+    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # enrollment selection: left-truncate weakest fraction F
+    # Left-truncation (keep the strongest 1-F): the flat pre-quantile segment is guarantee time
+    # (REGAL's "life expectancy > 6mo" enrolment floor), not an artifact. As t->inf the cured
+    # fraction is RAISED to cure/(1-F). Shared, identical to the no-plateau panel.
+    def Ssel(t, c):
         return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"]) / (1 - F))
     pibat = sum(w[i] * cm[i]["cure"] / (1 - F) for i in range(len(cm)))
     obs = cm[0]
@@ -176,50 +188,84 @@ def build_cure(cfg):
     Sb = lambda t: Sbat(t) * Snat(t, h)
     Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t)) + fnr * Ssel(t, obs)) * Snat(t, h)
     Sp = lambda t: Spool(t, presp) * Snat(t, h)
-    return dict(kind="cure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
+    return dict(kind="plateau", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
                 presp=presp, h=h, pibat=pibat, pgps=pgps, obs=obs,
                 Sbat=Sb, Sgps=Sg, Spool=Sp, ed_raw=ed,
                 batMed=median(Sb), gpsMed=median(Sg), poolMed=median(Sp),
                 poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp))
 
-# ---------------------------------------------------------------- log-logistic (no plateau)
-def build_ll(cfg):
+# ------------------------------------------------- no-plateau model (Weibull, NO cure; tail fitted)
+def build_no_plateau(cfg):
     w, cm, coh, MT, MOBS, WT = common(cfg)
-    fnr, beta = cfg["fnr"], cfg["beta"]
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
-    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)          # enrollment selection: drop weakest fraction F
-    def Ssl(t, al): return np.minimum(1.0, Sll(t, al, beta) / (1 - F))   # healthiest (1-F) of a log-logistic subgroup
-    mC = sum(w[i] * cm[i]["med"] for i in range(len(cm)))
-    mObs = cm[0]["med"]
-    def Spool(t, k, r):
+    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)          # enrollment selection: left-truncate weakest fraction F
+    SHMIN, SHMAX, KMIN, KMAX, RMIN, RMAX = 0.35, 1.5, 0.5, 3.0, 1.0, 8.0   # fit bounds (shape free to go heavy)
+    fit_shape = not cfg.get("shapeOverride", False)       # AUTO fits shape; override holds the slider value fixed
+    # Left-truncation (keep the strongest 1-F): the SAME operator as the plateau panel. §3: the GPS
+    # arm is a SINGLE responder curve (no fnr seam), so no spurious plateau shoulder can appear.
+    def Strunc(t, med, sh): return np.minimum(1.0, Sweib(t, wscale(med, sh), sh) / (1 - F))
+    mC = sum(w[i] * cm[i]["med"] for i in range(len(cm)))  # weighted-mean component median (pooled scale anchor)
+    def Spool(t, k, r, sh):
         mB = k * mC
-        return 0.5 * Ssl(t, mB) + 0.5 * ((1 - fnr) * Ssl(t, r * mB) + fnr * Ssl(t, k * mObs))
-    def ed(T, k, r):
-        Sf = lambda t: Spool(t, k, r) * Snat(t, h)
+        return 0.5 * Strunc(t, mB, sh) + 0.5 * Strunc(t, r * mB, sh)
+    def ed(T, k, r, sh):
+        Sf = lambda t: Spool(t, k, r, sh) * Snat(t, h)
         return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
+    def resid(k, r, sh):
+        return sum(WT[j] * (ed(MT[j], k, r, sh) - MOBS[j]) ** 2 for j in range(3))
 
-    best, bs = (1.4, 2.0), 1e18
-    for ki in range(49):
-        for ri in range(61):
-            k = 0.6 + ki / 48.0 * 2.6; r = 1 + ri / 60.0 * 6
-            e = sum(WT[j] * (ed(MT[j], k, r) - MOBS[j]) ** 2 for j in range(3))
-            if e < bs: bs, best = e, (k, r)
+    # §2: fit BAT median scaler k, GPS/BAT ratio r, AND (auto) the Weibull tail shape to the 3
+    # milestones. BAT (k) stays free and shape is free to go heavy — the two §2 guardrails.
+    shN = 12 if fit_shape else 0
+    best, bs = (1.4, 2.0, 0.9 if fit_shape else cfg["shape"]), 1e18
+    for si in range(shN + 1):
+        sh = (SHMIN + (SHMAX - SHMIN) * si / shN) if fit_shape else cfg["shape"]
+        for ki in range(19):
+            k = KMIN + (KMAX - KMIN) * ki / 18.0
+            for ri in range(25):
+                r = RMIN + (RMAX - RMIN) * ri / 24.0
+                e = resid(k, r, sh)
+                if e < bs: bs, best = e, (k, r, sh)
     for it in range(3):
-        k0, r0 = best; st = 0.04 / (it + 1)
-        for dk in range(-3, 4):
-            for dr in range(-3, 4):
-                k = max(0.4, k0 + dk * st * 2); r = max(1.0, r0 + dr * st * 4)
-                e = sum(WT[j] * (ed(MT[j], k, r) - MOBS[j]) ** 2 for j in range(3))
-                if e < bs: bs, best = e, (k, r)
-    k, r = best; mB = k * mC
-    Sb = lambda t: Ssl(t, mB) * Snat(t, h)
-    Sg = lambda t: ((1 - fnr) * Ssl(t, r * mB) + fnr * Ssl(t, k * mObs)) * Snat(t, h)
+        k0, r0, s0 = best; st = 1.0 / (it + 1)
+        for dk in range(-2, 3):
+            for dr in range(-2, 3):
+                for ds in range(-2, 3):
+                    if not fit_shape and ds != 0: continue
+                    k = min(KMAX, max(KMIN, k0 + dk * 0.07 * st))
+                    r = min(RMAX, max(RMIN, r0 + dr * 0.22 * st))
+                    sh = min(SHMAX, max(SHMIN, s0 + ds * 0.05 * st)) if fit_shape else s0
+                    e = resid(k, r, sh)
+                    if e < bs: bs, best = e, (k, r, sh)
+    k, r, shape = best; mB = k * mC
+    # §5: a boundary-bound fit is non-identified, not a result. Raise the ratio cap and re-fit r;
+    # if the fitted ratio tracks the higher cap, the milestones don't pin it (unidentified).
+    r_track = False
+    if r >= RMAX - 0.25:
+        RMAX2 = RMAX * 1.6; r2b, bs2 = r, 1e18
+        for ri in range(25):
+            r2 = RMIN + (RMAX2 - RMIN) * ri / 24.0
+            e = resid(k, r2, shape)
+            if e < bs2: bs2, r2b = e, r2
+        r_track = r2b > RMAX + 0.25
+    r_cap = r >= RMAX - 0.15
+    k_cap = (k >= KMAX - 0.03) or (k <= KMIN + 0.02)
+    sh_edge = fit_shape and (shape <= SHMIN + 0.02 or shape >= SHMAX - 0.02)
+    degenerate = bool(r_track or r_cap or k_cap or sh_edge)
+    edv = [ed(t, k, r, shape) for t in MT]                 # modeled deaths at the milestones (residual evidence)
+    parts = ([] + (["median ratio at cap"] if (r_cap or r_track) else [])
+             + (["BAT median at bound"] if k_cap else [])
+             + (["tail shape at range edge"] if sh_edge else []))
+    boundary_note = ("boundary-bound: " + ", ".join(parts)) if degenerate else ""
+    Sb = lambda t: Strunc(t, mB, shape) * Snat(t, h)
+    Sg = lambda t: Strunc(t, r * mB, shape) * Snat(t, h)
     Sp = lambda t: 0.5 * Sb(t) + 0.5 * Sg(t)
-    return dict(kind="ll", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
-                beta=beta, k=k, r=r, mB=mB, h=h, mObs=k * mObs, ed_raw=ed,
+    return dict(kind="noplateau", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
+                shape=shape, k=k, r=r, mB=mB, h=h, ratio=r, fitShape=fit_shape,
+                degenerate=degenerate, boundaryNote=boundary_note, edv=edv, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
-                batMed=median(Sb), gpsMed=median(Sg), ratio=r, poolMed=median(Sp),
-                ed=lambda t: ed(t, k, r))
+                batMed=median(Sb), gpsMed=median(Sg), poolMed=median(Sp),
+                ed=lambda t: ed(t, k, r, shape))
 
 # ---------------------------------------------------------------- fit uncertainty
 def fit_ci(cfg, builder):
@@ -299,16 +345,14 @@ def mc(M, nsim=1500, seed=987654321):
         en = coh[rng.choice(len(coh), size=N, p=cohp), 0]
         surv = np.empty(N)
         a1 = arm == 1; a0 = ~a1
-        if M["kind"] == "cure":
+        if M["kind"] == "plateau":
             surv[a1] = draw_cure_gps(a1.sum())
             surv[a0] = draw_cure_bat(a0.sum())
-        else:
-            mB, beta, r, mObs = M["mB"], M["beta"], M["r"], M["mObs"]
-            u = rng.random(N) * (1 - F)                              # conditional on outliving the F-quantile (enrollment selection)
-            nr = a1 & (rng.random(N) < fnr)
-            surv[a0] = sampLL(mB, beta, u[a0])
-            surv[a1 & ~nr] = sampLL(r * mB, beta, u[a1 & ~nr])
-            surv[nr] = sampLL(mObs, beta, u[nr])
+        else:   # no-plateau: a SINGLE left-truncated Weibull responder per arm — no fnr seam (§3)
+            mB, shape, r = M["mB"], M["shape"], M["r"]
+            u = rng.random(N) * (1 - F)                              # U~Unif(0,1-F): inverse-transform keeps the strongest 1-F
+            surv[a0] = sampWeib(wscale(mB, shape), shape, u[a0])
+            surv[a1] = sampWeib(wscale(r * mB, shape), shape, u[a1])
         if h > 0:                                                   # natural death may preempt disease death
             surv = np.minimum(surv, -np.log(rng.random(N)) / h)
         # loss-to-follow-up: an independent censoring time; if it precedes death the patient is censored
@@ -369,7 +413,7 @@ def figure(path, nsim=1500):
 
     # base preset is reused by (a),(d),(e),(f); fit both shapes once
     cfg = apply_preset(default_cfg(), "base")
-    Mc = build_cure(cfg); Ml = build_ll(cfg)
+    Mc = build_plateau(cfg); Ml = build_no_plateau(cfg)
     rc = mc(Mc, nsim); rl = mc(Ml, nsim)
 
     # (a) survival curves for the base preset, plateau (cure) shape
@@ -389,11 +433,11 @@ def figure(path, nsim=1500):
     fr = [0, 10, 20, 30, 40]; pc = []; pll = []
     for f in fr:
         c = apply_preset(default_cfg(fnr=f / 100.0), "base")
-        pc.append(100 * mc(build_cure(c), nsim)["ps"])
-        pll.append(100 * mc(build_ll(c), nsim)["ps"])
+        pc.append(100 * mc(build_plateau(c), nsim)["ps"])
+        pll.append(100 * mc(build_no_plateau(c), nsim)["ps"])
     b = ax[0, 1]
-    b.plot(fr, pc, color=NAVY, lw=2.4, marker="o", label="Plateau (cure-mixture)")
-    b.plot(fr, pll, color=ORANGE, lw=2.2, ls="-.", marker="s", label="No-plateau (log-logistic)")
+    b.plot(fr, pc, color=NAVY, lw=2.4, marker="o", label="Plateau (cured fraction)")
+    b.plot(fr, pll, color=ORANGE, lw=2.2, ls="-.", marker="s", label="No-plateau (fitted Weibull tail)")
     b.axhline(50, color=GREY, ls=":", lw=1)
     b.set_ylim(0, 103); b.set_xlabel("% GPS non-responders"); b.set_ylabel("P(success) %")
     b.set_title("(b) Non-responders barely move either shape's P(success)",
@@ -404,8 +448,8 @@ def figure(path, nsim=1500):
     gc = []; gl = []
     for nm in names:
         c = apply_preset(default_cfg(), nm)
-        gc.append(100 * mc(build_cure(c), nsim)["ps"])
-        gl.append(100 * mc(build_ll(c), nsim)["ps"])
+        gc.append(100 * mc(build_plateau(c), nsim)["ps"])
+        gl.append(100 * mc(build_no_plateau(c), nsim)["ps"])
     c = ax[0, 2]; x = np.arange(len(names))
     c.bar(x - 0.19, gc, 0.36, color=NAVY, label="Plateau")
     c.bar(x + 0.19, gl, 0.36, color=ORANGE, label="No-plateau")
@@ -499,7 +543,7 @@ def figure(path, nsim=1500):
         o = np.argsort(hr); return hr[o], ps[o], E[o]
 
     p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13), lambda pv: (pv,))
-    l_hr, l_ps, l_E = power_sweep(Ml, "r", np.linspace(1.0, 7.0, 13), lambda rv: (Ml["k"], rv))
+    l_hr, l_ps, l_E = power_sweep(Ml, "r", np.linspace(1.0, 7.0, 13), lambda rv: (Ml["k"], rv, Ml["shape"]))
 
     def band(hr, E):                                            # HR span of the data-consistent (low-misfit) points
         if not len(E): return None
@@ -559,13 +603,13 @@ def fmt_med(m): return "NR" if not np.isfinite(m) else f"{m:.0f}mo"
 if __name__ == "__main__":
     NSIM = 800   # matches the html's interactive budget (~600); raise for tighter MC error
     base = apply_preset(default_cfg(), "base")
-    Mc, Ml = build_cure(base), build_ll(base)
+    Mc, Ml = build_plateau(base), build_no_plateau(base)
     rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)
     wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
     print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
-          f"loss-to-FU {100*base['drop']:.0f}%/yr, enrol-selection drop-weakest {100*base['esel']:.0f}%, fit {wmode})")
+          f"loss-to-FU {100*base['drop']:.0f}%/yr, enrol-selection keep-strongest {100*(1-base['esel']):.0f}%, fit {wmode})")
     print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
-    ci_more, ci_few = fit_ci(base, build_cure)
+    ci_more, ci_few = fit_ci(base, build_plateau)
     print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
     print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
     print(f"  pool : median {fmt_med(Mc['poolMed'])}")
@@ -581,20 +625,28 @@ if __name__ == "__main__":
         ia = f"{rc['medHR_IA']:.2f} (futility {fut})"
     else:
         ia = "n/a (80th not reached)"
-    print(f"\n  P(success) PLATEAU (cure-mixture) : {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
+    print(f"\n  P(success) PLATEAU (cured fraction) : {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
     print(f"         interim: implied HR@{base['IA']} {ia}   "
           f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
-    ia_ll = f"{rl['medHR_IA']:.2f}" if np.isfinite(rl['medHR_IA']) else "n/a"
-    print(f"  P(success) NO-PLATEAU (log-logistic β={base['beta']:.2f}): {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   "
-          f"interim HR {ia_ll}   @80th: {rl['aliveG']:.0f} GPS / {rl['aliveB']:.0f} BAT")
-    print(f"  -> shape gap = {abs(round(100*rc['ps'])-round(100*rl['ps']))} points (irreducible from blinded data)\n")
+    sh_tag = f"shape={Ml['shape']:.2f} fitted" if Ml['fitShape'] else f"shape={Ml['shape']:.2f} override"
+    if Ml['degenerate']:
+        print(f"  P(success) NO-PLATEAU (Weibull, {sh_tag}): EXCLUDED — {Ml['boundaryNote']}")
+        print(f"         boundary-bound fit; modeled deaths {'/'.join(f'{x:.0f}' for x in Ml['edv'])} "
+              f"vs observed {'/'.join(f'{x:.0f}' for x in Ml['MOBS'])} (data are plateau-shaped)")
+    else:
+        ia_np = f"{rl['medHR_IA']:.2f}" if np.isfinite(rl['medHR_IA']) else "n/a"
+        print(f"  P(success) NO-PLATEAU (Weibull, {sh_tag}): {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   "
+              f"ratio {Ml['ratio']:.1f}x   interim HR {ia_np}   @80th: {rl['aliveG']:.0f} GPS / {rl['aliveB']:.0f} BAT")
+        print(f"  -> shape gap = {abs(round(100*rc['ps'])-round(100*rl['ps']))} points (irreducible from blinded data)")
+    print()
 
     print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} {'P(no-plat)':>10} | {'BATmed':>7} {'GPSmed':>7}")
     for nm in ["base", "low", "dom", "bear"]:
         c = apply_preset(default_cfg(), nm)
-        mcc, mll = build_cure(c), build_ll(c)
+        mcc, mll = build_plateau(c), build_no_plateau(c)
         rcc, rll = mc(mcc, NSIM), mc(mll, NSIM)
-        print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% {100*rll['ps']:9.0f}% | "
+        np_ps = "  EXCL" if mll['degenerate'] else f"{100*rll['ps']:8.0f}%"
+        print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% {np_ps:>10} | "
               f"{fmt_med(mcc['batMed']):>7} {fmt_med(mcc['gpsMed']):>7}")
 
     out = figure("regal_explorer_panel.png", NSIM)
