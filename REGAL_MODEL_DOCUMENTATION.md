@@ -168,8 +168,16 @@ accelerates. All components default to `k = 1`.
 
 **Presets** (selectable in the explorer; weights auto-normalize):
 *Base* (15/5/30/35/15, ven cure 22%) · *Low-venetoclax* (25/15/35/10/15) ·
-*Venetoclax-dominant* (5/2/23/60/10) · *Bear corner* (5/2/13/70/10, ven cure 36%) — the bear
-corner is the only composition that pushes the plateau-shape P(success) clearly below 50%.
+*Venetoclax-dominant* (5/2/23/60/10) · *Bear corner* (5/2/13/70/10, ven cure 36%) · *Bull corner*
+(20/10/35/10/25, ven cure 12%) — the bear corner is the only composition that pushes the
+plateau-shape P(success) clearly below 50%. The **bull corner** is its symmetric mirror: it credits
+BAT as little as is clinically defensible for a largely venetoclax-exposed R/R population — venetoclax
+demoted to a floor weight and to a poorly-durable 12% cure, its remaining weight relocated onto the
+low-cure active (HMA/LDAC) and palliative (Observation/Hydroxyurea) components, with active therapy
+still ~70% of BAT. It drives plateau P(success) to its ceiling (~100%) and, more usefully, pushes the
+no-GPS-cure null toward **State A/B rejection** (a no-cure GPS responder must run to a boundary to fit),
+i.e. the regime where GPS-specific cure *is* required — the mirror-image payoff to the bear corner's
+P(success) collapse.
 
 Supporting literature anchors for these assumptions [A]:
 - Contemporary non-transplant CR2 maintenance (HMA and/or BCL-2 inhibitor): **~8-month** expected
