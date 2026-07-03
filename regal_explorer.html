@@ -83,6 +83,7 @@
         <button data-preset="low">Low-venetoclax</button>
         <button data-preset="dom">Venetoclax-dominant</button>
         <button data-preset="bear">Bear corner</button>
+        <button data-preset="bull">Bull corner</button>
       </div>
       <div id="weights"></div>
       <div class="ven row">
@@ -253,7 +254,7 @@
   whether GPS responders are cured, testing whether the milestone plateau <i>requires</i> a GPS-specific durable benefit.
   It returns a verdict (null rejected → GPS cure required; or not excluded → a no-cure GPS heavy tail also fits, given
   this BAT), and only shows a second P(success) in the "not excluded" case. That State-C result is <i>conditional on
-  crediting BAT</i> at these medians/cures — the bear presets and selection slider stress that structure. P(success) is
+  crediting BAT</i> at these medians/cures — the bear/bull corner presets and selection slider stress that structure. P(success) is
   conditional on the 80th event occurring. Built from public disclosures; not investment advice.
   &nbsp;·&nbsp; <a href="docs.html" style="color:#197278">Full methodology &amp; documentation →</a>
   &nbsp;·&nbsp; <a href="https://github.com/moalbaek/Regal_modeling" style="color:#197278">Source on GitHub</a>
@@ -292,7 +293,7 @@ function obsFrac(S,tau,hd,n){
 const DEFAULT_COMP=[{name:"Observation",w:15,med:6,cure:8,k:1},{name:"Hydroxyurea",w:5,med:6,cure:5,k:1},
   {name:"HMA",w:30,med:10,cure:13,k:1},{name:"Venetoclax",w:35,med:13,cure:22,k:1},{name:"LDAC",w:15,med:8,cure:9,k:1}];
 const DEFAULT_EV=[{label:"60 events",y:2024,m:12,d:10,n:60},{label:"72 events",y:2025,m:12,d:26,n:72},{label:"78 events",y:2026,m:5,d:11,n:78}];
-const PRESETS={base:{w:[15,5,30,35,15],vc:22},low:{w:[25,15,35,10,15],vc:22},dom:{w:[5,2,23,60,10],vc:22},bear:{w:[5,2,13,70,10],vc:36}};
+const PRESETS={base:{w:[15,5,30,35,15],vc:22},low:{w:[25,15,35,10,15],vc:22},dom:{w:[5,2,23,60,10],vc:22},bear:{w:[5,2,13,70,10],vc:36},bull:{w:[20,10,35,10,25],vc:12}};
 let comp=structuredClone(DEFAULT_COMP), ev=structuredClone(DEFAULT_EV), mode="plateau";
 
 function enroll(b,N){
