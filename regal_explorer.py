@@ -294,12 +294,12 @@ def build_no_gps_cure(cfg):
     Sg = lambda t: Sgps(t, mG, sG) * Snat(t, h)
     Sp = lambda t: Spool(t, mG, sG) * Snat(t, h)
     return dict(kind="nogpscure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
-                h=h, pibat=pibat, obs=obs, fnr=fnr, mG=mG, sG=sG, shape=sG, fitShape=fit_shape,
+                h=h, pibat=pibat, obs=obs, fnr=fnr, mG=mG, sG=sG, fitShape=fit_shape,
                 batMed=bat_med, ratio=(mG / bat_med if np.isfinite(bat_med) else np.nan),
-                edv=edv, rmsResid=rms_resid, maxOff=max_off, state=state, reason=reason,
-                cureReq=cure_req, boundaryNote=reason, degenerate=degenerate, ed_raw=ed,
+                edv=edv, rmsResid=rms_resid, state=state, reason=reason,
+                cureReq=cure_req, degenerate=degenerate, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
-                gpsMed=median(Sg), poolMed=median(Sp), ed=lambda t: ed(t, mG, sG))
+                gpsMed=median(Sg), ed=lambda t: ed(t, mG, sG))
 
 # ---------------------------------------------------------------- fit uncertainty
 def fit_ci(cfg, builder):
