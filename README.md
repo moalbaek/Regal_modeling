@@ -36,8 +36,10 @@ python3 regal_explorer.py        # CLI summary + figure
 ## Development
 
 The Python engine is covered by a golden regression test that pins the fits,
-event accrual, no-GPS-cure verdict, and fixed-seed Monte-Carlo P(success) across
-all five presets, so a change that silently moves the numbers fails loudly. CI
+event accrual, and fixed-seed Monte-Carlo P(success) across all five presets,
+plus synthetic fixtures that exercise each no-GPS-cure verdict branch (State A
+cure-required and light-edge, State B inconsistent; State C is the presets), so a
+change that silently moves a number or flips a verdict fails loudly. CI
 (`.github/workflows/ci.yml`) runs it on Python 3.9–3.12 and smoke-tests the CLI.
 
 ```bash

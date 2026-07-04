@@ -63,22 +63,30 @@ class GoldenSnapshotTest(unittest.TestCase):
             f"{path}: {av} not within +/-{tol} of golden {gv}",
         )
 
+    def _check_fields(self, path, gfields, afields):
+        for key, gv in gfields.items():
+            av = afields[key]
+            fpath = f"{path}.{key}"
+            if isinstance(gv, list):
+                self.assertEqual(len(gv), len(av), f"{fpath}: length differs")
+                for i, (g, a) in enumerate(zip(gv, av)):
+                    self._check(f"{fpath}[{i}]", key, g, a)
+            else:
+                self._check(fpath, key, gv, av)
+
     def test_presets_match_golden(self):
-        self.assertEqual(
-            sorted(self.golden), sorted(self.actual),
-            "preset set changed vs golden.json",
-        )
-        for preset, panels in self.golden.items():
+        g, a = self.golden["presets"], self.actual["presets"]
+        self.assertEqual(sorted(g), sorted(a), "preset set changed vs golden.json")
+        for preset, panels in g.items():
             for panel, fields in panels.items():
-                for key, gv in fields.items():
-                    av = self.actual[preset][panel][key]
-                    path = f"{preset}.{panel}.{key}"
-                    if isinstance(gv, list):
-                        self.assertEqual(len(gv), len(av), f"{path}: length differs")
-                        for i, (g, a) in enumerate(zip(gv, av)):
-                            self._check(f"{path}[{i}]", key, g, a)
-                    else:
-                        self._check(path, key, gv, av)
+                self._check_fields(f"presets.{preset}.{panel}", fields, a[preset][panel])
+
+    def test_verdicts_match_golden(self):
+        """The synthetic A/B/C fixtures pin the no-GPS-cure verdict's categorical branches."""
+        g, a = self.golden["verdicts"], self.actual["verdicts"]
+        self.assertEqual(sorted(g), sorted(a), "verdict fixture set changed vs golden.json")
+        for label, fields in g.items():
+            self._check_fields(f"verdicts.{label}", fields, a[label])
 
 
 if __name__ == "__main__":
