@@ -55,7 +55,7 @@ heavy tail on top of BAT's own plateau), returning a three-state verdict rather 
 
 ## 1. Module map
 
-The current tool is a single unified engine, delivered in two equivalent forms:
+The tool is a single engine, delivered in two equivalent forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
@@ -125,7 +125,7 @@ The exact monthly accrual is **not public**; the curve is reconstructed [A] to h
 anchors below. Its shape is controlled by the **enrollment-timing slider** (Section 2.8), which slides
 accrual between an earlier (flat) and a later (back-loaded) profile. Because the *median enrollment
 date* is the quantity that actually drives time-from-randomization at each milestone, the explorer
-now **displays the implied median date** (default ≈ Mar 2023) live, together with the cumulative
+**displays the implied median date** (default ≈ Mar 2023) live, together with the cumulative
 patients enrolled at the sourced anchor dates, so drift away from the anchors is visible.
 
 | Anchor | Value | Type | Source |
@@ -267,8 +267,8 @@ venetoclax-cure and composition knobs for building a bear case on the comparator
 One way to set the BAT-arm long-term-survivor fraction (π_c) is a Beta prior, with the
 GPS plateau following from the data constraint (Section 4.4). The explorer replaces this abstract
 prior with the clinically-grounded **BAT composition** (Section 2.5) and the **enrollment-selection
-lever** (Section 2.5.1), which together set π_BAT directly; the Beta priors below are retained only as the
-historical mapping from a one-number prior to a P(success). Priors are **analyst choices [A]**:
+lever** (Section 2.5.1), which together set π_BAT directly; the Beta priors below are an alternative
+one-number mapping from a prior to a P(success). Priors are **analyst choices [A]**:
 
 | Prior | Beta(a,b) | Mean π_c | Rationale |
 |-------|-----------|----------|-----------|
@@ -334,7 +334,7 @@ reviewed the trial and recommended continuation — i.e. it **cleared the pre-sp
 [R4][R5]. That is information about the arm separation, because a scenario in which GPS shows little
 or no benefit by the interim would have been *stopped*, not continued.
 
-The explorer now uses this as a **consistency check on the arm split** rather than leaving the split
+The explorer uses this as a **consistency check on the arm split** rather than leaving the split
 entirely free:
 
 | Control | Range / default | Type | Role |
@@ -435,8 +435,7 @@ percentage.
 > trigger (63.5%), which is *why* real-world accrual has stalled at 78 — the cohort is essentially at
 > its modeled disease asymptote, and the few remaining events are expected to come slowly from
 > background (natural) mortality. Because the null panel shares BAT, it inherits the same plateau and
-> the same event-stall sensitivity (unlike an earlier design whose second-panel BAT decayed to zero and
-> trivially reached the trigger) — so "80th event reached" is a *real* metric on both panels now. In the
+> the same event-stall sensitivity — so "80th event reached" is a *real* metric on both panels. In the
 > Monte-Carlo the natural-death overlay lets the trigger fire in ~100% of sims on a longer timeline.
 
 ---
@@ -487,9 +486,7 @@ cure `π_resp` — fit over a 1-D grid plus local refinement. The BAT arm is ful
 component medians and the enrollment-selection fraction `q` (Section 2.5.1): any longevity the
 milestones demand beyond the raw component medians is supplied *explicitly* by `q` — a healthier
 enrolled cohort — rather than by any hidden calibration. The enrollment shape is set by the
-back-loading slider (Section 2.8) rather than marginalized. (An earlier Bayesian formulation used a
-Poisson log-likelihood with a prior on π_BAT; the explorer replaces that with this transparent
-point-fit + composition/selection levers.)
+back-loading slider (Section 2.8) rather than marginalized.
 
 ### 4.4 Arm decomposition (the unidentified step)
 
@@ -528,7 +525,7 @@ as a sanity check on the arm decomposition.
 
 These replace any abstract π_BAT prior with clinically-grounded structure (Sections 2.5, 2.7).
 **They add interpretability, not identifying information** — the blinded data still see only the
-pooled curve, so refits absorb the new structure and leave P(success) largely unchanged
+pooled curve, so refits absorb this structure and leave P(success) largely unchanged
 (Section 6).
 
 ### 4.7 The no-GPS-cure null test and its three-state verdict
@@ -544,8 +541,8 @@ both panels. The same Monte-Carlo (Section 4.5) then scores it in State C.
 **BAT is fixed on purpose.** The global "is there any plateau" question needs BAT free (the arm split
 is unknowable). *This* null tests a different thing, so it deliberately reverses that guardrail: fixing
 BAT is **controlling the confound and varying the thesis parameter**. The identifiability boundary is
-not removed, only relocated — the parameter that runs to a cap under a plateau-shaped milestone set is
-now the GPS median `m_G` or its tail `s_G`, which is cleaner to detect than the old ratio runaway. The
+on the GPS knobs: the parameter that runs to a cap under a plateau-shaped milestone set is
+the GPS median `m_G` or its tail `s_G`, which is clean to detect. The
 **"tail free to go heavy" guardrail is retained and load-bearing**: `s_G` must be free to reach a
 genuinely heavy tail, because only then can a State-C "fit" be real evidence (a heavy Weibull *can*
 mimic a plateau over 48 months) and a State-A "can't fit" be real evidence.
@@ -662,7 +659,7 @@ JavaScript reads module-level state, but the computed results match).
 - **Promotional bias.** Several anchors (e.g. the ~8-mo BAT figure, the "longer-than-expected
   survival" framing) originate with SELLAS or affiliates and should be discounted accordingly.
 - **Interim futility pass is a soft check, not a hard gate.** The IDMC's continuation past the
-  60-event futility look is now used as an adjustable consistency constraint on the arm split
+  60-event futility look is used as an adjustable consistency constraint on the arm split
   (Section 2.10), flagging implausible scenarios rather than rejecting them outright; the futility
   boundary itself is an assumed number.
 - **Loss to follow-up is modeled as a flat, independent rate.** Administrative censoring (Section 2.11)

@@ -385,7 +385,7 @@ function buildNoGPSCure(cfg){
   const edv=MT.map(t=>ed(t,mG,sG));
   const rmsResid=Math.sqrt(edv.reduce((a,x,i)=>a+(x-MOBS[i])**2,0)/3);
   const maxOff=Math.max(...edv.map((x,i)=>Math.abs(x-MOBS[i])));
-  // §5 boundary detection (relocated from the old ratio runaway onto the GPS knobs).
+  // §5 boundary detection on the GPS knobs (mG cap/track, sG edges).
   const mgCap=mG>=MGHI-0.5, mgFloor=mG<=MGLO+0.5, sgHeavy=fitShape&&sG<=SGMIN+0.01, sgLight=fitShape&&sG>=SGMAX-0.01;
   // boundary-tracking diagnostic: raise the mG cap; if the fit tracks it, mG is unidentified.
   let mgTrack=false;

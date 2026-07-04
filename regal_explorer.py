@@ -254,7 +254,7 @@ def build_no_gps_cure(cfg):
     edv = [ed(t, mG, sG) for t in MT]
     rms_resid = float(np.sqrt(sum((edv[i] - MOBS[i]) ** 2 for i in range(3)) / 3.0))
     max_off = float(max(abs(edv[i] - MOBS[i]) for i in range(3)))
-    # §5 boundary detection (relocated from the old ratio runaway onto the GPS knobs).
+    # §5 boundary detection on the GPS knobs (mG cap/track, sG edges).
     mg_cap = mG >= MGHI - 0.5; mg_floor = mG <= MGLO + 0.5
     sg_heavy = fit_shape and sG <= SGMIN + 0.01; sg_light = fit_shape and sG >= SGMAX - 0.01
     mg_track = False
