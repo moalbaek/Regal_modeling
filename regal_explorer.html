@@ -385,7 +385,7 @@ function buildNoGPSCure(cfg){
   const edv=MT.map(t=>ed(t,mG,sG));
   const rmsResid=Math.sqrt(edv.reduce((a,x,i)=>a+(x-MOBS[i])**2,0)/3);
   const maxOff=Math.max(...edv.map((x,i)=>Math.abs(x-MOBS[i])));
-  // §5 boundary detection (relocated from the old ratio runaway onto the GPS knobs).
+  // §5 boundary detection on the GPS knobs (mG cap/track, sG edges).
   const mgCap=mG>=MGHI-0.5, mgFloor=mG<=MGLO+0.5, sgHeavy=fitShape&&sG<=SGMIN+0.01, sgLight=fitShape&&sG>=SGMAX-0.01;
   // boundary-tracking diagnostic: raise the mG cap; if the fit tracks it, mG is unidentified.
   let mgTrack=false;
@@ -412,9 +412,9 @@ function buildNoGPSCure(cfg){
       : ("interior fit (median "+mG.toFixed(0)+"mo, tail shape "+sG.toFixed(2)+")"); }
   const degenerate=(state==="A"||state==="B");            // A/B render a verdict, not a PoS
   const Sb=t=>Sbat(t)*Snat(t,h), Sg=t=>Sgps(t,mG,sG)*Snat(t,h), Sp=t=>Spool(t,mG,sG)*Snat(t,h);
-  return {kind:"nogpscure",cfg,w,cm,coh,MT,MOBS,h,pibat,obs,fnr,mG,sG,shape:sG,fitShape,
-    batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,maxOff,state,reason,cureReq,boundaryNote:reason,
-    degenerate,edRaw:ed,Sbat:Sb,Sgps:Sg,Spool:Sp,gpsMed:median(Sg),poolMed:median(Sp),ed:t=>ed(t,mG,sG)};
+  return {kind:"nogpscure",cfg,w,cm,coh,MT,MOBS,h,pibat,obs,fnr,mG,sG,fitShape,
+    batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,state,reason,cureReq,
+    degenerate,edRaw:ed,Sbat:Sb,Sgps:Sg,Spool:Sp,gpsMed:median(Sg),ed:t=>ed(t,mG,sG)};
 }
 // ---------- shared Monte-Carlo ----------
 function mc(M,nsim){

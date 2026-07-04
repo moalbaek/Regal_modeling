@@ -79,6 +79,7 @@ PRESETS = {
     "low":  {"w": [25, 15, 35, 10, 15], "vc": 22},
     "dom":  {"w": [5, 2, 23, 60, 10],  "vc": 22},
     "bear": {"w": [5, 2, 13, 70, 10],  "vc": 36},
+    "bull": {"w": [20, 10, 35, 10, 25], "vc": 12},   # symmetric mirror of bear (optimistic corner)
 }
 
 def default_cfg(**over):
@@ -253,7 +254,7 @@ def build_no_gps_cure(cfg):
     edv = [ed(t, mG, sG) for t in MT]
     rms_resid = float(np.sqrt(sum((edv[i] - MOBS[i]) ** 2 for i in range(3)) / 3.0))
     max_off = float(max(abs(edv[i] - MOBS[i]) for i in range(3)))
-    # §5 boundary detection (relocated from the old ratio runaway onto the GPS knobs).
+    # §5 boundary detection on the GPS knobs (mG cap/track, sG edges).
     mg_cap = mG >= MGHI - 0.5; mg_floor = mG <= MGLO + 0.5
     sg_heavy = fit_shape and sG <= SGMIN + 0.01; sg_light = fit_shape and sG >= SGMAX - 0.01
     mg_track = False
@@ -294,12 +295,12 @@ def build_no_gps_cure(cfg):
     Sg = lambda t: Sgps(t, mG, sG) * Snat(t, h)
     Sp = lambda t: Spool(t, mG, sG) * Snat(t, h)
     return dict(kind="nogpscure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
-                h=h, pibat=pibat, obs=obs, fnr=fnr, mG=mG, sG=sG, shape=sG, fitShape=fit_shape,
+                h=h, pibat=pibat, obs=obs, fnr=fnr, mG=mG, sG=sG, fitShape=fit_shape,
                 batMed=bat_med, ratio=(mG / bat_med if np.isfinite(bat_med) else np.nan),
-                edv=edv, rmsResid=rms_resid, maxOff=max_off, state=state, reason=reason,
-                cureReq=cure_req, boundaryNote=reason, degenerate=degenerate, ed_raw=ed,
+                edv=edv, rmsResid=rms_resid, state=state, reason=reason,
+                cureReq=cure_req, degenerate=degenerate, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
-                gpsMed=median(Sg), poolMed=median(Sp), ed=lambda t: ed(t, mG, sG))
+                gpsMed=median(Sg), ed=lambda t: ed(t, mG, sG))
 
 # ---------------------------------------------------------------- fit uncertainty
 def fit_ci(cfg, builder):
@@ -493,8 +494,8 @@ def figure(path, nsim=1500):
     b.set_title("(b) Non-responders barely move the plateau P(success)",
                 fontweight="bold", fontsize=9); b.legend(fontsize=7.6)
 
-    # (c) plateau PoS + no-GPS-cure PoS (State C only) across the four BAT-composition presets
-    names = ["base", "low", "dom", "bear"]; labels = ["Base", "Low-ven", "Ven-dom", "Bear"]
+    # (c) plateau PoS + no-GPS-cure PoS (State C only) across the five BAT-composition presets
+    names = ["base", "low", "dom", "bear", "bull"]; labels = ["Base", "Low-ven", "Ven-dom", "Bear", "Bull"]
     gc = []; gl = []
     for nm in names:
         c = apply_preset(default_cfg(), nm)
@@ -698,7 +699,7 @@ if __name__ == "__main__":
     print()
 
     print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | {'BATmed':>7} {'GPSmed':>7}")
-    for nm in ["base", "low", "dom", "bear"]:
+    for nm in ["base", "low", "dom", "bear", "bull"]:
         c = apply_preset(default_cfg(), nm)
         mcc, mll = build_plateau(c), build_no_gps_cure(c)
         rcc = mc(mcc, NSIM)
