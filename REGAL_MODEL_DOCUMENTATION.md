@@ -154,9 +154,9 @@ patients enrolled at the sourced anchor dates, so drift away from the anchors is
 The BAT arm is modeled as a weighted mixture of component therapies, each a cure-mixture
 parameterized by **(median OS, long-term/"cure" fraction, Weibull shape k)**. These per-component
 numbers are **analyst assumptions [A]** anchored to the comparator literature; they are the main
-lever and are intended to be edited. The shape **k** generalizes the earlier pure-exponential
-non-cured tail (`k = 1` reproduces it): `k < 1` is a heavy tail (more long-term survivors), `k > 1`
-accelerates. All components default to `k = 1`.
+lever and are intended to be edited. The shape **k** generalizes the non-cured tail beyond a pure
+exponential (`k = 1` reproduces the exponential): `k < 1` is a heavy tail (more long-term survivors),
+`k > 1` accelerates. All components default to `k = 1`.
 
 | Component | Median OS (mo) | Cure fraction | Shape k | Type | Anchor / reasoning |
 |-----------|----------------|---------------|---------|------|--------------------|
@@ -495,7 +495,7 @@ Because blinded data fix only the *average* of the arms, the model imposes the c
 GPS plateau follows. Different decomposition modes:
 - **PH (proportional hazards):** `S_GPS = S_BAT^HR` — but this cannot reproduce a plateau without an
   implausibly extreme HR, evidence *against* simple PH (and ruled out independently by the slow
-  accrual; see v2).
+  accrual).
 - **Cure-difference (preferred):** GPS shares the control's early dynamics but has a higher plateau
   — a biologically motivated, early-and-sustained separation.
 
@@ -518,7 +518,7 @@ plateau branch), and its P(success) is reported only when the fit is State C (Se
 The same pass also reports three diagnostics that make the fit auditable: the **implied Cox HR at the
 60-event interim** (the futility read-through of Section 2.10), a boolean for whether it clears the
 futility threshold, and the mean **per-arm patients alive at the 80th event** (before censoring) —
-e.g. ~34 GPS / ~12 BAT at the base preset. The alive-split is the same quantity external modelers use
+e.g. ~33 GPS / ~13 BAT at the base preset. The alive-split is the same quantity external modelers use
 as a sanity check on the arm decomposition.
 
 ### 4.6 Component-mixture BAT and non-responders
