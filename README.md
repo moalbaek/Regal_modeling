@@ -1,5 +1,7 @@
 # Regal_modeling
 
+[![CI](https://github.com/moalbaek/regal_modeling/actions/workflows/ci.yml/badge.svg)](https://github.com/moalbaek/regal_modeling/actions/workflows/ci.yml)
+
 A public-information forecasting tool for the outcome of SELLAS Life Sciences' (NASDAQ: **SLS**)
 blinded Phase 3 **REGAL** trial (NCT04229979) of galinpepimut-S (GPS) vs best available therapy
 (BAT) in AML second complete remission.
@@ -26,8 +28,23 @@ slider are the intended stress controls.
 | `REGAL_MODEL_DOCUMENTATION.md` | Full methodology, parameter sourcing, and limitations. |
 
 ```bash
+pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)
 python3 regal_explorer.py        # CLI summary + figure
 # or just open regal_explorer.html in a browser
+```
+
+## Development
+
+The Python engine is covered by a golden regression test that pins the fits,
+event accrual, and fixed-seed Monte-Carlo P(success) across all five presets,
+plus synthetic fixtures that exercise each no-GPS-cure verdict branch (State A
+cure-required and light-edge, State B inconsistent; State C is the presets), so a
+change that silently moves a number or flips a verdict fails loudly. CI
+(`.github/workflows/ci.yml`) runs it on Python 3.9–3.12 and smoke-tests the CLI.
+
+```bash
+python3 -m unittest discover -s tests   # run the golden test
+python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 
 **Research/analysis tool operating entirely on public disclosures. Not investment advice, and it
