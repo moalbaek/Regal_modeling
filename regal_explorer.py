@@ -79,6 +79,7 @@ PRESETS = {
     "low":  {"w": [25, 15, 35, 10, 15], "vc": 22},
     "dom":  {"w": [5, 2, 23, 60, 10],  "vc": 22},
     "bear": {"w": [5, 2, 13, 70, 10],  "vc": 36},
+    "bull": {"w": [20, 10, 35, 10, 25], "vc": 12},   # symmetric mirror of bear (optimistic corner)
 }
 
 def default_cfg(**over):
@@ -493,8 +494,8 @@ def figure(path, nsim=1500):
     b.set_title("(b) Non-responders barely move the plateau P(success)",
                 fontweight="bold", fontsize=9); b.legend(fontsize=7.6)
 
-    # (c) plateau PoS + no-GPS-cure PoS (State C only) across the four BAT-composition presets
-    names = ["base", "low", "dom", "bear"]; labels = ["Base", "Low-ven", "Ven-dom", "Bear"]
+    # (c) plateau PoS + no-GPS-cure PoS (State C only) across the five BAT-composition presets
+    names = ["base", "low", "dom", "bear", "bull"]; labels = ["Base", "Low-ven", "Ven-dom", "Bear", "Bull"]
     gc = []; gl = []
     for nm in names:
         c = apply_preset(default_cfg(), nm)
@@ -698,7 +699,7 @@ if __name__ == "__main__":
     print()
 
     print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | {'BATmed':>7} {'GPSmed':>7}")
-    for nm in ["base", "low", "dom", "bear"]:
+    for nm in ["base", "low", "dom", "bear", "bull"]:
         c = apply_preset(default_cfg(), nm)
         mcc, mll = build_plateau(c), build_no_gps_cure(c)
         rcc = mc(mcc, NSIM)
