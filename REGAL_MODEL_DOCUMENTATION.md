@@ -154,7 +154,9 @@ patients enrolled at the sourced anchor dates, so drift away from the anchors is
 The BAT arm is modeled as a weighted mixture of component therapies, each a cure-mixture
 parameterized by **(median OS, long-term/"cure" fraction, Weibull shape k)**. These per-component
 numbers are **analyst assumptions [A]** anchored to the comparator literature; they are the main
-lever and are intended to be edited. The shape **k** generalizes the non-cured tail beyond a pure
+lever and are intended to be edited. The full sourcing for the default weights and per-component
+survival parameters — regional composition (US/EU/China) and the CR2-discounted mixture-cure
+literature — is collected in [`BAT_CONTROL_ARM_RESEARCH.md`](BAT_CONTROL_ARM_RESEARCH.md). The shape **k** generalizes the non-cured tail beyond a pure
 exponential (`k = 1` reproduces the exponential): `k < 1` is a heavy tail (more long-term survivors),
 `k > 1` accelerates. The palliative/observation components default to `k = 1.1` (mildly increasing
 hazard as untreated relapse accrues) and venetoclax to `k = 0.78` — the published decreasing-hazard

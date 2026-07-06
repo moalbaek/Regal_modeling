@@ -26,6 +26,7 @@ slider are the intended stress controls.
 | `regal_explorer.html` | Self-contained interactive explorer — open in any browser, no build or dependencies. Sliders for BAT composition, enrollment selection (eligibility filter, a left-truncation), non-responder fraction, natural (non-disease) death rate, the no-GPS-cure test's GPS tail shape sG (fitted by default, with a manual override), etc.; the plateau P(success), the no-GPS-cure verdict, plus live charts (survival curves, event-accrual timeline, simulated-HR distribution, GPS-cure-vs-no-GPS-cure divergence, enrollment validation, a P(success)-vs-effect power curve, and a BAT-median-&-cure-vs-selection sweep). |
 | `regal_explorer.py` | The same engine in Python. Prints a summary across the five BAT presets and writes the 9-panel `regal_explorer_panel.png`. Requires `numpy` + `matplotlib`. |
 | `REGAL_MODEL_DOCUMENTATION.md` | Full methodology, parameter sourcing, and limitations. |
+| `BAT_CONTROL_ARM_RESEARCH.md` | The research basis for the default BAT-arm settings: component composition/weights (US/EU/China) and per-component mixture-cure survival parameters (median OS, cure fraction, Weibull shape), and how they map to `DEFAULT_COMP`. |
 
 ```bash
 pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)
