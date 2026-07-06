@@ -15,7 +15,12 @@
   .bar a:hover{text-decoration:underline}
   .bar .t{font-weight:600;font-size:15px;margin-right:auto}
   .wrap{max-width:880px;margin:24px auto;padding:0 20px}
-  .doc{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  .tabs{display:flex;gap:6px;margin-bottom:-1px;flex-wrap:wrap}
+  .tab{appearance:none;border:1px solid var(--line);border-bottom:none;background:#eef1f4;color:var(--muted);
+    font:600 13.5px/1 inherit;padding:10px 18px;border-radius:10px 10px 0 0;cursor:pointer}
+  .tab:hover{color:var(--navy)}
+  .tab[aria-selected="true"]{background:var(--card);color:var(--navy);box-shadow:0 -2px 0 var(--orange) inset}
+  .doc{background:var(--card);border:1px solid var(--line);border-radius:0 12px 12px 12px;
     padding:28px 34px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
   .doc h1{color:var(--navy);font-size:26px;border-bottom:2px solid var(--line);padding-bottom:8px;margin-top:8px}
   .doc h2{color:var(--navy);font-size:20px;border-bottom:1px solid var(--line);padding-bottom:6px;margin-top:34px}
@@ -42,11 +47,11 @@
   <span class="t">REGAL Model — Documentation</span>
   <a href="regal_explorer.html">← Interactive explorer</a>
   <a href="https://github.com/moalbaek/Regal_modeling" target="_blank" rel="noopener">GitHub repo</a>
-  <a href="BAT_CONTROL_ARM_RESEARCH.md" target="_blank" rel="noopener">BAT research basis</a>
-  <a href="REGAL_MODEL_DOCUMENTATION.md" target="_blank" rel="noopener">Raw Markdown</a>
+  <a id="rawLink" href="REGAL_MODEL_DOCUMENTATION.md" target="_blank" rel="noopener">Raw Markdown</a>
 </div>
 <div class="wrap">
-  <div id="doc" class="doc"><p class="note">Loading documentation…</p></div>
+  <div class="tabs" id="tabs" role="tablist"></div>
+  <div id="doc" class="doc" role="tabpanel"><p class="note">Loading documentation…</p></div>
 </div>
 <footer>
   Research/analysis tool operating entirely on public disclosures. Not investment advice.
@@ -56,23 +61,61 @@
 <script src="marked.min.js"></script>
 <script>
 "use strict";
+// Two documentation views rendered from their Markdown source into tabs. The hash (#model /
+// #research) deep-links a tab so it is shareable; content is fetched once and cached.
+const DOCS = [
+  {id: "model",    label: "Model documentation", file: "REGAL_MODEL_DOCUMENTATION.md", title: "REGAL Model — Documentation"},
+  {id: "research", label: "BAT research basis",  file: "BAT_CONTROL_ARM_RESEARCH.md",  title: "REGAL Model — BAT research basis"},
+];
 const el = document.getElementById("doc");
-fetch("REGAL_MODEL_DOCUMENTATION.md")
-  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-  .then(md => {
+const tabsEl = document.getElementById("tabs");
+const rawLink = document.getElementById("rawLink");
+const cache = {};
+
+function render(doc) {
+  el.innerHTML = '<p class="note">Loading…</p>';
+  const paint = md => {
     if (window.marked) {
       el.innerHTML = marked.parse(md);
-    } else {
-      // marked CDN unavailable — show the raw text rather than nothing.
+    } else {                                   // marked unavailable — show raw text rather than nothing.
       el.innerHTML = "<pre></pre>";
       el.firstChild.textContent = md;
     }
-    document.title = "REGAL Model — Documentation";
-  })
-  .catch(err => {
-    el.innerHTML = '<p class="note">Could not load the documentation (' + err.message +
-      '). Read it on <a href="https://github.com/moalbaek/Regal_modeling/blob/main/REGAL_MODEL_DOCUMENTATION.md">GitHub</a> instead.</p>';
+    el.scrollIntoView({block: "start"});
+  };
+  if (cache[doc.id] !== undefined) { paint(cache[doc.id]); return; }
+  fetch(doc.file)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(md => { cache[doc.id] = md; paint(md); })
+    .catch(err => {
+      el.innerHTML = '<p class="note">Could not load this document (' + err.message +
+        '). Read it on <a href="https://github.com/moalbaek/Regal_modeling/blob/main/' + doc.file +
+        '">GitHub</a> instead.</p>';
+    });
+}
+
+function select(id, updateHash) {
+  const doc = DOCS.find(d => d.id === id) || DOCS[0];
+  DOCS.forEach(d => {
+    document.getElementById("tab-" + d.id).setAttribute("aria-selected", String(d.id === doc.id));
   });
+  document.title = doc.title;
+  rawLink.setAttribute("href", doc.file);
+  if (updateHash) history.replaceState(null, "", "#" + doc.id);
+  render(doc);
+}
+
+DOCS.forEach(d => {
+  const b = document.createElement("button");
+  b.className = "tab"; b.id = "tab-" + d.id; b.textContent = d.label;
+  b.setAttribute("role", "tab"); b.setAttribute("aria-selected", "false");
+  b.addEventListener("click", () => select(d.id, true));
+  tabsEl.appendChild(b);
+});
+
+// respond to back/forward and manual hash edits
+window.addEventListener("hashchange", () => select(location.hash.replace(/^#/, ""), false));
+select(location.hash.replace(/^#/, "") || "model", false);
 </script>
 </body>
 </html>
