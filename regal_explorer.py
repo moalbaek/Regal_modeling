@@ -62,12 +62,18 @@ def obs_frac(S, tau, hd, n=10):
     return float(np.exp(-hd * tau) * (1.0 - S(tau)) + hd * integ)
 
 # ---------------------------------------------------------------- defaults
+# Base-case component parameters re-derived from the CR2 transplant-ineligible
+# mixture-cure survival review (VIALE-A / QUAZAR / r-r salvage, discounted to CR2)
+# and the US/EU/China BAT-composition review. Recommended base weights: observation
+# 35% (split 27/8 obs/hydroxyurea), venetoclax 35%, HMA 22%, LDAC 8%. Per-component
+# (median OS, cure, Weibull k): observation 6mo/3%/1.1, HMA 12mo/10%/1.0,
+# venetoclax 12mo/15%/k=0.78 (published VEN+AZA decreasing-hazard tail), LDAC 7mo/8%/1.1.
 DEFAULT_COMP = [
-    {"name": "Observation",  "w": 15, "med": 6.0,  "cure": 8,  "k": 1},
-    {"name": "Hydroxyurea",  "w": 5,  "med": 6.0,  "cure": 5,  "k": 1},
-    {"name": "HMA",          "w": 30, "med": 10.0, "cure": 13, "k": 1},
-    {"name": "Venetoclax",   "w": 35, "med": 13.0, "cure": 22, "k": 1},
-    {"name": "LDAC",         "w": 15, "med": 8.0,  "cure": 9,  "k": 1},
+    {"name": "Observation",  "w": 27, "med": 6.0,  "cure": 3,  "k": 1.1},
+    {"name": "Hydroxyurea",  "w": 8,  "med": 5.0,  "cure": 2,  "k": 1.1},
+    {"name": "HMA",          "w": 22, "med": 12.0, "cure": 10, "k": 1.0},
+    {"name": "Venetoclax",   "w": 35, "med": 12.0, "cure": 15, "k": 0.78},
+    {"name": "LDAC",         "w": 8,  "med": 7.0,  "cure": 8,  "k": 1.1},
 ]
 DEFAULT_EV = [
     {"label": "60 events", "y": 2024, "m": 12, "d": 10, "n": 60},
@@ -75,11 +81,11 @@ DEFAULT_EV = [
     {"label": "78 events", "y": 2026, "m": 5,  "d": 11, "n": 78},
 ]
 PRESETS = {
-    "base": {"w": [15, 5, 30, 35, 15], "vc": 22},
-    "low":  {"w": [25, 15, 35, 10, 15], "vc": 22},
-    "dom":  {"w": [5, 2, 23, 60, 10],  "vc": 22},
-    "bear": {"w": [5, 2, 13, 70, 10],  "vc": 36},
-    "bull": {"w": [20, 10, 35, 10, 25], "vc": 12},   # symmetric mirror of bear (optimistic corner)
+    "base": {"w": [27, 8, 22, 35, 8], "vc": 15},
+    "low":  {"w": [33, 12, 30, 15, 10], "vc": 15},   # observation-heavy / venetoclax-light (access-constrained)
+    "dom":  {"w": [8, 4, 18, 60, 10],  "vc": 15},    # venetoclax-dominant (US-heavy uptake)
+    "bear": {"w": [5, 3, 12, 70, 10],  "vc": 25},    # max venetoclax + top-of-range cure (strongest BAT)
+    "bull": {"w": [40, 10, 25, 15, 10], "vc": 10},   # observation-heavy weak-BAT corner (optimistic for GPS)
 }
 
 def default_cfg(**over):

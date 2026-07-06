@@ -87,8 +87,8 @@
       </div>
       <div id="weights"></div>
       <div class="ven row">
-        <label>Venetoclax durable-remission (cure) <span class="val" id="vcL">22%</span></label>
-        <input type="range" id="vcure" min="10" max="40" step="1" value="22">
+        <label>Venetoclax durable-remission (cure) <span class="val" id="vcL">15%</span></label>
+        <input type="range" id="vcure" min="10" max="40" step="1" value="15">
       </div>
       <div class="sub">Weights auto-normalize. Venetoclax cure is the key bear/bull knob (plateau panel).</div>
       <table id="compTable" style="margin-top:14px"><thead><tr><th>Component</th><th>Median (mo)</th><th>Cure %</th><th>Shape k</th></tr></thead><tbody></tbody></table>
@@ -290,10 +290,10 @@ function obsFrac(S,tau,hd,n){
   return Math.exp(-hd*tau)*(1-S(tau))+hd*integ;
 }
 
-const DEFAULT_COMP=[{name:"Observation",w:15,med:6,cure:8,k:1},{name:"Hydroxyurea",w:5,med:6,cure:5,k:1},
-  {name:"HMA",w:30,med:10,cure:13,k:1},{name:"Venetoclax",w:35,med:13,cure:22,k:1},{name:"LDAC",w:15,med:8,cure:9,k:1}];
+const DEFAULT_COMP=[{name:"Observation",w:27,med:6,cure:3,k:1.1},{name:"Hydroxyurea",w:8,med:5,cure:2,k:1.1},
+  {name:"HMA",w:22,med:12,cure:10,k:1},{name:"Venetoclax",w:35,med:12,cure:15,k:0.78},{name:"LDAC",w:8,med:7,cure:8,k:1.1}];
 const DEFAULT_EV=[{label:"60 events",y:2024,m:12,d:10,n:60},{label:"72 events",y:2025,m:12,d:26,n:72},{label:"78 events",y:2026,m:5,d:11,n:78}];
-const PRESETS={base:{w:[15,5,30,35,15],vc:22},low:{w:[25,15,35,10,15],vc:22},dom:{w:[5,2,23,60,10],vc:22},bear:{w:[5,2,13,70,10],vc:36},bull:{w:[20,10,35,10,25],vc:12}};
+const PRESETS={base:{w:[27,8,22,35,8],vc:15},low:{w:[33,12,30,15,10],vc:15},dom:{w:[8,4,18,60,10],vc:15},bear:{w:[5,3,12,70,10],vc:25},bull:{w:[40,10,25,15,10],vc:10}};
 let comp=structuredClone(DEFAULT_COMP), ev=structuredClone(DEFAULT_EV), mode="plateau";
 
 function enroll(b,N){

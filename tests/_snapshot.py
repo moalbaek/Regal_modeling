@@ -20,20 +20,21 @@ import regal_explorer as R  # noqa: E402
 PRESETS = ["base", "low", "dom", "bear", "bull"]
 NSIM = 400   # fixed MC budget for reproducible P(success); mc() seeds deterministically
 
-# The five real presets all land in State C, so they never exercise the no-GPS-cure
-# verdict's other branches. These synthetic configs — a base scenario with only the
-# blinded milestones swapped — deliberately drive the fit to each remaining verdict,
-# pinning the categorical A/B/C logic. Each sits well clear of its flip boundary:
+# The real presets only land in State C or — at the weak-BAT corners (bull, low) — State A,
+# and none reliably exercises State B. These synthetic configs — a base scenario with only
+# the blinded milestones swapped — deliberately drive the fit to each verdict, pinning the
+# categorical A/B/C logic. Each sits well clear of its flip boundary:
 #   A_cure_required — milestones stall, so the no-cure Weibull runs to its median cap
 #                     AND the heavy tail edge (cure required, cureReq=True).
 #   A_light_edge    — bunched milestones want an ever-lighter (increasing-hazard) tail,
 #                     so sG pins at the light edge (non-identified, cureReq=False).
-#   B_inconsistent  — a mid-burst then stall no single Weibull shape can hit: the best
-#                     fit is interior yet the residual clears the tolerance (inconsistent).
+#   B_inconsistent  — a burst to the 2nd milestone then a hard late stall no single Weibull
+#                     tail can hit: the best fit stays interior (sG~0.8) yet the residual
+#                     clears the tolerance (inconsistent).
 VERDICT_FIXTURES = {
     "A_cure_required": {"ev_counts": [70, 72, 73]},
     "A_light_edge": {"ev_dates": [(2024, 12, 10), (2025, 3, 26), (2025, 5, 11)]},
-    "B_inconsistent": {"ev_counts": [50, 76, 78]},
+    "B_inconsistent": {"ev_counts": [52, 74, 75]},
 }
 
 

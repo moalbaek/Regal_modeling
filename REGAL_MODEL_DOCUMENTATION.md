@@ -156,25 +156,27 @@ parameterized by **(median OS, long-term/"cure" fraction, Weibull shape k)**. Th
 numbers are **analyst assumptions [A]** anchored to the comparator literature; they are the main
 lever and are intended to be edited. The shape **k** generalizes the non-cured tail beyond a pure
 exponential (`k = 1` reproduces the exponential): `k < 1` is a heavy tail (more long-term survivors),
-`k > 1` accelerates. All components default to `k = 1`.
+`k > 1` accelerates. The palliative/observation components default to `k = 1.1` (mildly increasing
+hazard as untreated relapse accrues) and venetoclax to `k = 0.78` — the published decreasing-hazard
+Weibull OS shape reconstructed from VIALE-A (VEN+AZA), the plateau-forming tail.
 
 | Component | Median OS (mo) | Cure fraction | Shape k | Type | Anchor / reasoning |
 |-----------|----------------|---------------|---------|------|--------------------|
-| Observation / BSC | 6.0 | 0.08 | 1 | [A] | Untreated CR2 relapses fast; long-term survival low. **Non-responders track this row.** |
-| Hydroxyurea (palliative) | 6.0 | 0.05 | 1 | [A] | Palliative; poorest durable-remission. |
-| HMA (aza/dec) | 10.0 | 0.13 | 1 | [A] | Some durable responses; consistent with HMA-maintenance literature. |
-| Venetoclax (± HMA) | 13.0 | 0.22 | 1 | [A] | Best BAT option; a subset achieve durable remission. **This is the key bear/bull knob.** |
-| LDAC | 8.0 | 0.09 | 1 | [A] | Modest activity. |
+| Observation / BSC | 6.0 | 0.03 | 1.1 | [A] | Untreated CR2 relapses fast (mOS ~5–7 mo); durable-survivor tail ~2–5%. **Non-responders track this row.** |
+| Hydroxyurea (palliative) | 5.0 | 0.02 | 1.1 | [A] | Palliative count-control in more symptomatic disease; poorest durable-remission. |
+| HMA (aza/dec) | 12.0 | 0.10 | 1.0 | [A] | QUAZAR-style maintenance signal (CR1 plateau ~15–25%) discounted to CR2; exponential hazard per HTA fits. |
+| Venetoclax (± HMA) | 12.0 | 0.15 | 0.78 | [A] | Best BAT option (VIALE-A mOS 14.7 / 24-mo OS 37.5%) discounted to CR2; k=0.78 published VEN+AZA tail. **Key bear/bull knob.** |
+| LDAC | 7.0 | 0.08 | 1.1 | [A] | Modest activity (mOS ~5–10 mo); small responder tail. |
 
 **Presets** (selectable in the explorer; weights auto-normalize):
-*Base* (15/5/30/35/15, ven cure 22%) · *Low-venetoclax* (25/15/35/10/15) ·
-*Venetoclax-dominant* (5/2/23/60/10) · *Bear corner* (5/2/13/70/10, ven cure 36%) · *Bull corner*
-(20/10/35/10/25, ven cure 12%) — the bear corner is the only composition that pushes the
-plateau-shape P(success) clearly below 50%. The **bull corner** is its symmetric mirror: it credits
-BAT as little as is clinically defensible for a largely venetoclax-exposed R/R population — venetoclax
-demoted to a floor weight and to a poorly-durable 12% cure, its remaining weight relocated onto the
-low-cure active (HMA/LDAC) and palliative (Observation/Hydroxyurea) components, with active therapy
-still ~70% of BAT. It drives plateau P(success) to its ceiling (~100%) and, more usefully, pushes the
+*Base* (27/8/22/35/8, ven cure 15%) · *Low-venetoclax* (33/12/30/15/10, ven cure 15%) ·
+*Venetoclax-dominant* (8/4/18/60/10, ven cure 15%) · *Bear corner* (5/3/12/70/10, ven cure 25%) · *Bull corner*
+(40/10/25/15/10, ven cure 10%) — the bear corner is the only composition that pushes the
+plateau-shape P(success) clearly below 50%. The **bull corner** is the opposite (optimistic) extreme:
+it credits BAT as little as is clinically defensible — venetoclax demoted to a floor weight and to a
+poorly-durable 10% cure, its remaining weight relocated onto the low-cure active (HMA/LDAC) and
+palliative (Observation/Hydroxyurea) components, with observation/hydroxyurea now the plurality of the
+arm (~50%). It drives plateau P(success) to its ceiling (~100%) and, more usefully, pushes the
 no-GPS-cure null toward **State A/B rejection** (a no-cure GPS responder must run to a boundary to fit),
 i.e. the regime where GPS-specific cure *is* required — the mirror-image payoff to the bear corner's
 P(success) collapse.
@@ -190,9 +192,11 @@ Supporting literature anchors for these assumptions [A]:
   the *upper* bound on maintenance benefit, not the CR2 control.
 
 **Base composition** (investigator's-choice weights, contemporary; **assumption [A]**, editable):
-Observation 0.15 · Hydroxyurea 0.05 · HMA 0.30 · Venetoclax 0.35 · LDAC 0.15 → implied BAT cure
-≈ 14%, BAT median ≈ 9.4 mo. Two alternates ("low-venetoclax / early-ex-US", "venetoclax-dominant /
-modern US") bracket the range.
+Observation 0.27 · Hydroxyurea 0.08 · HMA 0.22 · Venetoclax 0.35 · LDAC 0.08 → implied BAT cure
+≈ 9%, BAT median ≈ 8.1 mo before enrollment selection (≈ 12% / ≈ 12 mo at the default 25% keep-strongest
+filter). Weights follow the US/EU/China BAT-composition review (observation ~35%, venetoclax ~35%,
+HMA ~22%, LDAC ~8%); two alternates ("low-venetoclax / access-constrained", "venetoclax-dominant /
+US-heavy") bracket the range.
 
 ### 2.5.1 Enrollment selection (eligibility filter)
 
@@ -247,10 +251,10 @@ is what determines how much of the milestone deceleration is attributed to a hea
 versus to the GPS effect; the plateau fit's *only* free parameter is the GPS responder cure `π_resp`.
 The default is **`q = 25%`** (mid-band; see below).
 
-**Effect (base preset).** As `q` rises 0 → 25 → 50% the BAT median OS lifts ~9 → 14 → 22 mo and the BAT
-cure fraction climbs ~14 → 19 → 29% (both plotted live in panel *(i)* / the "enrollment selection lifts
+**Effect (base preset).** As `q` rises 0 → 25 → 50% the BAT median OS lifts ~8 → 12 → 19 mo and the BAT
+cure fraction climbs ~9 → 12 → 18% (both plotted live in panel *(i)* / the "enrollment selection lifts
 the BAT arm" chart, `S_BAT` and `π_BAT/(1−q)`, independent of the Monte-Carlo). To keep the pooled
-60/72/78 pinned, the fitted GPS responder cure falls ~0.81 → 0.70 → 0.48, so the **plateau** P(success)
+60/72/78 pinned, the fitted GPS responder cure falls ~0.87 → 0.78 → 0.59, so the **plateau** P(success)
 drops steeply ~100 → 94 → 13% — a healthier, harder-to-beat comparator leaves less residual to
 attribute to GPS. Note the direction of the fit-check: at `q = 0` the raw medians *over*-produce early
 deaths (modeled ~65/74/76 vs 60/72/78) and `π_resp` cannot slow BAT, so a residual misfit at low `q` is
@@ -281,8 +285,8 @@ one-number mapping from a prior to a P(success). Priors are **analyst choices [A
 | Parameter | Value | Type | Source / reasoning |
 |-----------|-------|------|--------------------|
 | Non-responder fraction f_nr | swept 0–40% (default 20%) | [A] | Anchored to the ~80% WT1 T-cell response rate [R4] ⇒ ~20% immunological non-responders. |
-| Non-responder survival | = Observation component (median 6 mo, cure 8%) | [A] | User's specification: non-responders get no vaccine benefit → behave like best-supportive-care. |
-| Responder cure | refit to events given f_nr & BAT | [D] | Increases ~56% → ~91% as f_nr rises 0 → 40% (base preset, 2% natural death); the GPS *arm* cure stays ~57% because the rising responder cure offsets the larger non-responder share (Section 6). |
+| Non-responder survival | = Observation component (median 6 mo, cure 3%) | [A] | User's specification: non-responders get no vaccine benefit → behave like best-supportive-care. |
+| Responder cure | refit to events given f_nr & BAT | [D] | Refits upward as f_nr rises 0 → 40% (base preset, 2% natural death); the GPS *arm* cure stays ~55–60% because the rising responder cure offsets the larger non-responder share (Section 6). |
 
 ### 2.8 Survival-shape stress controls (the explorer's headline knobs)
 
@@ -322,8 +326,8 @@ the 80th-event trigger *forward*: the cure-mixture "reached" fraction climbs fro
 2%/yr. Two forces then push P(success) in opposite directions — background deaths are *non-differential*,
 which *dilutes* the treatment contrast (downward), but the more-reliable trigger removes stalled sims that
 never reached significance (upward). In the explorer's presets the trigger-reliability gain dominates, so the
-base-preset plateau P(success) rises gently with the natural rate (≈ **94% → 96% → 99% → 100%** across
-0 / 2 / 5 / 10 %/yr, with the GPS arm cure rising 51% → 57% → 66% → 80% over the same range). Dilution would
+base-preset plateau P(success) is already near-ceiling and barely moves (≈ **99% → 100% → 100% → 100%** across
+0 / 2 / 5 / 10 %/yr, with the GPS arm cure rising 58% → 63% → 73% → 81% over the same range). Dilution would
 win only where the trigger already fires in ~100% of sims; at the realistic ~2%/yr default the net move is a
 few points.
 
@@ -373,8 +377,8 @@ milestone fit: the expected *observed* deaths by a date use
 underlying disease survival adjusted for the censoring. At default 0 the model is unchanged.
 
 **Effect.** Dropout meaningfully lowers P(success) and can stall the trigger: at the base preset the
-plateau P(success) falls ~96% → 93% → 88% → 60% across 0 / 3 / 5 / 10 %/yr, and the 80th-event
-"reached" fraction starts dropping (~89% at 10%). It is non-differential, so it dilutes the contrast
+plateau P(success) falls ~100% → 99% → 97% → 85% across 0 / 3 / 5 / 10 %/yr, and the 80th-event
+"reached" fraction starts dropping (~83% at 10%). It is non-differential, so it dilutes the contrast
 and removes events; unlike natural death it does not bring the trigger forward.
 
 **Important reading of this control.** Because the censoring is folded into the *fit*, raising the
@@ -406,27 +410,27 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Quantity | Value (base preset) | Source |
 |----------|---------------------|--------|
 | Median enrollment date | ≈ Mar 2023 (cumulative ≈ 30 / 102 / 126 by Apr 2022 / Nov 2023 / Apr 2024) | `enroll` |
-| BAT cure / median | ~19% · ~14 mo at the q=25% default; left-truncation sweeps it ~14% · ~9 mo (q=0) → ~29% · ~22 mo (q=50%), the cured fraction *rising* with q (Section 2.5.1) | `build_plateau` |
-| GPS cure / median | ~58% · ~90 mo all-cause (disease-only plateau is never reached); both fall as selection rises and `π_resp` re-fits down | `build_plateau` |
-| GPS median Poisson 68% CI | ~21 – 234 mo (from 60/72/78 ±√n) — wide: three counts barely pin the tail | `fit_ci` |
-| Pooled long-term-survivor fraction | ~0.39 (disease plateau; all-cause survival decays below it) | `build_plateau` |
-| Pooled median OS | **~20 mo** (above the ≥13.5 floor) | `build_plateau` |
-| Implied HR at the 60-event interim | ~0.48 (clears the 1.00 futility threshold); drifts toward 1 as selection rises | `mc` |
-| Patients alive at the 80th event | ~33 GPS / ~13 BAT (before censoring) | `mc` |
-| **P(success) — plateau (GPS cure)** — the headline | **~94% at the q=25% default**; selection sweeps it ~100% (q=0) → ~13% (q=50%) (Section 2.5.1) | `build_plateau` + `mc` |
-| **No-GPS-cure null verdict** | **State C (not excluded) at base**: a no-cure GPS responder (median m<sub>G</sub> ≈ 47 mo, tail s<sub>G</sub> ≈ 0.46) plus BAT's plateau also fits (milestone residual RMS ≈ 1.5), so a State-C P(success) ≈ 97% is reported as the "GPS cure not required" bracket. At extreme selection or a light-BAT corner the fit runs to a boundary (s<sub>G</sub> edge or m<sub>G</sub> cap) → **State A rejected** (GPS cure required); a large residual → **State B rejected** | `build_no_gps_cure` + `mc` |
+| BAT cure / median | ~12% · ~12 mo at the q=25% default; left-truncation sweeps it ~9% · ~8 mo (q=0) → ~18% · ~19 mo (q=50%), the cured fraction *rising* with q (Section 2.5.1) | `build_plateau` |
+| GPS cure / median | ~63% · ~140 mo all-cause (disease-only plateau is never reached); both fall as selection rises and `π_resp` re-fits down | `build_plateau` |
+| GPS median Poisson 68% CI | ~28 – 276 mo (from 60/72/78 ±√n) — wide: three counts barely pin the tail | `fit_ci` |
+| Pooled long-term-survivor fraction | ~0.38 (disease plateau; all-cause survival decays below it) | `build_plateau` |
+| Pooled median OS | **~19 mo** (above the ≥13.5 floor) | `build_plateau` |
+| Implied HR at the 60-event interim | ~0.38 (clears the 1.00 futility threshold); drifts toward 1 as selection rises | `mc` |
+| Patients alive at the 80th event | ~36 GPS / ~10 BAT (before censoring) | `mc` |
+| **P(success) — plateau (GPS cure)** — the headline | **~100% at the q=25% default**; selection sweeps it ~100% (q=0) → ~65% (q=50%) (Section 2.5.1) | `build_plateau` + `mc` |
+| **No-GPS-cure null verdict** | **State C (not excluded) at base**: a no-cure GPS responder (median m<sub>G</sub> ≈ 48 mo, tail s<sub>G</sub> ≈ 1.15) plus BAT's plateau also fits (milestone residual RMS ≈ 1.7), so a State-C P(success) ≈ 100% is reported as the "GPS cure not required" bracket. At extreme selection or a light-BAT corner the fit runs to a boundary (s<sub>G</sub> edge or m<sub>G</sub> cap) → **State A rejected** (GPS cure required); a large residual → **State B rejected** | `build_no_gps_cure` + `mc` |
 | 80th event reached in MC | ~100% of sims (both panels) at the 2% natural-death default; because BAT is shared, the null inherits the plateau's event-stall sensitivity and can also stall if BAT cure is pushed hard | `mc` |
 
-The 2% natural-death default (Section 2.9) raises the GPS arm cure to ~57% and, because it guarantees
+The 2% natural-death default (Section 2.9) raises the GPS arm cure to ~63% and, because it guarantees
 the trigger eventually fires, lifts the plateau "reached" fraction from ~82% (at 0%) to ~100%; that
 removes the stalled sims and nudges the plateau P(success) up a few points relative to a no-mortality
 run.
 
 Sweeping the BAT composition shows what the null verdict is worth. At the **base preset** the plateau
-P(success) is ~94% and the null lands in **State C** — a no-cure GPS heavy tail (median ~47 mo, shape
-~0.46) also fits, so the plateau is *not provably GPS-specific* given this BAT. At the **bear corner**
-the plateau P(success) collapses (~6%) and the null is still State C (a small no-cure separation
-suffices). Push selection to an extreme, or credit BAT so little that a no-cure GPS must run to a
+P(success) is ~100% and the null lands in **State C** — a no-cure GPS separation (median ~48 mo, shape
+~1.15) also fits, so the plateau is *not provably GPS-specific* given this BAT. At the **bear corner**
+(the strongest defensible BAT: 70% venetoclax at a 25% cure) the plateau P(success) falls below 50%
+(~43%) and the null is still State C. Push selection to an extreme, or credit BAT so little that a no-cure GPS must run to a
 boundary to fit, and the null flips to **State A/B rejected** — GPS-specific cure *is* required. That
 verdict, and its **conditionality on the BAT structure**, is the analysis's main output — not a rival
 percentage.
@@ -612,12 +616,13 @@ JavaScript reads module-level state, but the computed results match).
 1. **The framework matches the trial.** The confirmed primary test is a stratified Cox at one-sided
    0.025 with an OBF interim [R1]; the model's significance machinery and HR ≤ 0.636 threshold are
    consistent with it.
-2. **Blinded pooled survival is high:** ~33–37% modeled plateau, ~16–21-mo median — far above the
+2. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 3. **Under the plateau model, P(success) is governed by the BAT-quality assumption.** With a
-   clinically-built BAT composition it stays high (~94% at base) and is hard to push down
-   without assuming venetoclax maintenance is both dominant *and* ~30–36% durable — the
-   "bear corner," where it collapses (~6%).
+   clinically-built BAT composition it stays high (~100% at base) and is hard to push down
+   without assuming venetoclax maintenance is both dominant *and* durable at the top of its
+   frontline range — the "bear corner" (70% venetoclax at a 25% cure), where it still only
+   falls to ~43%.
 4. **Structural refinements are absorbed by the pooled fit.** Component-mixture BAT and a 0–40%
    non-responder subgroup each leave P(success) ≈ unchanged, because the data fix the pooled
    plateau and refits merely redistribute it (e.g. raising the non-responder fraction forces the
@@ -625,7 +630,7 @@ JavaScript reads module-level state, but the computed results match).
 5. **The load-bearing question is whether the plateau is *GPS-specific*.** Holding BAT identical and
    swapping only the GPS responder to a no-cure Weibull, the null test asks whether the milestones can
    be fit *without* a GPS cure. At the base preset the answer is **State C — not excluded**: a no-cure
-   GPS heavy tail (median ~47 mo, shape ~0.46) plus BAT's plateau also fits (P(success) ~97%), so the
+   GPS separation (median ~48 mo, shape ~1.15) plus BAT's plateau also fits (P(success) ~100%), so the
    blinded milestones **cannot prove** the plateau is GPS-specific *given a generous BAT*. Only when BAT
    is credited so little (or selection pushed so hard) that a no-cure GPS must run to a boundary to fit
    does the null flip to **State A/B rejected** — GPS cure required. That verdict, and its explicit
