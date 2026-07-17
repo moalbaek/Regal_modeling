@@ -4,38 +4,62 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>REGAL Model — Documentation</title>
+<script>try{var t=localStorage.getItem("regal-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 <style>
   :root{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
-    --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--muted:#6b7280;}
+    --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--muted:#6b7280;
+    --surface2:#fafbfc;--code-bg:#eef1f4;--th-bg:#f7f9fb;--quote-ink:#445;
+    --bar-ink:#cfe0ff;--shadow:0 1px 2px rgba(16,24,40,.04);--focus:#2a63c7;--on-fg:#fff;}
+  @media (prefers-color-scheme:dark){ :root{
+    --navy:#82aaea;--teal:#57c6c6;--red:#eb9086;--orange:#f2b544;--grey:#9aa3ad;
+    --bg:#0e1420;--card:#161d2b;--line:#2b3648;--ink:#e8ecf3;--muted:#8b96a5;
+    --surface2:#1b2331;--code-bg:#1e2734;--th-bg:#1b2331;--quote-ink:#c7d0dc;
+    --bar-ink:#bcd4f7;--shadow:0 1px 3px rgba(0,0,0,.5);--focus:#8fb4ef;--on-fg:#0e1420;}}
+  :root[data-theme="light"]{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
+    --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--muted:#6b7280;
+    --surface2:#fafbfc;--code-bg:#eef1f4;--th-bg:#f7f9fb;--quote-ink:#445;
+    --bar-ink:#cfe0ff;--shadow:0 1px 2px rgba(16,24,40,.04);--focus:#2a63c7;--on-fg:#fff;}
+  :root[data-theme="dark"]{--navy:#82aaea;--teal:#57c6c6;--red:#eb9086;--orange:#f2b544;--grey:#9aa3ad;
+    --bg:#0e1420;--card:#161d2b;--line:#2b3648;--ink:#e8ecf3;--muted:#8b96a5;
+    --surface2:#1b2331;--code-bg:#1e2734;--th-bg:#1b2331;--quote-ink:#c7d0dc;
+    --bar-ink:#bcd4f7;--shadow:0 1px 3px rgba(0,0,0,.5);--focus:#8fb4ef;--on-fg:#0e1420;}
   *{box-sizing:border-box}
+  html{color-scheme:light dark}
+  :root[data-theme="light"]{color-scheme:light}
+  :root[data-theme="dark"]{color-scheme:dark}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
-  .bar{background:var(--navy);color:#fff;padding:12px 20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-  .bar a{color:#cfe0ff;text-decoration:none;font-size:13px}
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    transition:background .15s,color .15s}
+  :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+  .bar{background:var(--navy);color:var(--on-fg);padding:12px 20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;transition:background .15s}
+  .bar a{color:var(--bar-ink);text-decoration:none;font-size:13px}
   .bar a:hover{text-decoration:underline}
   .bar .t{font-weight:600;font-size:15px;margin-right:auto}
+  #themeToggle{flex:none;font:inherit;font-size:12px;padding:6px 11px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:var(--on-fg);border-radius:8px;cursor:pointer;white-space:nowrap}
+  #themeToggle:hover{background:rgba(255,255,255,.16)}
   .wrap{max-width:880px;margin:24px auto;padding:0 20px}
   .tabs{display:flex;gap:6px;margin-bottom:-1px;flex-wrap:wrap}
-  .tab{appearance:none;border:1px solid var(--line);border-bottom:none;background:#eef1f4;color:var(--muted);
-    font:600 13.5px/1 inherit;padding:10px 18px;border-radius:10px 10px 0 0;cursor:pointer}
+  .tab{appearance:none;border:1px solid var(--line);border-bottom:none;background:var(--code-bg);color:var(--muted);
+    font:600 13.5px/1 inherit;padding:10px 18px;border-radius:10px 10px 0 0;cursor:pointer;transition:background .15s,color .15s}
   .tab:hover{color:var(--navy)}
   .tab[aria-selected="true"]{background:var(--card);color:var(--navy);box-shadow:0 -2px 0 var(--orange) inset}
   .doc{background:var(--card);border:1px solid var(--line);border-radius:0 12px 12px 12px;
-    padding:28px 34px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    padding:28px 34px;box-shadow:var(--shadow);transition:background .15s,border-color .15s}
+  @media(max-width:600px){.doc{padding:20px 18px}}
   .doc h1{color:var(--navy);font-size:26px;border-bottom:2px solid var(--line);padding-bottom:8px;margin-top:8px}
   .doc h2{color:var(--navy);font-size:20px;border-bottom:1px solid var(--line);padding-bottom:6px;margin-top:34px}
   .doc h3{color:var(--navy);font-size:16px;margin-top:26px}
-  .doc h4{color:#33404f;font-size:14px;margin-top:20px}
+  .doc h4{color:var(--muted);font-size:14px;margin-top:20px}
   .doc a{color:var(--teal)}
-  .doc code{background:#eef1f4;border-radius:4px;padding:1px 5px;font-size:13px;
+  .doc code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:13px;
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  .doc pre{background:#0b2545;color:#e6edf6;border-radius:8px;padding:14px 16px;overflow:auto;font-size:13px}
+  .doc pre{background:var(--navy);color:#e6edf6;border-radius:8px;padding:14px 16px;overflow:auto;font-size:13px}
   .doc pre code{background:none;color:inherit;padding:0}
   .doc table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px;display:block;overflow-x:auto}
   .doc th,.doc td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
-  .doc th{background:#f7f9fb;color:var(--navy)}
-  .doc tr:nth-child(even) td{background:#fafbfc}
-  .doc blockquote{border-left:3px solid var(--orange);margin:14px 0;padding:4px 14px;color:#445;background:#fafbfc}
+  .doc th{background:var(--th-bg);color:var(--navy)}
+  .doc tr:nth-child(even) td{background:var(--surface2)}
+  .doc blockquote{border-left:3px solid var(--orange);margin:14px 0;padding:4px 14px;color:var(--quote-ink);background:var(--surface2)}
   .doc hr{border:0;border-top:1px solid var(--line);margin:26px 0}
   .doc img{max-width:100%}
   .note{color:var(--muted);font-size:13px;margin:18px 0}
@@ -48,10 +72,11 @@
   <a href="regal_explorer.html">← Interactive explorer</a>
   <a href="https://github.com/moalbaek/Regal_modeling" target="_blank" rel="noopener">GitHub repo</a>
   <a id="rawLink" href="REGAL_MODEL_DOCUMENTATION.md" target="_blank" rel="noopener">Raw Markdown</a>
+  <button type="button" id="themeToggle" aria-pressed="false">🌙 Dark</button>
 </div>
 <div class="wrap">
-  <div class="tabs" id="tabs" role="tablist"></div>
-  <div id="doc" class="doc" role="tabpanel"><p class="note">Loading documentation…</p></div>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Documentation sections"></div>
+  <div id="doc" class="doc" role="tabpanel" tabindex="0"><p class="note">Loading documentation…</p></div>
 </div>
 <footer>
   Research/analysis tool operating entirely on public disclosures. Not investment advice.
@@ -94,28 +119,57 @@ function render(doc) {
     });
 }
 
-function select(id, updateHash) {
+function select(id, updateHash, focusTab) {
   const doc = DOCS.find(d => d.id === id) || DOCS[0];
   DOCS.forEach(d => {
-    document.getElementById("tab-" + d.id).setAttribute("aria-selected", String(d.id === doc.id));
+    const b = document.getElementById("tab-" + d.id);
+    const on = d.id === doc.id;
+    b.setAttribute("aria-selected", String(on));
+    b.tabIndex = on ? 0 : -1;
+    if (on && focusTab) b.focus();
   });
+  el.setAttribute("aria-labelledby", "tab-" + doc.id);
   document.title = doc.title;
   rawLink.setAttribute("href", doc.file);
   if (updateHash) history.replaceState(null, "", "#" + doc.id);
   render(doc);
 }
 
-DOCS.forEach(d => {
+DOCS.forEach((d, i) => {
   const b = document.createElement("button");
-  b.className = "tab"; b.id = "tab-" + d.id; b.textContent = d.label;
+  b.type = "button"; b.className = "tab"; b.id = "tab-" + d.id; b.textContent = d.label;
   b.setAttribute("role", "tab"); b.setAttribute("aria-selected", "false");
+  b.setAttribute("aria-controls", "doc"); b.tabIndex = -1;
   b.addEventListener("click", () => select(d.id, true));
+  b.addEventListener("keydown", e => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const next = DOCS[(i + (e.key === "ArrowRight" ? 1 : DOCS.length - 1)) % DOCS.length];
+    select(next.id, true, true);
+  });
   tabsEl.appendChild(b);
 });
 
 // respond to back/forward and manual hash edits
 window.addEventListener("hashchange", () => select(location.hash.replace(/^#/, ""), false));
 select(location.hash.replace(/^#/, "") || "model", false);
+
+// ---------- theme toggle (shared with the explorer via localStorage) ----------
+const sysDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
+const curTheme = () => document.documentElement.dataset.theme || (sysDark() ? "dark" : "light");
+function paintThemeBtn() {
+  const dark = curTheme() === "dark";
+  const btn = document.getElementById("themeToggle");
+  btn.textContent = dark ? "☀️ Light" : "🌙 Dark";
+  btn.setAttribute("aria-pressed", String(dark));
+}
+document.getElementById("themeToggle").addEventListener("click", () => {
+  const next = curTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("regal-theme", next); } catch (e) {}
+  paintThemeBtn();
+});
+paintThemeBtn();
 </script>
 </body>
 </html>
