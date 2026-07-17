@@ -54,7 +54,10 @@ wscale   = lambda med, shape: med / (np.log(2.0)) ** (1.0 / shape)            # 
 natH  = lambda p: (-np.log(1.0 - p) / 12.0) if p > 0 else 0.0                 # monthly hazard from annual fraction
 Snat  = lambda t, h: np.exp(-h * np.clip(t, 0, None))                         # background survival factor
 
-def obs_frac(S, tau, hd, n=10):
+OBS_FRAC_N = 10   # quadrature points for the hd>0 branch below; build_no_gps_cure's vectorized
+                  # resid_grid() mirrors this math and must stay in lockstep on this constant
+
+def obs_frac(S, tau, hd, n=OBS_FRAC_N):
     """Fraction of a cohort *observed* dead by tau under independent exponential censoring
     (loss-to-follow-up hazard hd). With hd=0 this is just the death CDF 1-S(tau)."""
     if tau <= 0: return 0.0
@@ -256,7 +259,7 @@ def build_no_gps_cure(cfg):
         obs_frac()'s fast/quadrature-path math exactly, just batched over the whole grid."""
         ngrid = len(mG); e = np.zeros(ngrid)
         for T, Mo, Wt in zip(MT, MOBS, WT):
-            keep = (coh[:, 0] <= T) & (T - coh[:, 0] > 0)
+            keep = coh[:, 0] < T                        # tau = T - c[0] > 0, same gate as obs_frac's tau<=0 check
             if not np.any(keep):
                 e += Wt * Mo ** 2
                 continue
@@ -264,7 +267,7 @@ def build_no_gps_cure(cfg):
             if hd <= 0:
                 frac = 1.0 - Spool_grid(tau, mG, sG) * Snat(tau, h)[:, None]
             else:
-                n = 10; qf = np.linspace(0.0, 1.0, n + 1)
+                n = OBS_FRAC_N; qf = np.linspace(0.0, 1.0, n + 1)
                 ts = tau[:, None] * qf[None, :]                                    # (K, n+1)
                 Sf3 = Spool_grid(ts, mG, sG) * Snat(ts, h)[..., None]              # (K, n+1, ngrid)
                 f = (1.0 - Sf3) * np.exp(-hd * ts)[..., None]
@@ -479,8 +482,6 @@ def mc(M, nsim=1500, seed=987654321):
                 aliveB=(aliveB / reached if reached else np.nan))
 
 # ---------------------------------------------------------------- parallel batch execution
-_UNPICKLABLE_M_KEYS = ("Sbat", "Sgps", "Spool", "ed", "ed_raw", "Ssel", "Snc")
-
 def _mc_task(kind, cfg, nsim, seed=987654321, override=None):
     """Worker entry point: rebuilds M from the picklable cfg exactly once (never crosses a
     process boundary — build_plateau()/build_no_gps_cure() return closures that can't be
@@ -507,7 +508,10 @@ def _mc_task(kind, cfg, nsim, seed=987654321, override=None):
                           for j in range(3))
     run_mc = override is not None or kind == "plateau" or M.get("state") == "C"
     r = {**mc(M, nsim, seed), **extra} if run_mc else None
-    build_summary = {k: v for k, v in M.items() if k not in _UNPICKLABLE_M_KEYS}
+    # every curve/closure in M is callable and nothing else is, so this strips exactly the
+    # unpicklable entries (Sbat/Sgps/Spool/ed/ed_raw/...) without a hand-maintained key list
+    # that would silently go stale if a future build_*() added a new closure field
+    build_summary = {k: v for k, v in M.items() if not callable(v)}
     return {"build": build_summary, "mc": r}
 
 def run_batch(executor, specs):
@@ -545,7 +549,10 @@ def figure(path, nsim=1500, executor=None, base=None):
     # base preset is reused by (a),(d),(e),(f); fit both panels once. Callers that already
     # built the base models (e.g. the CLI header) should pass base=(Mc,Ml,rc,rl) — rebuilding
     # build_no_gps_cure() here is not "cheap" (a ~785-point fit grid, ~2-3s), so redoing it is
-    # worth avoiding when the caller already paid that cost.
+    # worth avoiding when the caller already paid that cost. rc/rl inside base were computed at
+    # the caller's own nsim, not this function's nsim argument — passing a base whose rc/rl used
+    # a different nsim than the one given here would make panels a/e report headline numbers at
+    # a different MC budget than panels b/c/h; the CLI's sole caller keeps both at NSIM=800.
     cfg = apply_preset(default_cfg(), "base")
     if base is not None:
         Mc, Ml, rc, rl = base
@@ -777,7 +784,6 @@ if __name__ == "__main__":
               f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
         sh_tag = "fitted" if Ml['fitShape'] else "override"
         if Ml['state'] == "C":
-            ia_np = f"{rl['medHR_IA']:.2f}" if np.isfinite(rl['medHR_IA']) else "n/a"
             print(f"  NULL TEST no-GPS-cure : State C — NOT excluded. A no-cure GPS responder "
                   f"(median {Ml['mG']:.0f}mo, tail sG={Ml['sG']:.2f} {sh_tag}) also fits.")
             print(f"         P(success) {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   ratio {Ml['ratio']:.1f}x   "
