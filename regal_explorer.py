@@ -20,9 +20,12 @@ mirrors, function for function, the JavaScript in regal_explorer.html:
 
 Research/analysis tool, not investment advice.
 """
+import os
 import numpy as np
 from datetime import date, timedelta
-import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
+from concurrent.futures import ProcessPoolExecutor
+# matplotlib is imported lazily inside figure() — it's only ever used there (the main
+# process), and worker processes spawned for _mc_task() must not pay its import cost.
 
 # ---------------------------------------------------------------- primitives
 DPM = 30.4375
@@ -234,28 +237,61 @@ def build_no_gps_cure(cfg):
     def ed(T, mG, sG):
         Sf = lambda t: Spool(t, mG, sG) * Snat(t, h)
         return sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T)
-    def resid(mG, sG):
-        return sum(WT[j] * (ed(MT[j], mG, sG) - MOBS[j]) ** 2 for j in range(3))
+
+    def Spool_grid(t, mG, sG):
+        """Spool(), but mG/sG are 1D arrays of candidate values (a fit-grid) instead of scalars;
+        t may be any-shaped array. Returns t.shape + (len(mG),) via numpy broadcasting on a
+        trailing grid axis, so the whole candidate grid is evaluated in one vectorized pass."""
+        t = np.asarray(t, dtype=float); te = t[..., None]
+        Sr = np.minimum(1.0, Sweib(te, wscale(mG, sG), sG) / (1 - F))
+        Sg = (1 - fnr) * Sr + fnr * Ssel(t, obs)[..., None]
+        return 0.5 * Sbat(t)[..., None] + 0.5 * Sg
+
+    def resid_grid(mG, sG):
+        """The milestone-fit residual (WT-weighted squared miss on ed() at each of the 3
+        milestones), evaluated across an entire (mG, sG) candidate grid in one vectorized pass.
+        The fit loops below need this at ~600-800 grid points; doing that one scalar call at a
+        time (walking ~40 cohort rows through obs_frac()'s tiny numpy ops per call) made the fit
+        alone cost seconds — per-call overhead dominates at that array size. This mirrors
+        obs_frac()'s fast/quadrature-path math exactly, just batched over the whole grid."""
+        ngrid = len(mG); e = np.zeros(ngrid)
+        for T, Mo, Wt in zip(MT, MOBS, WT):
+            keep = (coh[:, 0] <= T) & (T - coh[:, 0] > 0)
+            if not np.any(keep):
+                e += Wt * Mo ** 2
+                continue
+            tau = T - coh[keep, 0]; wts = coh[keep, 1]
+            if hd <= 0:
+                frac = 1.0 - Spool_grid(tau, mG, sG) * Snat(tau, h)[:, None]
+            else:
+                n = 10; qf = np.linspace(0.0, 1.0, n + 1)
+                ts = tau[:, None] * qf[None, :]                                    # (K, n+1)
+                Sf3 = Spool_grid(ts, mG, sG) * Snat(ts, h)[..., None]              # (K, n+1, ngrid)
+                f = (1.0 - Sf3) * np.exp(-hd * ts)[..., None]
+                integ = (tau / n)[:, None] * (f.sum(axis=1) - 0.5 * (f[:, 0, :] + f[:, -1, :]))
+                frac = np.exp(-hd * tau)[:, None] * (1.0 - Sf3[:, -1, :]) + hd * integ
+            e += Wt * ((wts[:, None] * frac).sum(axis=0) - Mo) ** 2
+        return e
 
     # §2/§3: fit the GPS responder median mG and (auto) tail shape sG to the 3 milestones. §3: BAT is
     # FIXED on purpose here (control the confound, vary the thesis parameter); sG is free to go heavy.
     sgN = 18 if fit_shape else 0
     best, bs = (min(MGHI, (bat_med or 12.0) * 2), 0.6 if fit_shape else cfg["shape"]), 1e18
-    for mi in range(31):
-        mG = MGLO + (MGHI - MGLO) * mi / 30.0
-        for si in range(sgN + 1):
-            sG = (SGMIN + (SGMAX - SGMIN) * si / (sgN or 1)) if fit_shape else cfg["shape"]
-            e = resid(mG, sG)
-            if e < bs: bs, best = e, (mG, sG)
+    mgs = MGLO + (MGHI - MGLO) * np.arange(31) / 30.0
+    sgs = (SGMIN + (SGMAX - SGMIN) * np.arange(sgN + 1) / (sgN or 1)) if fit_shape else np.array([cfg["shape"]])
+    MGg, SGg = np.meshgrid(mgs, sgs, indexing="ij")                # mG outer, sG inner — matches the old nested loop order
+    e_grid = resid_grid(MGg.ravel(), SGg.ravel())
+    k = int(np.argmin(e_grid))
+    if e_grid[k] < bs: bs, best = float(e_grid[k]), (float(MGg.ravel()[k]), float(SGg.ravel()[k]))
     for it in range(4):
         m0, s0 = best; st = 1.0 / (it + 1)
-        for dm in range(-3, 4):
-            for ds in range(-3, 4):
-                if not fit_shape and ds != 0: continue
-                mG = min(MGHI, max(MGLO, m0 + dm * 1.2 * st))
-                sG = min(SGMAX, max(SGMIN, s0 + ds * 0.04 * st)) if fit_shape else s0
-                e = resid(mG, sG)
-                if e < bs: bs, best = e, (mG, sG)
+        dms = np.arange(-3, 4); dss = np.arange(-3, 4) if fit_shape else np.array([0])
+        DM, DS = np.meshgrid(dms, dss, indexing="ij")
+        mgc = np.clip(m0 + DM.ravel() * 1.2 * st, MGLO, MGHI)
+        sgc = np.clip(s0 + DS.ravel() * 0.04 * st, SGMIN, SGMAX) if fit_shape else np.full(DM.size, s0)
+        e_ref = resid_grid(mgc, sgc)
+        k = int(np.argmin(e_ref))
+        if e_ref[k] < bs: bs, best = float(e_ref[k]), (float(mgc[k]), float(sgc[k]))
     mG, sG = best
     edv = [ed(t, mG, sG) for t in MT]
     rms_resid = float(np.sqrt(sum((edv[i] - MOBS[i]) ** 2 for i in range(3)) / 3.0))
@@ -265,11 +301,10 @@ def build_no_gps_cure(cfg):
     sg_heavy = fit_shape and sG <= SGMIN + 0.01; sg_light = fit_shape and sG >= SGMAX - 0.01
     mg_track = False
     if mg_cap:                                             # raise the mG cap; if the fit tracks it, mG is unidentified
-        MGHI2 = MGHI * 1.6; m2b, b2 = mG, 1e18
-        for mi in range(21):
-            mm = MGLO + (MGHI2 - MGLO) * mi / 20.0
-            e = resid(mm, sG)
-            if e < b2: b2, m2b = e, mm
+        MGHI2 = MGHI * 1.6
+        mms = MGLO + (MGHI2 - MGLO) * np.arange(21) / 20.0
+        e2 = resid_grid(mms, np.full(21, sG))
+        m2b = float(mms[int(np.argmin(e2))])
         mg_track = m2b > MGHI + 1.0
     # §5 verdict. All non-interior fits are non-identified (State A) with no PoS, but only the
     # "cure-side" boundaries imply a GPS-specific cure (mg cap/track, or sG heavy edge). The LIGHT
@@ -443,6 +478,48 @@ def mc(M, nsim=1500, seed=987654321):
                 aliveG=(aliveG / reached if reached else np.nan),
                 aliveB=(aliveB / reached if reached else np.nan))
 
+# ---------------------------------------------------------------- parallel batch execution
+_UNPICKLABLE_M_KEYS = ("Sbat", "Sgps", "Spool", "ed", "ed_raw", "Ssel", "Snc")
+
+def _mc_task(kind, cfg, nsim, seed=987654321, override=None):
+    """Worker entry point: rebuilds M from the picklable cfg exactly once (never crosses a
+    process boundary — build_plateau()/build_no_gps_cure() return closures that can't be
+    pickled), then decides internally whether mc() is worth running, so no separate "check
+    the build first" pass is needed in the caller — build_no_gps_cure() alone (~785-point fit
+    grid) can cost ~2-3s, so doing it twice (once to inspect, once to actually simulate) or
+    doing it serially before a batch is submitted would erase the whole parallel win.
+
+    override, if given, is {key: value} applied to M before mc() — used by the panel-h power
+    sweep to vary presp/mG without mutating a shared M; in that case also returns the
+    milestone-misfit 'E' that power_sweep needs, computed here where M is live.
+
+    Returns {"build": <picklable summary of M, closures stripped>, "mc": <mc() result dict,
+    or None if mc() wasn't run>}. mc() always runs for "plateau" or when override is given;
+    for a bare "nogpscure" build it only runs when state == "C" (a rejected/non-identified
+    null carries no P(success) — matches the CLI/figure()'s existing state-gated behavior)."""
+    M = build_plateau(cfg) if kind == "plateau" else build_no_gps_cure(cfg)
+    extra = {}
+    if override:
+        for k, v in override.items():
+            M[k] = v
+        args = (M["presp"],) if kind == "plateau" else (M["mG"], M["sG"])
+        extra["E"] = sum(M["WT"][j] * (M["ed_raw"](M["MT"][j], *args) - M["MOBS"][j]) ** 2
+                          for j in range(3))
+    run_mc = override is not None or kind == "plateau" or M.get("state") == "C"
+    r = {**mc(M, nsim, seed), **extra} if run_mc else None
+    build_summary = {k: v for k, v in M.items() if k not in _UNPICKLABLE_M_KEYS}
+    return {"build": build_summary, "mc": r}
+
+def run_batch(executor, specs):
+    """specs: list of (kind, cfg, nsim[, seed[, override]]) tuples for _mc_task.
+    Runs them across the pool (or serially if executor is None) and returns results in order.
+    Uses submit() rather than map() so each spec's args are pickled individually — map() would
+    require pickling a wrapper closure, which fails under Windows' spawn start method."""
+    if executor is None:
+        return [_mc_task(*s) for s in specs]
+    futures = [executor.submit(_mc_task, *s) for s in specs]
+    return [f.result() for f in futures]
+
 # ---------------------------------------------------------------- figure
 NAVY = "#0b2545"; RED = "#9e2b25"; TEAL = "#197278"; GREY = "#6b6f72"; ORANGE = "#e8910b"
 
@@ -458,15 +535,23 @@ def proj_cross(ed_fn, target, t0, t1):
         else: hi = m
     return 0.5 * (lo + hi)
 
-def figure(path, nsim=1500):
+def figure(path, nsim=1500, executor=None, base=None):
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
     plt.rcParams.update({"font.size": 9, "axes.grid": True, "grid.alpha": .25,
                          "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 140})
     fig, ax = plt.subplots(3, 3, figsize=(16.5, 15.4)); tg = np.linspace(0, 48, 300)
 
-    # base preset is reused by (a),(d),(e),(f); fit both panels once
+    # base preset is reused by (a),(d),(e),(f); fit both panels once. Callers that already
+    # built the base models (e.g. the CLI header) should pass base=(Mc,Ml,rc,rl) — rebuilding
+    # build_no_gps_cure() here is not "cheap" (a ~785-point fit grid, ~2-3s), so redoing it is
+    # worth avoiding when the caller already paid that cost.
     cfg = apply_preset(default_cfg(), "base")
-    Mc = build_plateau(cfg); Ml = build_no_gps_cure(cfg)
-    rc = mc(Mc, nsim); rl = mc(Ml, nsim)
+    if base is not None:
+        Mc, Ml, rc, rl = base
+    else:
+        Mc = build_plateau(cfg); Ml = build_no_gps_cure(cfg)
+        rc, rl = mc(Mc, nsim), mc(Ml, nsim)
 
     # (a) survival curves for the base preset, plateau (GPS-cure) panel
     a = ax[0, 0]
@@ -481,17 +566,16 @@ def figure(path, nsim=1500):
     a.set_xlabel("months from randomization"); a.set_ylabel("% alive")
     a.set_xlim(0, 48); a.set_ylim(0, 101); a.legend(fontsize=7.4, loc="upper right")
 
-    # helper: no-GPS-cure PoS only where State C (the null yields a P(success) only when not excluded)
-    def nullPoS(c):
-        m = build_no_gps_cure(c)
-        return (100 * mc(m, nsim)["ps"]) if m["state"] == "C" else np.nan
-
     # (b) plateau PoS + no-GPS-cure PoS (State C only) across the non-responder sweep (base preset)
-    fr = [0, 10, 20, 30, 40]; pc = []; pll = []
-    for f in fr:
-        c = apply_preset(default_cfg(fnr=f / 100.0), "base")
-        pc.append(100 * mc(build_plateau(c), nsim)["ps"])
-        pll.append(nullPoS(c))
+    fr = [0, 10, 20, 30, 40]
+    fr_cfgs = [apply_preset(default_cfg(fnr=f / 100.0), "base") for f in fr]
+    specs = []
+    for c in fr_cfgs:
+        specs += [("plateau", c, nsim), ("nogpscure", c, nsim)]
+    results = run_batch(executor, specs)   # one flat parallel batch: build+mc, no serial pre-pass
+    pc = [100 * results[2 * i]["mc"]["ps"] for i in range(len(fr_cfgs))]
+    pll = [100 * results[2 * i + 1]["mc"]["ps"] if results[2 * i + 1]["mc"] else np.nan
+           for i in range(len(fr_cfgs))]
     b = ax[0, 1]
     b.plot(fr, pc, color=NAVY, lw=2.4, marker="o", label="Plateau (GPS cure)")
     b.plot(fr, pll, color=ORANGE, lw=2.2, ls="-.", marker="s", label="No-GPS-cure (State C only)")
@@ -502,11 +586,14 @@ def figure(path, nsim=1500):
 
     # (c) plateau PoS + no-GPS-cure PoS (State C only) across the five BAT-composition presets
     names = ["base", "low", "dom", "bear", "bull"]; labels = ["Base", "Low-ven", "Ven-dom", "Bear", "Bull"]
-    gc = []; gl = []
-    for nm in names:
-        c = apply_preset(default_cfg(), nm)
-        gc.append(100 * mc(build_plateau(c), nsim)["ps"])
-        v = nullPoS(c); gl.append(0.0 if np.isnan(v) else v)
+    name_cfgs = [apply_preset(default_cfg(), nm) for nm in names]
+    specs = []
+    for c in name_cfgs:
+        specs += [("plateau", c, nsim), ("nogpscure", c, nsim)]
+    results = run_batch(executor, specs)   # one flat parallel batch: build+mc, no serial pre-pass
+    gc = [100 * results[2 * i]["mc"]["ps"] for i in range(len(name_cfgs))]
+    gl = [100 * results[2 * i + 1]["mc"]["ps"] if results[2 * i + 1]["mc"] else 0.0
+          for i in range(len(name_cfgs))]
     c = ax[0, 2]; x = np.arange(len(names))
     c.bar(x - 0.19, gc, 0.36, color=NAVY, label="Plateau (GPS cure)")
     c.bar(x + 0.19, gl, 0.36, color=ORANGE, label="No-GPS-cure (State C; 0 = rejected)")
@@ -587,22 +674,22 @@ def figure(path, nsim=1500):
     # (h) P(success) as a power curve vs the implied treatment effect; shaded = the effect the data allow
     hx = ax[2, 1]; nsim_h = max(250, nsim // 3)
 
-    def power_sweep(M, key, vals, fixed):
+    def power_sweep(M, key, vals):
         """Sweep one effect knob (presp for plateau, GPS median mG for the null); return implied HR,
-        P(success), and milestone misfit at each point. The pooled curve is only data-consistent near the fit."""
-        base = M[key]; hr, ps, E = [], [], []
-        for v in vals:
-            M[key] = v; r = mc(M, nsim_h)
-            hr.append(r["medHR"]); ps.append(100 * r["ps"])
-            E.append(sum(M["WT"][k] * (M["ed_raw"](M["MT"][k], *fixed(v)) - M["MOBS"][k]) ** 2 for k in range(3)))
-        M[key] = base
-        hr, ps, E = np.array(hr), np.array(ps), np.array(E)
+        P(success), and milestone misfit at each point. The pooled curve is only data-consistent near the fit.
+        Each swept point rebuilds M inside its own worker (via M['cfg']/M['kind']) rather than mutating
+        this M in place, so the sweep runs as one parallel batch instead of a serial loop."""
+        specs = [(M["kind"], M["cfg"], nsim_h, 987654321, {key: v}) for v in vals]
+        results = run_batch(executor, specs)   # override is set, so mc always runs (never None)
+        hr = np.array([r["mc"]["medHR"] for r in results])
+        ps = np.array([100 * r["mc"]["ps"] for r in results])
+        E = np.array([r["mc"]["E"] for r in results])
         m = np.isfinite(hr) & np.isfinite(ps); hr, ps, E = hr[m], ps[m], E[m]
         o = np.argsort(hr); return hr[o], ps[o], E[o]
 
-    p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13), lambda pv: (pv,))
+    p_hr, p_ps, p_E = power_sweep(Mc, "presp", np.linspace(0.0, 0.97, 13))
     mg_lo = Ml["batMed"] if np.isfinite(Ml["batMed"]) else 12.0
-    l_hr, l_ps, l_E = power_sweep(Ml, "mG", np.linspace(mg_lo, 120.0, 13), lambda mv: (mv, Ml["sG"]))
+    l_hr, l_ps, l_E = power_sweep(Ml, "mG", np.linspace(mg_lo, 120.0, 13))
 
     def band(hr, E):                                            # HR span of the data-consistent (low-misfit) points
         if not len(E): return None
@@ -661,60 +748,66 @@ def fmt_med(m): return "NR" if not np.isfinite(m) else f"{m:.0f}mo"
 
 if __name__ == "__main__":
     NSIM = 800   # matches the html's interactive budget (~600); raise for tighter MC error
-    base = apply_preset(default_cfg(), "base")
-    Mc, Ml = build_plateau(base), build_no_gps_cure(base)
-    rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)
-    wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
-    print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
-          f"loss-to-FU {100*base['drop']:.0f}%/yr, enrol-selection keep-strongest {100*(1-base['esel']):.0f}%, fit {wmode})")
-    print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
-    ci_more, ci_few = fit_ci(base, build_plateau)
-    print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
-    print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
-    print(f"  pool : median {fmt_med(Mc['poolMed'])}")
-    coh = Mc['coh']
-    print(f"  enrol: median {month_label(med_enroll(coh))}  "
-          f"cum {cum_enroll(coh,2022,4):.0f}/{cum_enroll(coh,2023,11):.0f}/{cum_enroll(coh,2024,4):.0f} "
-          f"by Apr22/Nov23/Apr24 (sourced ~20/104/126)")
-    edv = [Mc['ed'](t) for t in Mc['MT']]
-    print(f"  fit  : modeled deaths {'/'.join(f'{x:.0f}' for x in edv)}  vs observed {'/'.join(f'{x:.0f}' for x in Mc['MOBS'])}")
-    # the interim HR is undefined when no sim reaches the 80th event; only flag a real breach
-    if np.isfinite(rc['medHR_IA']):
-        fut = "OK" if rc['futOK'] else f"VIOLATED >{base['futHR']:.2f}"
-        ia = f"{rc['medHR_IA']:.2f} (futility {fut})"
-    else:
-        ia = "n/a (80th not reached)"
-    print(f"\n  HEADLINE  PLATEAU (GPS cure) : P(success) {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
-    print(f"         interim: implied HR@{base['IA']} {ia}   "
-          f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
-    sh_tag = "fitted" if Ml['fitShape'] else "override"
-    if Ml['state'] == "C":
-        ia_np = f"{rl['medHR_IA']:.2f}" if np.isfinite(rl['medHR_IA']) else "n/a"
-        print(f"  NULL TEST no-GPS-cure : State C — NOT excluded. A no-cure GPS responder "
-              f"(median {Ml['mG']:.0f}mo, tail sG={Ml['sG']:.2f} {sh_tag}) also fits.")
-        print(f"         P(success) {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   ratio {Ml['ratio']:.1f}x   "
-              f"resid RMS {Ml['rmsResid']:.1f}  (GPS cure not required to fit, given this BAT)")
-    elif Ml['state'] == "A" and not Ml['cureReq']:
-        print(f"  NULL TEST no-GPS-cure : State A — NON-IDENTIFIED (ambiguous). {Ml['reason']}.")
-        print(f"         no PoS shown; a boundary (light-edge) solution — neither requires nor excludes a GPS-specific cure.")
-    else:
-        verdict = "A (non-identified)" if Ml['state'] == "A" else "B (inconsistent)"
-        print(f"  NULL TEST no-GPS-cure : State {verdict} — REJECTED. {Ml['reason']}.")
-        print(f"         no PoS shown; GPS-specific durable benefit is required "
-              f"(modeled {'/'.join(f'{x:.0f}' for x in Ml['edv'])} vs {'/'.join(f'{x:.0f}' for x in Ml['MOBS'])}).")
-    print()
-
-    print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | {'BATmed':>7} {'GPSmed':>7}")
-    for nm in ["base", "low", "dom", "bear", "bull"]:
-        c = apply_preset(default_cfg(), nm)
-        mcc, mll = build_plateau(c), build_no_gps_cure(c)
-        rcc = mc(mcc, NSIM)
-        if mll['state'] == "C":
-            rll = mc(mll, NSIM); nv = f"C · not excl (P={100*rll['ps']:.0f}%)"
+    with ProcessPoolExecutor(max_workers=os.cpu_count() or 4) as ex:
+        base = apply_preset(default_cfg(), "base")
+        Mc, Ml = build_plateau(base), build_no_gps_cure(base)
+        rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)   # Mc/Ml already built live; routing through the pool would rebuild for nothing
+        wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
+        print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
+              f"loss-to-FU {100*base['drop']:.0f}%/yr, enrol-selection keep-strongest {100*(1-base['esel']):.0f}%, fit {wmode})")
+        print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
+        ci_more, ci_few = fit_ci(base, build_plateau)
+        print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
+        print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
+        print(f"  pool : median {fmt_med(Mc['poolMed'])}")
+        coh = Mc['coh']
+        print(f"  enrol: median {month_label(med_enroll(coh))}  "
+              f"cum {cum_enroll(coh,2022,4):.0f}/{cum_enroll(coh,2023,11):.0f}/{cum_enroll(coh,2024,4):.0f} "
+              f"by Apr22/Nov23/Apr24 (sourced ~20/104/126)")
+        edv = [Mc['ed'](t) for t in Mc['MT']]
+        print(f"  fit  : modeled deaths {'/'.join(f'{x:.0f}' for x in edv)}  vs observed {'/'.join(f'{x:.0f}' for x in Mc['MOBS'])}")
+        # the interim HR is undefined when no sim reaches the 80th event; only flag a real breach
+        if np.isfinite(rc['medHR_IA']):
+            fut = "OK" if rc['futOK'] else f"VIOLATED >{base['futHR']:.2f}"
+            ia = f"{rc['medHR_IA']:.2f} (futility {fut})"
         else:
-            nv = f"{mll['state']} · REJECTED"
-        print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% | {nv:>26} | "
-              f"{fmt_med(mcc['batMed']):>7} {fmt_med(mll['mG']):>7}")
+            ia = "n/a (80th not reached)"
+        print(f"\n  HEADLINE  PLATEAU (GPS cure) : P(success) {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
+        print(f"         interim: implied HR@{base['IA']} {ia}   "
+              f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
+        sh_tag = "fitted" if Ml['fitShape'] else "override"
+        if Ml['state'] == "C":
+            ia_np = f"{rl['medHR_IA']:.2f}" if np.isfinite(rl['medHR_IA']) else "n/a"
+            print(f"  NULL TEST no-GPS-cure : State C — NOT excluded. A no-cure GPS responder "
+                  f"(median {Ml['mG']:.0f}mo, tail sG={Ml['sG']:.2f} {sh_tag}) also fits.")
+            print(f"         P(success) {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   ratio {Ml['ratio']:.1f}x   "
+                  f"resid RMS {Ml['rmsResid']:.1f}  (GPS cure not required to fit, given this BAT)")
+        elif Ml['state'] == "A" and not Ml['cureReq']:
+            print(f"  NULL TEST no-GPS-cure : State A — NON-IDENTIFIED (ambiguous). {Ml['reason']}.")
+            print(f"         no PoS shown; a boundary (light-edge) solution — neither requires nor excludes a GPS-specific cure.")
+        else:
+            verdict = "A (non-identified)" if Ml['state'] == "A" else "B (inconsistent)"
+            print(f"  NULL TEST no-GPS-cure : State {verdict} — REJECTED. {Ml['reason']}.")
+            print(f"         no PoS shown; GPS-specific durable benefit is required "
+                  f"(modeled {'/'.join(f'{x:.0f}' for x in Ml['edv'])} vs {'/'.join(f'{x:.0f}' for x in Ml['MOBS'])}).")
+        print()
 
-    out = figure("regal_explorer_panel.png", NSIM)
-    print(f"\nsaved {out}")
+        print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | {'BATmed':>7} {'GPSmed':>7}")
+        preset_names = ["base", "low", "dom", "bear", "bull"]
+        preset_cfgs = [apply_preset(default_cfg(), nm) for nm in preset_names]
+        specs = []
+        for c in preset_cfgs:
+            specs += [("plateau", c, NSIM), ("nogpscure", c, NSIM)]
+        results = run_batch(ex, specs)   # one flat parallel batch: build+mc, no serial pre-pass
+        for i, (nm, c) in enumerate(zip(preset_names, preset_cfgs)):
+            p_res, n_res = results[2 * i], results[2 * i + 1]
+            mcc, mll, rcc = p_res["build"], n_res["build"], p_res["mc"]
+            if mll['state'] == "C":
+                rll = n_res["mc"]; nv = f"C · not excl (P={100*rll['ps']:.0f}%)"
+            else:
+                nv = f"{mll['state']} · REJECTED"
+            print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% | {nv:>26} | "
+                  f"{fmt_med(mcc['batMed']):>7} {fmt_med(mll['mG']):>7}")
+
+        out = figure("regal_explorer_panel.png", NSIM, executor=ex, base=(Mc, Ml, rc, rl))
+        print(f"\nsaved {out}")
