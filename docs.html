@@ -142,10 +142,14 @@ DOCS.forEach((d, i) => {
   b.setAttribute("aria-controls", "doc"); b.tabIndex = -1;
   b.addEventListener("click", () => select(d.id, true));
   b.addEventListener("keydown", e => {
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    let target;
+    if (e.key === "ArrowRight") target = DOCS[(i + 1) % DOCS.length];
+    else if (e.key === "ArrowLeft") target = DOCS[(i + DOCS.length - 1) % DOCS.length];
+    else if (e.key === "Home") target = DOCS[0];
+    else if (e.key === "End") target = DOCS[DOCS.length - 1];
+    else return;
     e.preventDefault();
-    const next = DOCS[(i + (e.key === "ArrowRight" ? 1 : DOCS.length - 1)) % DOCS.length];
-    select(next.id, true, true);
+    select(target.id, true, true);
   });
   tabsEl.appendChild(b);
 });
@@ -155,8 +159,8 @@ window.addEventListener("hashchange", () => select(location.hash.replace(/^#/, "
 select(location.hash.replace(/^#/, "") || "model", false);
 
 // ---------- theme toggle (shared with the explorer via localStorage) ----------
-const sysDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
-const curTheme = () => document.documentElement.dataset.theme || (sysDark() ? "dark" : "light");
+const mqlDark = window.matchMedia("(prefers-color-scheme: dark)");
+const curTheme = () => document.documentElement.dataset.theme || (mqlDark.matches ? "dark" : "light");
 function paintThemeBtn() {
   const dark = curTheme() === "dark";
   const btn = document.getElementById("themeToggle");
@@ -169,6 +173,8 @@ document.getElementById("themeToggle").addEventListener("click", () => {
   try { localStorage.setItem("regal-theme", next); } catch (e) {}
   paintThemeBtn();
 });
+// follow OS theme flips while no manual override is set
+mqlDark.addEventListener("change", paintThemeBtn);
 paintThemeBtn();
 </script>
 </body>

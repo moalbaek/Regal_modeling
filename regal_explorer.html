@@ -736,7 +736,14 @@ function chartEnroll(M,cfg){
   const anchors=[[2022,4,20],[2023,11,104],[2024,4,126]];
   const pts=anchors.map(([y,m,n])=>`<circle cx="${X(mfb(y,m,28))}" cy="${Y(n)}" r="4" fill="var(--red)" stroke="var(--ring)" stroke-width="1.3"/>`).join("");
   document.getElementById("chartEnroll").innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;height:${H}px;display:block;margin:0 auto" aria-hidden="true">${g}${refs}${curve}${pts}<text x="${pl-34}" y="${pt-2}" font-size="11.5" fill="var(--axis)">enrolled</text></svg>`;
-  const cumAt=t=>coh.reduce((a,x)=>a+(x[0]<=t?x[1]:0),0);
+  // interpolate between cohort points exactly like the drawn path, so the hover dot stays on the line
+  const cumAt=t=>{
+    if(t<=coh[0][0]) return cum[0];
+    for(let i=1;i<coh.length;i++){
+      if(t<=coh[i][0]){const f=(t-coh[i-1][0])/((coh[i][0]-coh[i-1][0])||1);return cum[i-1]+f*(cum[i]-cum[i-1]);}
+    }
+    return cum[cum.length-1];
+  };
   wireHover("chartEnroll",{W,H,pl,pr,pt,pb,xMin:t0,xMax:t1,xFmt:monthLabel,series:[
     {get:cumAt,Y,color:"var(--teal)",label:"Enrolled",fmt:v=>v.toFixed(0)},
   ]});
@@ -973,10 +980,13 @@ document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("clic
 $("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="keep 75% · drop 25%";$("unweighted").checked=false;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
+// Charts render at a fixed pixel width read from the container, so a resize must re-render to
+// re-measure — otherwise a narrowed window leaves the SVG wider than its container (overflow).
+window.addEventListener("resize",schedule);
 
 // ---------- theme toggle ----------
-const sysDark=()=>window.matchMedia("(prefers-color-scheme: dark)").matches;
-const curTheme=()=>document.documentElement.dataset.theme||(sysDark()?"dark":"light");
+const mqlDark=window.matchMedia("(prefers-color-scheme: dark)");
+const curTheme=()=>document.documentElement.dataset.theme||(mqlDark.matches?"dark":"light");
 function paintThemeBtn(){
   const dark=curTheme()==="dark";
   $("themeToggle").textContent=dark?"☀️ Light":"🌙 Dark";
@@ -988,6 +998,8 @@ $("themeToggle").addEventListener("click",()=>{
   try{localStorage.setItem("regal-theme",next);}catch(e){}
   paintThemeBtn();
 });
+// follow OS theme flips while no manual override is set (keeps the button label/aria in sync)
+mqlDark.addEventListener("change",paintThemeBtn);
 paintThemeBtn();
 
 buildWeightSliders(); buildCompTable(); buildEvTable(); updBl(); render();
