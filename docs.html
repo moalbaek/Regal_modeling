@@ -4,17 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>REGAL Model — Documentation</title>
-<script>try{var t=localStorage.getItem("regal-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{var t=null;try{t=localStorage.getItem("regal-theme");}catch(e){}if(t!=="light"&&t!=="dark"){try{t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}catch(e){t="light";}}document.documentElement.dataset.theme=t;}catch(e){}</script>
 <style>
-  :root{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
-    --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--muted:#6b7280;
-    --surface2:#fafbfc;--code-bg:#eef1f4;--th-bg:#f7f9fb;--quote-ink:#445;
-    --bar-ink:#cfe0ff;--shadow:0 1px 2px rgba(16,24,40,.04);--focus:#2a63c7;--on-fg:#fff;}
-  @media (prefers-color-scheme:dark){ :root{
-    --navy:#82aaea;--teal:#57c6c6;--red:#eb9086;--orange:#f2b544;--grey:#9aa3ad;
-    --bg:#0e1420;--card:#161d2b;--line:#2b3648;--ink:#e8ecf3;--muted:#8b96a5;
-    --surface2:#1b2331;--code-bg:#1e2734;--th-bg:#1b2331;--quote-ink:#c7d0dc;
-    --bar-ink:#bcd4f7;--shadow:0 1px 3px rgba(0,0,0,.5);--focus:#8fb4ef;--on-fg:#0e1420;}}
+  /* Theme values live in exactly these two blocks — see the head script and the mqlDark
+     "change" listener below, which always stamp data-theme="light"|"dark" on <html> (resolving
+     the system preference themselves when no override is stored), so no base :root{} defaults
+     or @media(prefers-color-scheme) block is needed here. */
   :root[data-theme="light"]{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
     --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--muted:#6b7280;
     --surface2:#fafbfc;--code-bg:#eef1f4;--th-bg:#f7f9fb;--quote-ink:#445;
@@ -159,8 +154,12 @@ window.addEventListener("hashchange", () => select(location.hash.replace(/^#/, "
 select(location.hash.replace(/^#/, "") || "model", false);
 
 // ---------- theme toggle (shared with the explorer via localStorage) ----------
+// data-theme is always set (see the head script) — it's the single source of truth the CSS
+// palette blocks key off; JS resolves the system default once at load and again on any live
+// OS theme change below, so the CSS never needs its own @media(prefers-color-scheme) copy.
 const mqlDark = window.matchMedia("(prefers-color-scheme: dark)");
-const curTheme = () => document.documentElement.dataset.theme || (mqlDark.matches ? "dark" : "light");
+const curTheme = () => document.documentElement.dataset.theme || "light";
+const storedTheme = () => { try { return localStorage.getItem("regal-theme"); } catch (e) { return null; } };
 function paintThemeBtn() {
   const dark = curTheme() === "dark";
   const btn = document.getElementById("themeToggle");
@@ -173,8 +172,12 @@ document.getElementById("themeToggle").addEventListener("click", () => {
   try { localStorage.setItem("regal-theme", next); } catch (e) {}
   paintThemeBtn();
 });
-// follow OS theme flips while no manual override is set
-mqlDark.addEventListener("change", paintThemeBtn);
+// follow OS theme flips live, but only while no manual override is stored
+mqlDark.addEventListener("change", e => {
+  const stored = storedTheme();
+  if (stored !== "light" && stored !== "dark") document.documentElement.dataset.theme = e.matches ? "dark" : "light";
+  paintThemeBtn();
+});
 paintThemeBtn();
 </script>
 </body>

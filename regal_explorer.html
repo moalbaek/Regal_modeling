@@ -4,21 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>REGAL Scenario Explorer</title>
-<script>try{var t=localStorage.getItem("regal-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{var t=null;try{t=localStorage.getItem("regal-theme");}catch(e){}if(t!=="light"&&t!=="dark"){try{t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}catch(e){t="light";}}document.documentElement.dataset.theme=t;}catch(e){}</script>
 <style>
-  :root{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
-    --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--ink2:#33404f;--muted:#6b7280;
-    --surface2:#fafbfc;--track:#dfe4ea;--grid:#eef1f4;--grid2:#f3f5f7;--axis:#9aa0a6;
-    --amber-text:#b5740a;--pool:#111;--pool-op:.75;--ring:#fff;--btn-bg:#fff;--btn-ink:#55606e;
-    --warn-bg:#f6e5e3;--warn-fg:#9e2b25;--ok-bg:#e3f1ec;--ok-fg:#17683f;--mod-bg:#f6efe1;--mod-fg:#8a6d1e;
-    --shadow:0 1px 2px rgba(16,24,40,.04);--focus:#2a63c7;--on-fg:#fff;}
-  @media (prefers-color-scheme:dark){ :root{
-    --navy:#82aaea;--teal:#57c6c6;--red:#eb9086;--orange:#f2b544;--grey:#9aa3ad;
-    --bg:#0e1420;--card:#161d2b;--line:#2b3648;--ink:#e8ecf3;--ink2:#c7d0dc;--muted:#8b96a5;
-    --surface2:#1b2331;--track:#2a3444;--grid:#1e2734;--grid2:#232d3b;--axis:#7c8695;
-    --amber-text:#e3ac47;--pool:#e8ecf3;--pool-op:.85;--ring:#161d2b;--btn-bg:#1b2331;--btn-ink:#aeb8c4;
-    --warn-bg:#3a2220;--warn-fg:#f0897e;--ok-bg:#153a2b;--ok-fg:#63d99d;--mod-bg:#372c14;--mod-fg:#e6c05a;
-    --shadow:0 1px 3px rgba(0,0,0,.5);--focus:#8fb4ef;--on-fg:#0e1420;}}
+  /* Theme values live in exactly these two blocks. JS (see the head script and the
+     mqlDark "change" listener below) is the single source of truth for which theme is
+     active — it always stamps data-theme="light"|"dark" on <html>, resolving the system
+     preference itself when no manual override is stored — so no base :root{} defaults or
+     @media(prefers-color-scheme) block are needed here; keeping the palette to one block
+     per theme means there is nothing to drift out of sync. */
   :root[data-theme="light"]{--navy:#0b2545;--teal:#197278;--red:#9e2b25;--orange:#e8910b;--grey:#6b6f72;
     --bg:#f4f6f8;--card:#fff;--line:#e3e7ec;--ink:#1c2530;--ink2:#33404f;--muted:#6b7280;
     --surface2:#fafbfc;--track:#dfe4ea;--grid:#eef1f4;--grid2:#f3f5f7;--axis:#9aa0a6;
@@ -548,6 +541,26 @@ const chartW=(id,fallback,max)=>{const el=document.getElementById(id);const w=el
 
 // ---------- generic hover crosshair + tooltip for curve-based charts ----------
 // cfg: {W,H,pl,pr,pt,pb, xMin?,xMax, series:[{get:x=>y, Y:y=>pixelY, color, label, fmt:y=>str}], xFmt:x=>str}
+// ---------- touch drag: lock onto a horizontal chart-scrub vs a vertical page-scroll on first move,
+// so reading a tooltip on mobile doesn't require fighting the page scroll (and vice versa) ----------
+function wireTouch(catchRect,onMove,hide){
+  let x0=null,y0=null,lock=null;
+  catchRect.addEventListener("touchstart",e=>{
+    const t=e.touches[0]; if(!t) return;
+    x0=t.clientX; y0=t.clientY; lock=null;
+  },{passive:true});
+  catchRect.addEventListener("touchmove",e=>{
+    const t=e.touches[0]; if(!t) return;
+    if(lock===null && x0!==null){
+      const dx=t.clientX-x0, dy=t.clientY-y0;
+      if(Math.abs(dx)>6||Math.abs(dy)>6) lock=Math.abs(dx)>Math.abs(dy)?"x":"y";
+    }
+    if(lock==="x"){ e.preventDefault(); onMove(t); }
+    else if(lock==="y"){ hide(); }
+  },{passive:false});
+  catchRect.addEventListener("touchend",()=>{x0=y0=lock=null;hide();});
+}
+
 function wireHover(id,cfg){
   const wrap=document.getElementById(id), svg=wrap&&wrap.querySelector("svg");
   if(!svg) return;
@@ -590,8 +603,7 @@ function wireHover(id,cfg){
   };
   catchRect.addEventListener("mousemove",onMove);
   catchRect.addEventListener("mouseleave",hide);
-  catchRect.addEventListener("touchmove",e=>{if(e.touches[0])onMove(e.touches[0]);},{passive:true});
-  catchRect.addEventListener("touchend",hide);
+  wireTouch(catchRect,onMove,hide);
 }
 
 // ---------- chart ----------
@@ -696,8 +708,7 @@ function wireHoverHist(id,cfg){
   };
   catchRect.addEventListener("mousemove",onMove);
   catchRect.addEventListener("mouseleave",hide);
-  catchRect.addEventListener("touchmove",e=>{if(e.touches[0])onMove(e.touches[0]);},{passive:true});
-  catchRect.addEventListener("touchend",hide);
+  wireTouch(catchRect,onMove,hide);
 }
 // ---------- (f) GPS-cure vs no-GPS-cure pooled divergence ----------
 function chartDiverge(Mc,Ml,cfg){
@@ -985,8 +996,12 @@ let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeou
 window.addEventListener("resize",schedule);
 
 // ---------- theme toggle ----------
+// data-theme is always set (see the head script) — it's the single source of truth the CSS
+// palette blocks key off; JS resolves the system default once at load and again on any live
+// OS theme change below, so the CSS never needs its own @media(prefers-color-scheme) copy.
 const mqlDark=window.matchMedia("(prefers-color-scheme: dark)");
-const curTheme=()=>document.documentElement.dataset.theme||(mqlDark.matches?"dark":"light");
+const curTheme=()=>document.documentElement.dataset.theme||"light";
+const storedTheme=()=>{try{return localStorage.getItem("regal-theme");}catch(e){return null;}};
 function paintThemeBtn(){
   const dark=curTheme()==="dark";
   $("themeToggle").textContent=dark?"☀️ Light":"🌙 Dark";
@@ -998,8 +1013,12 @@ $("themeToggle").addEventListener("click",()=>{
   try{localStorage.setItem("regal-theme",next);}catch(e){}
   paintThemeBtn();
 });
-// follow OS theme flips while no manual override is set (keeps the button label/aria in sync)
-mqlDark.addEventListener("change",paintThemeBtn);
+// follow OS theme flips live, but only while no manual override is stored
+mqlDark.addEventListener("change",e=>{
+  const stored=storedTheme();
+  if(stored!=="light"&&stored!=="dark") document.documentElement.dataset.theme=e.matches?"dark":"light";
+  paintThemeBtn();
+});
 paintThemeBtn();
 
 buildWeightSliders(); buildCompTable(); buildEvTable(); updBl(); render();
