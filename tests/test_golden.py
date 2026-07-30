@@ -23,14 +23,17 @@ TOL = {
     # probabilities / fractions
     "pibat": 0.03, "presp": 0.03, "pgps": 0.03, "poolCure": 0.03,
     "ps": 0.03, "reach": 0.03,
+    "pStopIA": 0.04, "pStopIA_hp": 0.04,
     # months / event counts / patient counts
     "batMed": 1.5, "gpsMed": 2.5, "poolMed": 1.5, "mG": 2.5,
     "edv": 1.5, "aliveG": 1.5, "aliveB": 1.5,
     # hazard ratios / Weibull shape / residual / ratio
     "medHR": 0.05, "medHR_IA": 0.05, "sG": 0.05, "rmsResid": 0.5, "ratio": 0.5,
+    # H0 two-arm null + interim efficacy boundary
+    "maxOff": 1.5, "excess": 4.0, "zIA": 0.15, "zBoundIA": 0.01,
 }
 DEFAULT_TOL = 0.05
-EXACT = {"state", "cureReq"}   # categorical: must match exactly
+EXACT = {"state", "cureReq", "fits"}   # categorical: must match exactly
 
 
 def _is_marker(v):

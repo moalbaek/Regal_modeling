@@ -57,6 +57,36 @@ Snat  = lambda t, h: np.exp(-h * np.clip(t, 0, None))                         # 
 OBS_FRAC_N = 10   # quadrature points for the hd>0 branch below; build_no_gps_cure's vectorized
                   # resid_grid() mirrors this math and must stay in lockstep on this constant
 
+# Milestone-misfit tolerances shared by the two null tests (build_no_gps_cure's State B and
+# h0_residual). RMS-based so the weighted fit's deliberate middle-milestone trade-off does not
+# by itself trip a rejection.
+RMS_TOL, OFF_TOL = 2.0, 3.0
+
+# ---------------------------------------------------------------- group-sequential boundaries
+def _ncdf(z):
+    from math import erf, sqrt
+    return 0.5 * (1.0 + erf(z / sqrt(2.0)))
+
+def _nppf(p):
+    """Standard-normal quantile by bisection (avoids a scipy dependency; ~1e-12 accurate)."""
+    lo, hi = -12.0, 12.0
+    for _ in range(200):
+        m = 0.5 * (lo + hi)
+        if _ncdf(m) < p: lo = m
+        else: hi = m
+    return 0.5 * (lo + hi)
+
+def obf_bound(t, alpha=0.025):
+    """Lan-DeMets O'Brien-Fleming one-sided EFFICACY boundary (a z-value) at information
+    fraction t. Spend alpha*(t) = 2(1 - Phi(z_{alpha/2} / sqrt(t))); at t=1 this returns
+    exactly z_{alpha}. REGAL's design paper specifies Lan-DeMets OBF with one interim at 60
+    of 80 deaths, i.e. t = 0.75 -> spend ~0.0097 -> boundary z ~ 2.34."""
+    t = min(max(float(t), 1e-9), 1.0)
+    spend = 2.0 * (1.0 - _ncdf(_nppf(1.0 - alpha / 2.0) / np.sqrt(t)))
+    return _nppf(1.0 - min(max(spend, 1e-12), alpha))
+
+HP_Z = 3.0   # Haybittle-Peto: a fixed, maximally conservative nominal p~0.00135 interim boundary
+
 def obs_frac(S, tau, hd, n=OBS_FRAC_N):
     """Fraction of a cohort *observed* dead by tau under independent exponential censoring
     (loss-to-follow-up hazard hd). With hd=0 this is just the death CDF 1-S(tau)."""
@@ -96,7 +126,7 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, shape=0.60, shapeOverride=False,
-               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.25, unweighted=False,
+               ndr=0.02, IA=60, futHR=1.0, alpha=0.025, drop=0.0, esel=0.25, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
     cfg.update(over)
@@ -312,9 +342,8 @@ def build_no_gps_cure(cfg):
     # §5 verdict. All non-interior fits are non-identified (State A) with no PoS, but only the
     # "cure-side" boundaries imply a GPS-specific cure (mg cap/track, or sG heavy edge). The LIGHT
     # edge (sG->1.5) is an increasing-hazard tail — the OPPOSITE of a plateau — so it is flagged
-    # non-identified/ambiguous (cure_req=False), NOT "cure required". RMS-based tolerance so the
-    # weighted fit's deliberate middle-milestone trade-off does not by itself trip State B.
-    RMS_TOL, OFF_TOL = 2.0, 3.0
+    # non-identified/ambiguous (cure_req=False), NOT "cure required". Tolerances are the shared
+    # module-level RMS_TOL / OFF_TOL, so this null and h0_residual are judged on one yardstick.
     cure_bound = mg_cap or mg_track or sg_heavy
     cure_req = False
     if cure_bound:
@@ -346,6 +375,33 @@ def build_no_gps_cure(cfg):
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
                 gpsMed=median(Sg), ed=lambda t: ed(t, mG, sG))
 
+# ---------------------------------- H0: the TRUE two-arm null (GPS arm == BAT arm, HR = 1.00)
+def h0_residual(cfg):
+    """The strict null: the GPS arm is the BAT arm, so HR = 1.00 exactly and the pooled curve
+    IS the BAT curve. This is a *different and stronger* null than build_no_gps_cure(), which
+    only removes the GPS **cure** while still granting GPS responders a freely-fitted (and at
+    base, much longer) median. Here there is **no free parameter at all** — the arm split is
+    not merely constrained, it is eliminated — so the milestone residual is a clean, un-tunable
+    goodness-of-fit statistic for "GPS does nothing."
+
+    Reported because a zero-degree-of-freedom system that fits perfectly is *not* evidence: a
+    formulation that solves for uncured median OS as a residual can always absorb the milestones
+    into that parameter and land on HR = 1.00 by construction. This model cannot, because the BAT
+    arm's component medians are pinned exogenously to the comparator literature
+    (BAT_CONTROL_ARM_RESEARCH.md) rather than solved for. So H0 here is genuinely falsifiable —
+    and `excess` records the direction of any miss (positive = BAT alone kills too fast to
+    explain the observed 60/72/78 accrual)."""
+    B = bat_arm(cfg)
+    h, hd, coh, MT, MOBS = B["h"], B["hd"], B["coh"], B["MT"], B["MOBS"]
+    Sf = lambda t: B["Sbat"](t) * Snat(t, h)
+    edv = [sum(c[1] * obs_frac(Sf, T - c[0], hd) for c in coh if c[0] <= T) for T in MT]
+    n = len(MT)
+    rms = float(np.sqrt(sum((edv[i] - MOBS[i]) ** 2 for i in range(n)) / n))
+    mx = float(max(abs(edv[i] - MOBS[i]) for i in range(n)))
+    fits = (rms <= RMS_TOL) and (mx <= OFF_TOL)
+    return dict(edv=edv, MOBS=MOBS, rmsResid=rms, maxOff=mx, fits=fits,
+                excess=float(sum(edv) - sum(MOBS)), batMed=median(Sf), pibat=B["pibat"])
+
 # ---------------------------------------------------------------- fit uncertainty
 def fit_ci(cfg, builder):
     """Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts.
@@ -362,7 +418,15 @@ def mc(M, nsim=1500, seed=987654321):
     """Enrollment -> per-arm death draws -> censor at FINAL-th event -> log-rank test.
     Returns dict(ps, reach, medHR, medHR_IA, futOK, aliveG, aliveB): P(significant), fraction
     reaching the trigger, median final HR, median implied HR at the interim (feature 1), whether
-    that clears the futility threshold, and the mean per-arm patients alive at the 80th (feature 3)."""
+    that clears the futility threshold, and the mean per-arm patients alive at the 80th (feature 3).
+
+    Also scores the interim's OTHER half. The disclosed interim fact is two-sided: the IDMC
+    cleared futility AND the trial did *not* stop for efficacy. Checking only futility uses the
+    weaker half. `pStopIA` is the fraction of simulated trials that would have CROSSED the
+    O'Brien-Fleming efficacy boundary at the interim under this scenario — so `contIA = 1-pStopIA`
+    is the likelihood this scenario assigns to the observed "did not stop", a quantity that
+    penalises very large assumed effects. `pStopIA_hp` repeats it against the maximally
+    conservative Haybittle-Peto boundary, so the conclusion can be read off either."""
     cfg = M["cfg"]; N, FINAL, HRC, fnr = cfg["N"], cfg["FINAL"], cfg["HRC"], cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0))                                  # background mortality competing risk (an event)
     hdrop = natH(cfg.get("drop", 0.0))                             # loss-to-follow-up (censoring, not an event)
@@ -377,7 +441,7 @@ def mc(M, nsim=1500, seed=987654321):
     n1 = N // 2
     IA = min(int(cfg.get("IA", 60)), FINAL - 1)                    # interim-analysis event count
     futHR = cfg.get("futHR", 1.0)                                  # interim futility HR threshold
-    sig = reached = 0; hrs = []; hrsIA = []; aliveG = aliveB = 0.0
+    sig = reached = 0; hrs = []; hrsIA = []; zsIA = []; aliveG = aliveB = 0.0
 
     def score(time, ev):                                          # log-rank/Cox score test (num, var)
         idx = np.argsort(time, kind="mergesort")
@@ -467,17 +531,28 @@ def mc(M, nsim=1500, seed=987654321):
         evIA = (isdeath & (dcal <= tIA)).astype(int)
         timeIA = np.minimum(obsT, np.clip(tIA - en, 0, None))
         numIA, varrIA = score(timeIA, evIA)
-        if varrIA > 0: hrsIA.append(np.exp(numIA / varrIA))
+        if varrIA > 0:
+            hrsIA.append(np.exp(numIA / varrIA))
+            zsIA.append(-numIA / np.sqrt(varrIA))     # interim efficacy-boundary test statistic
         # per-arm patients still alive at the 80th event (feature 3, before censoring)
         aliveG += np.sum((arm == 1) & (rawcal > t80))
         aliveB += np.sum((arm == 0) & (rawcal > t80))
     hrs.sort(); hrsIA.sort()
     medHR_IA = hrsIA[len(hrsIA) // 2] if hrsIA else np.nan
+    # interim EFFICACY look: would this scenario have stopped the trial at the 60th event?
+    zsIA = np.array(zsIA)
+    zb = obf_bound(IA / float(FINAL), cfg.get("alpha", 0.025))
+    pStopIA = float((zsIA > zb).mean()) if zsIA.size else np.nan
+    pStopIA_hp = float((zsIA > HP_Z).mean()) if zsIA.size else np.nan
     return dict(ps=(sig / reached if reached else 0.0),
                 reach=reached / nsim,
                 medHR=(hrs[len(hrs) // 2] if hrs else np.nan),
                 hrsAll=np.array(hrs),                          # full final-HR distribution (for the histogram)
                 medHR_IA=medHR_IA, futHR=futHR, futOK=bool(medHR_IA <= futHR),
+                # np.median, not zsIA[n//2]: hrs/hrsIA are sorted in place above, zsIA is not
+                zIA=(float(np.median(zsIA)) if zsIA.size else np.nan), zBoundIA=zb,
+                pStopIA=pStopIA, pStopIA_hp=pStopIA_hp,
+                contIA=(1.0 - pStopIA if np.isfinite(pStopIA) else np.nan),
                 aliveG=(aliveG / reached if reached else np.nan),
                 aliveB=(aliveB / reached if reached else np.nan))
 
@@ -779,9 +854,20 @@ if __name__ == "__main__":
             ia = f"{rc['medHR_IA']:.2f} (futility {fut})"
         else:
             ia = "n/a (80th not reached)"
+        H0 = h0_residual(base)
+        print(f"  H0 TEST (GPS arm == BAT arm, HR=1.00, zero free parameters): "
+              f"{'FITS' if H0['fits'] else 'REJECTED'}  resid RMS {H0['rmsResid']:.1f} "
+              f"(max {H0['maxOff']:.1f})")
+        print(f"         modeled {'/'.join(f'{x:.0f}' for x in H0['edv'])} vs "
+              f"{'/'.join(f'{x:.0f}' for x in H0['MOBS'])} — BAT alone "
+              f"{'over' if H0['excess'] > 0 else 'under'}-predicts deaths by {abs(H0['excess']):.0f}")
         print(f"\n  HEADLINE  PLATEAU (GPS cure) : P(success) {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
         print(f"         interim: implied HR@{base['IA']} {ia}   "
               f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
+        print(f"         interim EFFICACY look (the trial did NOT stop): z@{base['IA']} "
+              f"{rc['zIA']:.2f} vs OBF boundary {rc['zBoundIA']:.2f} -> "
+              f"P(would have stopped) {100*rc['pStopIA']:.0f}% (Haybittle-Peto {100*rc['pStopIA_hp']:.0f}%); "
+              f"this scenario gives the observed continuation likelihood {100*rc['contIA']:.0f}%")
         sh_tag = "fitted" if Ml['fitShape'] else "override"
         if Ml['state'] == "C":
             print(f"  NULL TEST no-GPS-cure : State C — NOT excluded. A no-cure GPS responder "
@@ -798,13 +884,15 @@ if __name__ == "__main__":
                   f"(modeled {'/'.join(f'{x:.0f}' for x in Ml['edv'])} vs {'/'.join(f'{x:.0f}' for x in Ml['MOBS'])}).")
         print()
 
-        print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | {'BATmed':>7} {'GPSmed':>7}")
+        print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | "
+              f"{'BATmed':>7} {'GPSmed':>7} | {'H0 resid':>8} | {'P(cont@IA)':>10}")
         preset_names = ["base", "low", "dom", "bear", "bull"]
         preset_cfgs = [apply_preset(default_cfg(), nm) for nm in preset_names]
         specs = []
         for c in preset_cfgs:
             specs += [("plateau", c, NSIM), ("nogpscure", c, NSIM)]
         results = run_batch(ex, specs)   # one flat parallel batch: build+mc, no serial pre-pass
+        pss, conts = [], []
         for i, (nm, c) in enumerate(zip(preset_names, preset_cfgs)):
             p_res, n_res = results[2 * i], results[2 * i + 1]
             mcc, mll, rcc = p_res["build"], n_res["build"], p_res["mc"]
@@ -812,8 +900,21 @@ if __name__ == "__main__":
                 rll = n_res["mc"]; nv = f"C · not excl (P={100*rll['ps']:.0f}%)"
             else:
                 nv = f"{mll['state']} · REJECTED"
+            h0 = h0_residual(c)
+            pss.append(rcc['ps']); conts.append(rcc['contIA'])
             print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% | {nv:>26} | "
-                  f"{fmt_med(mcc['batMed']):>7} {fmt_med(mll['mG']):>7}")
+                  f"{fmt_med(mcc['batMed']):>7} {fmt_med(mll['mG']):>7} | {h0['rmsResid']:8.1f} | "
+                  f"{100*rcc['contIA']:9.0f}%")
+
+        # Re-weight the presets by how well each explains the interim NOT stopping. A flat prior
+        # over compositions double-counts scenarios the disclosed continuation already argues
+        # against; this is the same information the futility check uses, read from the other side.
+        pss, conts = np.array(pss), np.array(conts)
+        if np.isfinite(conts).all() and conts.sum() > 0:
+            wts = conts / conts.sum()
+            print(f"\n  P(success) over presets: flat prior {100*pss.mean():.0f}%  ->  "
+                  f"weighted by the interim continuation likelihood {100*float(wts @ pss):.0f}%")
+            print(f"         (weights {', '.join(f'{n}={100*w:.0f}%' for n, w in zip(preset_names, wts))})")
 
         out = figure("regal_explorer_panel.png", NSIM, executor=ex, base=(Mc, Ml, rc, rl))
         print(f"\nsaved {out}")

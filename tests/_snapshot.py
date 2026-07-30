@@ -61,7 +61,19 @@ def _plateau_row(cfg):
         "edv": [num(Mc["ed"](t)) for t in Mc["MT"]],
         "ps": num(rc["ps"]), "reach": num(rc["reach"]),
         "medHR": num(rc["medHR"]), "medHR_IA": num(rc["medHR_IA"]),
+        "zIA": num(rc["zIA"]), "zBoundIA": num(rc["zBoundIA"]),
+        "pStopIA": num(rc["pStopIA"]), "pStopIA_hp": num(rc["pStopIA_hp"]),
         "aliveG": num(rc["aliveG"]), "aliveB": num(rc["aliveB"]),
+    }
+
+
+def _h0_row(cfg):
+    """The strict two-arm null (GPS == BAT, HR=1.00). Deterministic — no Monte-Carlo."""
+    H0 = R.h0_residual(cfg)
+    return {
+        "edv": [num(x) for x in H0["edv"]], "rmsResid": num(H0["rmsResid"]),
+        "maxOff": num(H0["maxOff"]), "excess": num(H0["excess"]),
+        "fits": bool(H0["fits"]), "batMed": num(H0["batMed"]),
     }
 
 
@@ -106,6 +118,7 @@ def compute_snapshot():
         presets[name] = {
             "plateau": _plateau_row(cfg),
             "nogpscure": _nogpscure_row(cfg),
+            "h0": _h0_row(cfg),
         }
     verdicts = {label: _verdict_row(_fixture_cfg(spec))
                 for label, spec in VERDICT_FIXTURES.items()}

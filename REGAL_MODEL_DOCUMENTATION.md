@@ -51,6 +51,19 @@ moves P(success) is whether the pooled *plateau* is real — and, specifically, 
 identical and asks whether the milestone plateau can be reproduced *without* a GPS cure (a no-cure GPS
 heavy tail on top of BAT's own plateau), returning a three-state verdict rather than a rival percentage.
 
+**Three nested nulls, and one constraint that cuts the other way.** The tests are deliberately
+ordered from weakest to strongest, and only the last is H₀:
+
+| Test | What is removed | Free parameters | Result at base |
+|------|-----------------|-----------------|----------------|
+| No-GPS-cure (§4.7) | the GPS *cure* only; responders keep a fitted median | 2 (`m_G`, `s_G`) | **State C** — not excluded |
+| H₀ (§4.8) | the entire arm split; GPS ≡ BAT, HR = 1.00 | **0** | **rejected**, RMS 25.6 |
+| Interim efficacy (§2.10.1) | — (a likelihood on the disclosed non-stop) | — | base scenario has only ~10% likelihood |
+
+The first two ask "can the milestones be explained with *less* GPS effect?" The third asks the
+opposite and is the only constraint in the model that penalises a *large* one — which is why it is
+the one that moves the headline (86% → ~62% across presets).
+
 ---
 
 ## 1. Module map
@@ -360,6 +373,52 @@ adjustable input. At the default 1.00 even the pessimistic **bear corner** clear
 HR ≈ 0.7), so the constraint mainly excludes extreme anti-GPS scenarios; tightening the threshold
 makes it bite harder. It is a soft, user-controlled constraint, deliberately not a hard gate.
 
+### 2.10.1 Interim **efficacy** boundary — the other half of the interim fact
+
+Futility is the *weaker* half of what the interim disclosed. The stronger half is that REGAL **did
+not stop for efficacy** at the 60th death. Because the design is one-sided α = 0.025 with a
+Lan–DeMets **O'Brien–Fleming** spending function and a single interim at 60 of 80 deaths [R1], the
+interim sits at information fraction t = 0.75, which spends α*(0.75) ≈ 0.0097 and puts the efficacy
+boundary at **z ≈ 2.34**. Not crossing it is a real, public, binary fact, and it is an *upper bound*
+on arm separation — the opposite in sign to the futility pass.
+
+| Control | Value | Type | Role |
+|---------|-------|------|------|
+| Alpha (one-sided) | 0.025 | [S] | Design paper [R1]; drives the boundary via `obf_bound`. |
+| Interim efficacy boundary | z ≈ 2.34 at 60/80 events | [D] | Lan–DeMets OBF, `obf_bound(IA/FINAL, alpha)`. |
+| Haybittle–Peto cross-check | z = 3.00 | [A] | A maximally conservative alternative, so the conclusion does not rest on the spending function. |
+
+**Mechanics.** `mc()` already simulates every event time, so it computes the **interim score-test
+z** at the 60th death exactly as it does the final z, and reports `pStopIA` — the fraction of
+simulated trials that *would have crossed* the efficacy boundary. Its complement,
+`contIA = 1 − pStopIA`, is the **likelihood this scenario assigns to the observed continuation**.
+`pStopIA_hp` repeats the calculation against Haybittle–Peto.
+
+**Why this matters, and which way it cuts.** It is the one constraint in the model that penalises a
+*large* assumed effect, and it bites hardest on exactly the scenarios the plateau fit likes best:
+
+| Preset | plateau P(success) | implied HR @ interim | median z @ 60 | P(would have stopped) | **P(continue) = likelihood of the disclosed fact** |
+|--------|-------------------|----------------------|---------------|----------------------|------------------------------|
+| Base | ~100% | ~0.38 | 3.72 | **87–90%** | **~10%** |
+| Low-venetoclax | ~100% | ~0.31 | 4.57 | ~98% | ~1% |
+| Venetoclax-dominant | ~86% | ~0.55 | 2.31 | ~49% | ~51% |
+| **Bear corner** | ~42% | ~0.72 | 1.36 | ~14% | **~86%** |
+| Bull corner | ~100% | ~0.28 | 4.87 | ~98% | ~1% |
+
+Read down the last column: the compositions that make the headline P(success) ~100% are precisely
+the ones under which REGAL would almost certainly have stopped early — and it did not. Re-weighting
+the five presets by `contIA` instead of a flat prior moves P(success) from **86% → ~62%** (≈68% under
+Haybittle–Peto), with ~92% of the posterior weight landing on the venetoclax-dominant and bear
+corners. The CLI prints both numbers; the explorer shows `P(continue) @ IA` as a metric card and
+flags it below 20%.
+
+**Caveat.** This is a *likelihood*, not proof. A true HR of ~0.45–0.50 is entirely compatible with
+not stopping (P ≈ 15–35%); what the interim rules out is the HR ≈ 0.20–0.32 regime, which is where
+the unweighted plateau fit centres. Note also that an IDMC is not obliged to stop a trial that
+crosses an efficacy boundary — it recommends, and sponsors and committees routinely continue for
+maturity of secondary endpoints — so `contIA` should be read as a soft penalty, in the same spirit
+as the futility check, not a hard gate.
+
 ### 2.11 Loss to follow-up (administrative censoring)
 
 Distinct from natural death (Section 2.9, which *is* an event), some patients leave the study before
@@ -479,6 +538,17 @@ is the forward model linking a survival curve to the disclosed event counts; fol
 mortality and censoring into `D` is what lets the fit split the observed deaths between disease,
 natural causes, and patients who left before dying.
 
+**Time at risk is per-cohort, never calendar-wide.** Each monthly cohort is evaluated at its **own**
+elapsed time `τ = T − e`, and cohorts not yet enrolled at `T` (`e > T`) contribute nothing — see
+`ed()` in `build_plateau` / `build_no_gps_cure`, the same gate in `resid_grid`'s `keep` mask, and
+`h0_residual`. The milestones are stated in calendar months from first-patient-in, but the model
+never evaluates `S(t)` at calendar time across all 126 patients: a patient randomized in March 2024
+contributes ~9 months of exposure at the December-2024 milestone, not ~51. Evaluating `S` at
+calendar age instead would overstate survival and badly inflate the implied cure fraction, which is
+why panel *(g)* validates the reconstructed enrollment curve against the sourced PR anchors
+(~20 / 104 / 126 by Apr 2022 / Nov 2023 / Apr 2024) and the explorer displays the implied median
+enrollment date live.
+
 ### 4.3 Pooled calibration
 
 The pooled curve is `0.5·S_BAT + 0.5·S_GPS`. The explorer fits its free parameters to the three
@@ -586,6 +656,43 @@ the selection slider are the intended stress controls — and the literature bou
 ineligible non-transplanted CR2 collapsing to ~4–5 mo median OS), so a defensible BAT is *not*
 unboundedly generous, which is what keeps State C from being vacuous.
 
+### 4.8 H₀ — the strict two-arm null (`h0_residual`)
+
+The no-GPS-cure null of Section 4.7 removes the GPS **cure** but still grants GPS responders a
+freely-fitted median (≈ 48 mo at base, ~4× BAT). It is therefore *not* H₀. The strict null is the
+third test: **the GPS arm simply is the BAT arm**, HR = 1.00 exactly.
+
+Under H₀ the pooled curve *is* the BAT curve, the arm split is eliminated rather than constrained,
+and there is **no free parameter at all** — so the milestone residual is a clean, un-tunable
+goodness-of-fit statistic, judged against the same `RMS_TOL = 2.0` / `OFF_TOL = 3.0` tolerances as
+State B.
+
+**Result: H₀ is rejected at every preset, in the same direction each time.**
+
+| Preset | modeled 60/72/78 under H₀ | residual RMS | miss | BAT median |
+|--------|---------------------------|--------------|------|-----------|
+| Base | 83 / 100 / 103 | 25.6 | +77 deaths | 12 mo |
+| Low-venetoclax | 89 / 105 / 108 | 30.8 | +92 | 11 mo |
+| Venetoclax-dominant | 74 / 92 / 95 | 17.3 | +51 | 15 mo |
+| Bear corner | 69 / 85 / 87 | 10.5 | +31 | 16 mo |
+| Bull corner | 91 / 107 / 110 | 32.5 | +97 | 11 mo |
+
+Every miss is **positive**: BAT alone kills far too fast to produce the observed ~1 death/month
+accrual. Sweeping the one BAT lever, H₀ never reaches the tolerance inside the defensible band — the
+closest approach is the bear corner at q ≈ 38–40% (RMS 3.2, max 5.0), and *that* requires a BAT arm
+with a **~22–23-month median OS and a 32–33% cure fraction**. Holding q at its 25% default instead
+requires multiplying every component median by ~1.5× (bear) to ~2.1× (base).
+
+**Why report a test that is guaranteed to fail here.** Because a zero-degree-of-freedom system that
+fits *perfectly* is not evidence — it is arithmetic. A formulation that carries uncured median OS as
+a free residual parameter in **both** arms is exactly identified (2 unknowns, 2 constraints), so it
+will always land on a machine-precision fit at HR = 1.00 regardless of what the data say; the
+"perfect residual" is a property of the parameterisation, not a finding about REGAL. This model can
+fail the test because its BAT medians are pinned **exogenously** to the comparator literature
+(`BAT_CONTROL_ARM_RESEARCH.md`) rather than solved for. That is the whole difference, and it is what
+makes the rejection informative — and, symmetrically, what makes it **entirely load-bearing on those
+literature medians**: H₀'s rejection is a statement about the BAT prior, not a model-free fact.
+
 ---
 
 ## 5. Key functions (reference)
@@ -607,6 +714,8 @@ JavaScript reads module-level state, but the computed results match).
 | `bat_arm(cfg)` | The **shared BAT arm** consumed byte-identically by both panels: per-component cure-mixture with left-truncation selection; returns `Sbat/Snc/Ssel`, `pibat`, `obs`. Guarantees "BAT identical" by construction. |
 | `build_plateau` | Plateau (GPS-cure) headline: shares `bat_arm`, fits the single free parameter `π_resp` (GPS responder cure) to the milestones; returns per-arm `Sbat/Sgps/Spool`, cures, medians (Sections 4.3–4.4). |
 | `build_no_gps_cure` | No-GPS-cure null: shares `bat_arm`, fits GPS responder median `m_G` and tail shape `s_G` (auto) with GPS non-responders tracking Observation; emits the three-state verdict (A/B/C), boundary flags, and milestone residual (Section 4.7). |
+| `h0_residual` | The strict two-arm null: GPS arm ≡ BAT arm, HR = 1.00, **zero** free parameters; returns the un-tunable milestone residual and the signed miss (Section 4.8). |
+| `obf_bound(t, alpha)` | Lan–DeMets O'Brien–Fleming one-sided efficacy boundary at information fraction `t` (z ≈ 2.34 at 60/80); `HP_Z = 3.0` is the Haybittle–Peto cross-check (Section 2.10.1). |
 | `median(S)` | Bisection median of a survival function (`∞`/"NR" if never below 0.5 within 900 mo). |
 | `mc(M, nsim)` | Monte-Carlo trial: enrollment → per-arm death draws → censor at the 80th event → **log-rank/Cox score test**; returns P(significant), 80th-event-reached fraction, median HR (Section 4.5). |
 | `figure()` / `render` + `chart*` | 9-panel figure (py, 3×3 grid) / live SVG charts and metrics panel (html): `chart` (survival), `chartAccrual`, `chartHist`, `chartDiverge`, `chartEnroll`, `chartPower`, `chartSelect`. |
@@ -629,7 +738,20 @@ JavaScript reads module-level state, but the computed results match).
    non-responder subgroup each leave P(success) ≈ unchanged, because the data fix the pooled
    plateau and refits merely redistribute it (e.g. raising the non-responder fraction forces the
    responder cure up). This *localizes* the uncertainty rather than resolving it.
-5. **The load-bearing question is whether the plateau is *GPS-specific*.** Holding BAT identical and
+5. **The strict null (GPS ≡ BAT, HR = 1.00) is rejected at every preset** — by RMS 10.5 (bear) to
+   32.5 (bull), always in the same direction: BAT alone over-predicts the observed deaths by 31–97.
+   For H₀ to fit, BAT would need a ~22-month median OS and a ~32% cure fraction. This is the
+   model's answer to "the two-arm specification was never run" — but the rejection is a statement
+   about the exogenous BAT prior, not a model-free fact (Section 4.8).
+6. **The interim's efficacy half is the one constraint that penalises a large effect, and it
+   materially moves the headline.** REGAL did not stop at 60 events. Under the base preset it would
+   have crossed the OBF boundary in ~87–90% of simulations, so the disclosed continuation carries
+   only ~10% likelihood there — against ~86% at the bear corner. Re-weighting the presets by that
+   likelihood takes P(success) from **86% (flat prior) → ~62%** (~68% under Haybittle–Peto), moving
+   ~92% of the weight onto the venetoclax-dominant and bear corners. The plateau fit's central
+   estimate (HR ≈ 0.32) sits in exactly the regime the interim argues against; HR ≈ 0.45–0.50 does
+   not (Section 2.10.1).
+7. **The load-bearing question is whether the plateau is *GPS-specific*.** Holding BAT identical and
    swapping only the GPS responder to a no-cure Weibull, the null test asks whether the milestones can
    be fit *without* a GPS cure. At the base preset the answer is **State C — not excluded**: a no-cure
    GPS separation (median ~48 mo, shape ~1.15) plus BAT's plateau also fits (P(success) ~100%), so the
@@ -669,6 +791,46 @@ JavaScript reads module-level state, but the computed results match).
   60-event futility look is used as an adjustable consistency constraint on the arm split
   (Section 2.10), flagging implausible scenarios rather than rejecting them outright; the futility
   boundary itself is an assumed number.
+- **The interim efficacy look is also soft, and deliberately so.** `contIA` (Section 2.10.1) is a
+  likelihood, not a gate: an IDMC *recommends*, and trials that cross an efficacy boundary are
+  routinely continued to maturity. The preset re-weighting it implies is reported alongside the flat
+  prior, never in place of it.
+- **No endpoint model: OS is modelled directly, with no RFS → OS convolution.** GPS is maintenance,
+  so a real relapse-free-survival benefit reaches OS only through a post-relapse salvage term that
+  lands on *both* arms and compresses the OS hazard ratio toward 1.0. Contemporary benchmark data
+  put that term at roughly +8 months (median RFS 11 → median OS 19 in non-transplanted CR1 [R9]).
+  The model's structure is *conservative* at the two ends of this — non-cured GPS responders draw
+  the **BAT** non-cured survival, and non-responders track Observation, so neither group gets any OS
+  extension — but it has **no representation of the middle case**: "GPS delays relapse moderately
+  without curing anyone." That scenario is the natural reading of a moderate RFS effect, it is what
+  a Sipuleucel-T-like (OS HR 0.78) or QUAZAR-like (0.65) modality would produce, and the two panels
+  bracket it only from above. Treat its absence as a genuine gap, not a modelled-and-excluded case.
+- **No prior from the one directly comparable randomized read-out.** OCV-501 [R10] — a WT1 peptide
+  vaccine, AML in remission, transplant-ineligible, *double-blind and placebo-controlled*, n ≈ 133 —
+  missed: DFS HR 0.933 [0.590–1.477], p = 0.77; 5-year DFS 36.0% vs 33.7%, p = 0.74. Its post-hoc
+  finding that immune responders had better outcomes than placebo is *structurally identical* to the
+  "immune-response rate ≈ cure fraction" reasoning used elsewhere on this thesis, and it appeared in
+  a trial where the drug provably did nothing — which is why this model **fits** the GPS responder
+  cure to the milestones and only uses the ~80% WT1 response rate to set `f_nr`, never to set the
+  cure fraction. Two limits on reading OCV-501 across, in both directions: it is **first** remission
+  (CR1), not CR2, so its ~40% 2-year DFS control arm is a CR1 benchmark of exactly the kind this
+  model already discounts 0.6–0.8× (`BAT_CONTROL_ARM_RESEARCH.md` §3.2); and a different peptide
+  construct and schedule can fail without indicting the target. It remains an unfavourable modality
+  prior that appears nowhere in the arithmetic.
+- **Contemporary control-arm benchmarks are drifting up.** Kugler et al. [R9] (n = 362, MD Anderson,
+  2016–2023, non-transplanted, venetoclax era) report median RFS 11 and median OS **19 months** in
+  CR1, with venetoclax cutting 24-month relapse from 68%→45% (low-intensity) and 49%→27% (intensive).
+  After a CR2 discount this is consistent with — though at the upper edge of — the model's ~12-month
+  BAT median at the default selection, and it corroborates the venetoclax plateau assumption. The
+  ELN-subgroup heterogeneity in that cohort is also a reminder that **a decelerating pooled hazard
+  needs no cure fraction at all**: a mixture of heterogeneous subgroups (as `DEFAULT_COMP` already
+  is), a Weibull with k < 1, log-normal, or gamma-frailty survival all produce monotone-decreasing
+  hazards with zero cured patients. The model's component mixture and its free `s_G` cover this, but
+  the plateau panel's *language* ("cure") should not be read as the only shape that fits.
+- **SAP-amendment regulatory status is assumed, not verified.** The 60/80-event design and the
+  HR 0.636 threshold come from the November 2022 SAP amendment [R2] and are treated as [S]. Whether
+  FDA formally accepted that amendment is not public (absent an SPA, FDA does not normally "approve"
+  a SAP); if the operative analysis differed, the significance threshold in Section 2.1 would move.
 - **Loss to follow-up is modeled as a flat, independent rate.** Administrative censoring (Section 2.11)
   enters both the fit and the simulation, but as a single constant all-cause-independent hazard
   (default 0); real dropout is time- and arm-varying.
@@ -713,6 +875,16 @@ dates matter.
   patients >3 yr on treatment). https://stocktwits.com/news-articles/markets/equity/sls-stock-gps-very-good-chance-beat-earlier-survival-outcomes/cZXDpXKReVe
 - **[R8]** Status check, late June 2026 — no 80th-event announcement yet (still 78).
   https://www.merlintrader.com/sellas-life-sciences/
+- **[R9]** Kugler E, Ravandi F, Bazinet A, et al. "Relapse risk and survival benchmarks for
+  non-transplanted acute myeloid leukemia patients in first complete remission." *Haematologica*,
+  23 Jul 2026 (n = 362; median RFS 11 mo, median OS 19 mo; venetoclax lowers 24-month relapse
+  68%→45% low-intensity and 49%→27% intensive). Retrieved via PubMed (PMID 42489069).
+  https://doi.org/10.3324/haematol.2026.300935
+- **[R10]** Naoe T, Saito A, Hosono N, et al. "Immunoreactivity to WT1 peptide vaccine is associated
+  with prognosis in elderly patients with acute myeloid leukemia: follow-up study of randomized
+  phase II trial of OCV-501, an HLA class II-binding WT1 polypeptide." *Cancer Immunol Immunother*
+  72(8):2865–2871, 2023 (5-yr DFS 36.0% vs 33.7%, p = 0.74; **first** remission). Retrieved via
+  PubMed (PMID 37093243). https://doi.org/10.1007/s00262-023-03432-4
 
 *Comparator literature anchors for [A] component survival (Section 2.5) were drawn from published
 AML CR2 / R/R venetoclax-HMA and azacitidine-maintenance outcome studies; the specific

@@ -335,6 +335,22 @@ const wscale=(med,shape)=>med/Math.pow(Math.LN2,1/shape);
 // ndr is an annual death fraction; convert to a constant monthly hazard.
 const natH=p=>p>0?-Math.log(1-p)/12:0;          // monthly hazard from annual fraction
 const Snat=(t,h)=>Math.exp(-h*Math.max(t,0));   // background survival factor
+// Milestone-misfit tolerances shared by BOTH null tests (buildNoGPSCure's State B and h0Residual),
+// so the two are judged on one yardstick.
+const RMS_TOL=2.0, OFF_TOL=3.0;
+// ---------- group-sequential boundaries ----------
+const ncdf=z=>{ // Abramowitz-Stegun 7.1.26 erf, ~1e-7 — ample for a stopping-boundary tail
+  const s=z<0?-1:1, x=Math.abs(z)/Math.SQRT2, t=1/(1+0.3275911*x);
+  const y=1-((((1.061405429*t-1.453152027)*t+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
+  return 0.5*(1+s*y);
+};
+const nppf=p=>{ let lo=-12,hi=12; for(let i=0;i<200;i++){const m=0.5*(lo+hi); if(ncdf(m)<p)lo=m; else hi=m;} return 0.5*(lo+hi); };
+// Lan-DeMets O'Brien-Fleming one-sided EFFICACY boundary at information fraction t.
+// REGAL's design paper specifies OBF with one interim at 60 of 80 deaths -> t=0.75 -> z~2.34.
+function obfBound(t,alpha){ alpha=alpha||0.025; t=Math.min(Math.max(t,1e-9),1);
+  const spend=2*(1-ncdf(nppf(1-alpha/2)/Math.sqrt(t)));
+  return nppf(1-Math.min(Math.max(spend,1e-12),alpha)); }
+const HP_Z=3.0;   // Haybittle-Peto: fixed, maximally conservative interim boundary (nominal p~0.00135)
 // fraction of a cohort *observed* dead by tau under independent censoring (loss-to-FU hazard hd)
 function obsFrac(S,tau,hd,n){
   if(tau<=0) return 0;
@@ -452,7 +468,6 @@ function buildNoGPSCure(cfg){
   // non-identified/ambiguous (cureReq=false), not as "cure required". Verdict tolerance is RMS-based
   // (the weighted fit deliberately trades the middle milestone for the most-recent one, so a
   // single-milestone miss must not by itself trip State B).
-  const RMS_TOL=2.0, OFF_TOL=3;
   const cureBound=mgCap||mgTrack||sgHeavy;                 // boundaries that imply a de-facto GPS cure
   let state, reason, cureReq=false;
   if(cureBound){ state="A"; cureReq=true;
@@ -471,6 +486,27 @@ function buildNoGPSCure(cfg){
     batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,state,reason,cureReq,
     degenerate,edRaw:ed,Sbat:Sb,Sgps:Sg,Spool:Sp,gpsMed:median(Sg),ed:t=>ed(t,mG,sG)};
 }
+// ---------- H0: the TRUE two-arm null (GPS arm == BAT arm, HR = 1.00) ----------
+// The strict null, and a *stronger* one than buildNoGPSCure(): that panel only removes the GPS
+// cure while still granting GPS responders a freely-fitted (and at base, far longer) median.
+// Here the arm split is eliminated, not merely constrained — zero free parameters — so the
+// milestone residual is a clean, un-tunable goodness-of-fit statistic for "GPS does nothing".
+// Worth reporting because a zero-DoF system that fits perfectly is NOT evidence: a formulation
+// that solves for uncured median OS as a residual can always absorb the milestones into that
+// parameter and land on HR=1.00 by construction. This model cannot, because BAT's component
+// medians are pinned exogenously to the comparator literature rather than solved for.
+function h0Residual(cfg){
+  const B=batArm(cfg); const {coh,MT,MOBS,h,hd,Sbat,pibat}=B;
+  const Sf=t=>Sbat(t)*Snat(t,h);
+  const edv=MT.map(T=>coh.reduce((a,c)=>a+(c[0]<=T?c[1]*obsFrac(Sf,T-c[0],hd):0),0));
+  const n=MT.length;
+  const rmsResid=Math.sqrt(edv.reduce((a,x,i)=>a+(x-MOBS[i])**2,0)/n);
+  const maxOff=Math.max(...edv.map((x,i)=>Math.abs(x-MOBS[i])));
+  const excess=edv.reduce((a,b)=>a+b,0)-MOBS.reduce((a,b)=>a+b,0);
+  return {edv,MOBS,rmsResid,maxOff,excess,pibat,batMed:median(Sf),
+          fits:(rmsResid<=RMS_TOL&&maxOff<=OFF_TOL)};
+}
+
 // ---------- shared Monte-Carlo ----------
 function mc(M,nsim){
   const {N,FINAL,HRC,fnr}=M.cfg, ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
@@ -485,7 +521,7 @@ function mc(M,nsim){
   const snq=cm.map(c=>(1-F-c.cure)/(1-c.cure));           // non-cured survival at the F-quantile (caps the conditional draw)
   const ncw=cm.map((c,i)=>w[i]*(1-F-c.cure));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
   const surv=new Float64Array(N),time=new Float64Array(N),ev2=new Int8Array(N),arm=new Int8Array(N),dcal=new Float64Array(N),en=new Float64Array(N),isdeath=new Int8Array(N),rawcal=new Float64Array(N);
-  let sig=0,reached=0,aliveG=0,aliveB=0; const hrs=[],hrsIA=[];
+  let sig=0,reached=0,aliveG=0,aliveB=0; const hrs=[],hrsIA=[],zsIA=[];
   // Cox/log-rank score at a calendar cutoff -> [num, varr]
   const scoreAt=tcut=>{
     for(let i=0;i<N;i++){ ev2[i]=(isdeath[i]&&dcal[i]<=tcut)?1:0; time[i]=Math.min(surv[i],Math.max(tcut-en[i],0)); }
@@ -522,13 +558,23 @@ function mc(M,nsim){
     const [num,varr]=scoreAt(t80);                              // final-analysis test
     if(varr>0){ const z=-num/Math.sqrt(varr); if(z>ZC)sig++; hrs.push(Math.exp(num/varr)); }
     const [numIA,varrIA]=scoreAt(fin[IA-1]);                    // implied HR at the interim
-    if(varrIA>0) hrsIA.push(Math.exp(numIA/varrIA));
+    if(varrIA>0){ hrsIA.push(Math.exp(numIA/varrIA)); zsIA.push(-numIA/Math.sqrt(varrIA)); }  // interim efficacy statistic
     for(let i=0;i<N;i++){ if(rawcal[i]>t80){ if(arm[i]===1)aliveG++; else aliveB++; } }  // alive at the 80th (pre-censoring)
   }
   hrs.sort((a,b)=>a-b); hrsIA.sort((a,b)=>a-b);
   const medHR_IA=hrsIA.length?hrsIA[hrsIA.length>>1]:NaN;
+  // The interim's OTHER half: the IDMC cleared futility AND the trial did not stop for efficacy.
+  // pStopIA is the fraction of sims that would have CROSSED the efficacy boundary under this
+  // scenario, so contIA=1-pStopIA is the likelihood it assigns to the observed continuation.
+  const zBoundIA=obfBound(IA/FINAL, M.cfg.alpha||0.025);
+  const zsSorted=zsIA.slice().sort((a,b)=>a-b);
+  const pStopIA=zsIA.length?zsIA.filter(z=>z>zBoundIA).length/zsIA.length:NaN;
+  const pStopIA_hp=zsIA.length?zsIA.filter(z=>z>HP_Z).length/zsIA.length:NaN;
   return {ps:reached?sig/reached:0, reach:reached/nsim, medHR:hrs.length?hrs[hrs.length>>1]:NaN, hrsAll:hrs,
-    medHR_IA, futHR, futOK:medHR_IA<=futHR, aliveG:reached?aliveG/reached:NaN, aliveB:reached?aliveB/reached:NaN};
+    medHR_IA, futHR, futOK:medHR_IA<=futHR,
+    zIA:zsSorted.length?zsSorted[zsSorted.length>>1]:NaN, zBoundIA, pStopIA, pStopIA_hp,
+    contIA:isFinite(pStopIA)?1-pStopIA:NaN,
+    aliveG:reached?aliveG/reached:NaN, aliveB:reached?aliveB/reached:NaN};
 }
 
 // ---------- readable point labels: paint a card-colored halo behind text that may sit over a line ----------
@@ -892,6 +938,12 @@ function render(){
   const iaHR=isNaN(r.medHR_IA)?"–":r.medHR_IA.toFixed(2);
   const futBite=!isNaN(r.medHR_IA)&&!r.futOK;   // only flag a real interim breach, not an uncomputed (no-reach) one
   const iaVal=iaHR+(futBite?` <small style="color:var(--warn-fg)">&gt;${r.futHR.toFixed(2)} ⚠</small>`:"");
+  // Interim EFFICACY look: the trial did NOT stop at 60 events, so a scenario that would almost
+  // surely have crossed the boundary is a poor explanation of the disclosed record. Flagged when
+  // the observed continuation has <20% likelihood under this scenario.
+  const contPct=isNaN(r.contIA)?NaN:Math.round(r.contIA*100);
+  const contBite=isFinite(contPct)&&contPct<20;
+  const contVal=isNaN(contPct)?"–":contPct+"%"+(contBite?` <small style="color:var(--warn-fg)">⚠</small>`:"");
   const aliveVal=isNaN(r.aliveG)?"–":r.aliveG.toFixed(0)+" / "+r.aliveB.toFixed(0);
   if(mode==="plateau"){
     mhtml=metric("BAT cure / median",(100*M.pibat).toFixed(0)+"% <small>/ "+fmtMed(M.batMed)+"</small>")
@@ -901,6 +953,7 @@ function render(){
       +metric("Enrollment selection",Math.round((cfg.esel||0)*100)+"% <small>keep-strongest</small>")
       +metric("80th event reached",Math.round(r.reach*100)+"%")
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",iaVal)
+      +metric("P(continue) @ IA <small>(efficacy)</small>",contVal)
       +metric("Alive @ 80th (GPS / BAT)",aliveVal);
   } else {
     // §7 null-panel cards: greyed with the boundary reason in States A/B; normal in C. BAT median,
@@ -915,6 +968,7 @@ function render(){
       +metric("Milestone residual",g("RMS "+M.rmsResid.toFixed(1)))
       +metric("80th event reached",Math.round(r.reach*100)+"%")
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",g(iaVal))
+      +metric("P(continue) @ IA <small>(efficacy)</small>",g(contVal))
       +metric("Alive @ 80th (GPS / BAT)",g(aliveVal));
   }
   $("metrics").innerHTML=mhtml;
@@ -942,8 +996,19 @@ function render(){
   if(showFit && !isNaN(r.medHR_IA)) note += r.futOK
     ? ` Implied interim HR <b>${iaHR}</b> clears the futility look (≤ ${r.futHR.toFixed(2)}); modeled split at the 80th ≈ <b>${aliveVal}</b> alive (GPS / BAT).`
     : ` <span class="warn">⚠ implied interim HR ${iaHR} exceeds the futility threshold ${r.futHR.toFixed(2)} — inconsistent with the IDMC continuing past the 60-event futility look, so this scenario is implausible.</span>`;
+  // The interim's other half: the trial did NOT stop for efficacy at 60 events. A scenario that
+  // would almost surely have crossed the boundary explains the disclosed record poorly, however
+  // well it clears futility — this is the constraint that penalises very large assumed effects.
+  if(showFit && isFinite(contPct)) note += contBite
+    ? ` <span class="warn">⚠ but this scenario would have crossed the O'Brien–Fleming <b>efficacy</b> boundary at the interim in ${100-contPct}% of sims (z≈${r.zIA.toFixed(2)} vs ${r.zBoundIA.toFixed(2)}) — REGAL did <i>not</i> stop, so the disclosed continuation has only ~${contPct}% likelihood here. Clearing futility is the weaker half of the interim fact.</span>`
+    : ` The interim efficacy look is also consistent: P(would have stopped) ${100-contPct}% (z≈${r.zIA.toFixed(2)} vs OBF ${r.zBoundIA.toFixed(2)}), so the observed continuation carries ~${contPct}% likelihood.`;
   if(showFit){ const ci=fitCI(cfg, mode==="plateau"?buildPlateau:buildNoGPSCure);
     note += ` GPS-median Poisson 68% CI <b>${fmtMed(ci[0])}–${fmtMed(ci[1])}</b> (from the 60/72/78 counts ±√n${cfg.unweighted?", unweighted fit":""}).`; }
+  // H0: the strict two-arm null (GPS arm == BAT arm, HR=1.00, zero free parameters).
+  { const H0=h0Residual(cfg);
+    note += H0.fits
+      ? ` <span class="warn">⚠ H₀ (GPS ≡ BAT, HR=1.00) also fits these milestones — residual RMS ${H0.rmsResid.toFixed(1)} (modeled ${H0.edv.map(x=>x.toFixed(0)).join("/")} vs ${H0.MOBS.join("/")}). With this BAT the data do not require any GPS effect at all.</span>`
+      : ` H₀ (GPS ≡ BAT, HR=1.00, <i>zero</i> free parameters) is <b>rejected</b>: residual RMS ${H0.rmsResid.toFixed(1)} — BAT alone ${H0.excess>0?"over":"under"}-predicts the milestones by ${Math.abs(H0.excess).toFixed(0)} deaths (modeled ${H0.edv.map(x=>x.toFixed(0)).join("/")} vs ${H0.MOBS.join("/")}).`; }
   $("fit").innerHTML=note;
   // enrollment readout under its slider
   const ec=Mc.coh;

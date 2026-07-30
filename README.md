@@ -19,6 +19,15 @@ heavy tail also fits, given this BAT). Only the "not excluded" state carries a s
 it is *conditional on crediting BAT* at the chosen medians/cures — the bear presets and selection
 slider are the intended stress controls.
 
+Two further checks sit alongside it. **H₀** — the strict two-arm null, GPS arm ≡ BAT arm, HR = 1.00,
+*zero* free parameters — is reported as an un-tunable milestone residual; it is rejected at every
+preset (RMS 10.5–32.5), always because BAT alone kills too fast to explain the ~1 death/month
+accrual. And the **interim efficacy boundary**: REGAL did *not* stop at the 60th event, so each
+scenario is scored on how likely that continuation was under it (Lan–DeMets O'Brien–Fleming,
+z ≈ 2.34 at 60/80, with a Haybittle–Peto cross-check). This is the only constraint that penalises a
+*large* assumed effect, and it bites hardest on the compositions the plateau fit likes best —
+re-weighting the presets by it moves P(success) from 86% to ~62%.
+
 ## Files
 
 | File | What it is |
