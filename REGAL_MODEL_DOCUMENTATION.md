@@ -4,27 +4,22 @@
 galinpepimut-S (GPS) vs best available therapy (BAT) as maintenance in AML second complete
 remission (CR2), non-transplant.
 
-**Purpose:** Reconstruct what the *blinded, publicly disclosed* trial data imply about the
-probability of a positive readout, by (1) calibrating the pooled (both-arm) survival curve to the
-disclosed death-event milestones, (2) decomposing it into arm-level survival under explicit
-assumptions, and (3) Monte-Carlo simulating the trial's pre-specified test to get a probability of
-statistical success. The **headline** is the **plateau (GPS-cure)** probability of success. The
-**second panel is a null test, not a co-equal probability**: it holds the **BAT arm bit-for-bit
-identical** to the plateau panel and swaps **only the GPS responder component** — a durable-remission
-cure versus a fitted heavy-tailed Weibull with **no cure** — to ask whether the milestone plateau
-*requires* a GPS-specific durable benefit, or whether BAT's own (venetoclax-driven) plateau plus a GPS
-heavy tail can explain it. GPS immunological non-responders track the Observation row in **both** panels.
-The null returns a **three-state verdict**: **A — rejected (non-identified)** when a no-cure GPS fit runs
-to a parameter boundary (a de-facto cure is required); **B — rejected (inconsistent)** when it cannot
-match the milestones; or **C — not excluded** when a no-cure GPS heavy tail *also* fits the milestones
-given this BAT. Only State C carries a second P(success), reported as the "GPS cure not required" bracket.
-State C is **conditional on crediting BAT** at the chosen component medians/cures — the bear presets and
-selection slider are the intended stress controls on that structure.
+**Purpose:** The legacy v1 model calibrates assumed pooled survival families to the publicly disclosed
+death-event milestones, decomposes them into arm-level survival under explicit BAT assumptions, and
+Monte-Carlo simulates a fixed-scenario rejection rate. It does **not** estimate a posterior probability
+for the actual ongoing trial. The plateau and bounded no-cure panels are alternative parametric
+explanations using the same BAT arm. Their boundary and residual classifications are diagnostics, not
+formal hypothesis tests, and cannot establish that GPS-specific cure is required.
 
 **Deliverables:** `regal_explorer.html` (self-contained interactive explorer) and
 `regal_explorer.py` (the same engine in Python, with a CLI summary and a 9-panel figure).
 
-**Last updated:** 2026-07-02 · **Status:** research/analysis tool, not investment advice.
+> **Legacy-v1 status.** The current `P(success)` values are conditional on the selected assumptions
+> and on reaching the final analysis. V1 does not condition on the observed decision to continue
+> after the 60-event interim. See [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) for the
+> corrective rebuild.
+
+**Last updated:** 2026-08-22 · **Status:** research/analysis tool, not investment advice.
 
 ---
 
@@ -33,11 +28,11 @@ selection slider are the intended stress controls on that structure.
 The single most important structural fact: **REGAL is blinded.** Public disclosures give the
 *pooled* number of deaths at several dates, never the per-arm split. Consequently:
 
-- The **pooled survival curve is identifiable** from the event milestones + the enrollment curve.
+- The event milestones constrain several enrollment-weighted integrals of the pooled survival
+  curve, but three aggregate counts do **not** identify the curve or its long-term shape.
 - The **decomposition into GPS and BAT arms is *not* identifiable** from blinded data. It requires
-  an assumption about one arm (here: the BAT/control arm). Every "P(success)" number this model
-  produces is therefore a function of an explicit, user-controlled **BAT-quality prior**, not a
-  claim to know the confidential outcome.
+  assumptions about the BAT arm and the GPS effect family. Every v1 `P(success)` value is therefore a
+  fixed-scenario operating characteristic, not a claim to know the confidential outcome.
 
 This is a forecast built from public information (press releases, SEC filings, ClinicalTrials.gov,
 the published trial-design paper) — the same class of event-driven analysis used in mainstream
@@ -170,10 +165,10 @@ Weibull OS shape reconstructed from VIALE-A (VEN+AZA), the plateau-forming tail.
 | Venetoclax (± HMA) | 12.0 | 0.15 | 0.78 | [A] | Best BAT option (VIALE-A mOS 14.7 / 24-mo OS 37.5%) discounted to CR2; k=0.78 published VEN+AZA tail. **Key bear/bull knob.** |
 | LDAC | 7.0 | 0.08 | 1.1 | [A] | Modest activity (mOS ~5–10 mo); small responder tail. |
 
-**Presets** (selectable in the explorer; weights auto-normalize):
+**Legacy-v1 presets** (selectable in the explorer; weights auto-normalize):
 *Base* (27/8/22/35/8, ven cure 15%) · *Low-venetoclax* (33/12/30/15/10, ven cure 15%) ·
 *Venetoclax-dominant* (8/4/18/60/10, ven cure 15%) · *Bear corner* (5/3/12/70/10, ven cure 25%) · *Bull corner*
-(40/10/25/15/10, ven cure 10%) — the bear corner is the only composition that pushes the
+(40/10/25/15/10, ven cure 10%) — the bear corner is the only legacy composition that pushes the
 plateau-shape P(success) clearly below 50%. The **bull corner** is the opposite (optimistic) extreme:
 it credits BAT as little as is clinically defensible — venetoclax demoted to a floor weight and to a
 poorly-durable 10% cure, its remaining weight relocated onto the low-cure active (HMA/LDAC) and
@@ -182,6 +177,15 @@ arm (~50%). It drives plateau P(success) to its ceiling (~100%) and, more useful
 no-GPS-cure null toward **State A/B rejection** (a no-cure GPS responder must run to a boundary to fit),
 i.e. the regime where GPS-specific cure *is* required — the mirror-image payoff to the bear corner's
 P(success) collapse.
+
+**Protocol-compatibility correction.** The trial publication describes approximately equal BAT
+strata. Under a literal four-stratum interpretation, the primary allocation is approximately 25%
+each to supportive care/hydroxyurea, HMA, venetoclax, and LDAC. A legacy equal-strata run makes BAT
+slightly weaker because of the LDAC weight and is therefore more bullish: approximately 99.9%
+scenario power, median HR 0.30, and a 94% probability of crossing the interim efficacy boundary.
+The venetoclax-dominant and bear presets are therefore not protocol-plausible primary cases; this
+removes the bear case rather than the bull case. The publication's "and/or" wording leaves room for
+combination regimens, which v2 will represent separately from the randomization stratum.
 
 Supporting literature anchors for these assumptions [A]:
 - Contemporary non-transplant CR2 maintenance (HMA and/or BCL-2 inhibitor): **~8-month** expected
@@ -309,9 +313,9 @@ explorer makes this an explicit, adjustable assumption.
 
 | Control | Range / default | Type | Role |
 |---------|-----------------|------|------|
-| Natural death rate | 0–10%/yr, default 2% | [A] | All-cause background mortality, applied **equally to both arms** as an independent competing risk. ~2%/yr ≈ the US all-cause rate for ages 60–69; raise to stress-test an older or frailer cohort. |
+| Natural death rate | 0–10%/yr, default 2% | [A] | Legacy v1 overlays this competing risk on every component. V2 will apply it according to whether an input is OS or net survival. |
 
-**Mechanics.** The annual fraction `p` is converted to a constant monthly hazard
+**Legacy-v1 mechanics.** The annual fraction `p` is converted to a constant monthly hazard
 `h = −ln(1 − p) / 12` and overlaid as a multiplicative survival factor `S_nat(t) = e^(−h·t)` on every
 arm. Because it is common to both arms, the pooled all-cause survival is simply
 `S_pool^all(t) = S_pool^disease(t) · S_nat(t)`. This factor enters the milestone fit (Section 3), so the
@@ -322,16 +326,20 @@ natural-death time `T_nat = −ln(u)/h` and dies of whichever cause comes first
 (`survival = min(disease, T_nat)`); this also caps the "cured" (plateau) subjects, who otherwise never
 contribute an event.
 
-**Effect on the readout.** Natural mortality (i) thins the plateau and shortens medians — e.g. it gives the
-GPS arm a finite ~78-mo all-cause median where the disease-only plateau never crosses 50% — and (ii) brings
-the 80th-event trigger *forward*: the cure-mixture "reached" fraction climbs from ~82% at 0% to ~100% by
-2%/yr. Two forces then push P(success) in opposite directions — background deaths are *non-differential*,
-which *dilutes* the treatment contrast (downward), but the more-reliable trigger removes stalled sims that
-never reached significance (upward). In the explorer's presets the trigger-reliability gain dominates, so the
-base-preset plateau P(success) is already near-ceiling and barely moves (≈ **99% → 100% → 100% → 100%** across
-0 / 2 / 5 / 10 %/yr, with the GPS arm cure rising 58% → 63% → 73% → 81% over the same range). Dilution would
-win only where the trigger already fires in ~100% of sims; at the realistic ~2%/yr default the net move is a
-few points.
+**Survival-scale correction.** The background-mortality layer is appropriate for the cured fraction:
+a flat plateau extrapolated indefinitely would imply immortality. However, the current literature
+inputs for the non-cured components are already **overall survival**, so multiplying those terms by
+`S_nat` double-counts background mortality. With the existing OS inputs the corrected mixture is
+`S(t) = c·S_bg(t) + (1−c)·S_uncured,OS(t)`. If components are instead fitted to net/relative survival,
+the correct form is `S(t) = S_bg(t)·[c + (1−c)·S_uncured,net(t)]`. V2 will store that scale explicitly
+per component rather than removing background mortality altogether.
+
+**Legacy sensitivity.** In the reproduced base run, changing the legacy overlay from 0% to 2% moves
+the 80-event reach fraction from about **70% to 100%** and the fitted median HR from about **0.359 to
+0.316**, while the fixed-scenario rejection rate barely moves, about **98.7% to 99.7%**. The overlay
+therefore changes the event-stall narrative and fitted effect much more than the headline scenario
+power. These values characterize the flawed v1 comparison; the corrected v2 mixture must be refitted.
+The earlier documentation's ~82% reach value at 0% was stale.
 
 ### 2.10 Interim futility consistency check
 
@@ -340,8 +348,10 @@ reviewed the trial and recommended continuation — i.e. it **cleared the pre-sp
 [R4][R5]. That is information about the arm separation, because a scenario in which GPS shows little
 or no benefit by the interim would have been *stopped*, not continued.
 
-The explorer uses this as a **consistency check on the arm split** rather than leaving the split
-entirely free:
+V1 only compares its median simulated interim HR with an assumed futility threshold. It neither
+implements the interim efficacy boundary nor conditions simulated trials on the observed
+continuation region. V2 will treat continuation as likelihood information, with sensitivity analysis
+for the unpublished futility rule.
 
 | Control | Range / default | Type | Role |
 |---------|-----------------|------|------|
@@ -420,18 +430,17 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Implied HR at the 60-event interim | ~0.38 (clears the 1.00 futility threshold); drifts toward 1 as selection rises | `mc` |
 | Patients alive at the 80th event | ~36 GPS / ~10 BAT (before censoring) | `mc` |
 | **P(success) — plateau (GPS cure)** — the headline | **~100% at the q=25% default**; selection sweeps it ~100% (q=0) → ~65% (q=50%) (Section 2.5.1) | `build_plateau` + `mc` |
-| **No-GPS-cure null verdict** | **State C (not excluded) at base**: a no-cure GPS responder (median m<sub>G</sub> ≈ 48 mo, tail s<sub>G</sub> ≈ 1.15) plus BAT's plateau also fits (milestone residual RMS ≈ 1.7), so a State-C P(success) ≈ 100% is reported as the "GPS cure not required" bracket. At extreme selection or a light-BAT corner the fit runs to a boundary (s<sub>G</sub> edge or m<sub>G</sub> cap) → **State A rejected** (GPS cure required); a large residual → **State B rejected** | `build_no_gps_cure` + `mc` |
+| **Bounded no-cure diagnostic** | At base, the bounded no-cure GPS responder fit has median m<sub>G</sub> ≈ 48 mo and shape s<sub>G</sub> ≈ 1.15 with milestone residual RMS ≈ 1.7. Boundary and residual labels are legacy diagnostics, not a test that can prove or reject cure. | `build_no_gps_cure` + `mc` |
 | 80th event reached in MC | ~100% of sims (both panels) at the 2% natural-death default; because BAT is shared, the null inherits the plateau's event-stall sensitivity and can also stall if BAT cure is pushed hard | `mc` |
 
-The 2% natural-death default (Section 2.9) raises the GPS arm cure to ~63% and, because it guarantees
-the trigger eventually fires, lifts the plateau "reached" fraction from ~82% (at 0%) to ~100%; that
-removes the stalled sims and nudges the plateau P(success) up a few points relative to a no-mortality
-run.
+In the legacy implementation, the 2% natural-death default lifts the plateau reach fraction from
+about 70% at 0% to ~100%. Because the non-cured inputs are already OS, this is a diagnostic of the v1
+overlay rather than a defensible estimate of the corrected model's reach probability.
 
-Sweeping the BAT composition shows what the null verdict is worth. At the **base preset** the plateau
+Sweeping the legacy BAT composition shows what its fit diagnostic does. At the **base preset** the plateau
 P(success) is ~100% and the null lands in **State C** — a no-cure GPS separation (median ~48 mo, shape
 ~1.15) also fits, so the plateau is *not provably GPS-specific* given this BAT. At the **bear corner**
-(the strongest defensible BAT: 70% venetoclax at a 25% cure) the plateau P(success) falls below 50%
+(an off-protocol allocation stress test: 70% venetoclax at a 25% cure) the plateau P(success) falls below 50%
 (~43%) and the null is still State C. Push selection to an extreme, or credit BAT so little that a no-cure GPS must run to a
 boundary to fit, and the null flips to **State A/B rejected** — GPS-specific cure *is* required. That
 verdict, and its **conditionality on the BAT structure**, is the analysis's main output — not a rival

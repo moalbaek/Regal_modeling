@@ -104,8 +104,10 @@
 <header>
   <div class="htxt">
   <h1>REGAL Scenario Explorer</h1>
-  <p>The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is always re-calibrated and only the
-     <b>split between arms</b> moves. The headline is the <b>plateau (GPS-cure)</b> probability of success. The second panel
+  <p><b>Legacy v1:</b> values shown here are fixed-scenario simulated rejection rates, not a posterior probability for the
+     ongoing REGAL trial. This version does not condition on the observed decision to continue after the 60-event interim.
+     The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is always re-calibrated and only the
+     <b>split between arms</b> moves. The primary legacy readout is the <b>plateau (GPS-cure)</b> scenario. The second panel
      is a <b>null test</b>, not a co-equal probability: it holds the <b>BAT arm bit-for-bit identical</b> and swaps only the
      GPS <b>responder</b> component — durable cure versus a fitted heavy-tailed Weibull with <b>no cure</b> — to ask whether
      the milestone plateau <i>requires</i> a GPS-specific durable benefit. It returns a three-state verdict: null <b>rejected</b>
@@ -988,7 +990,7 @@ $("unweighted").addEventListener("change",schedule);
 ["N","FINAL","HRC","IA","futHR"].forEach(id=>$(id).addEventListener("input",()=>{updBl();schedule();}));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-pressed",String(x===b));});render();}));
-$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="keep 75% · drop 25%";$("unweighted").checked=false;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="keep 75% · drop 25%";$("unweighted").checked=false;$("vcure").value=15;$("vcL").textContent="15%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
 // Charts render at a fixed pixel width read from the container, so a resize must re-render to

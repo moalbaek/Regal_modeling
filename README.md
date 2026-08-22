@@ -2,12 +2,19 @@
 
 [![CI](https://github.com/moalbaek/regal_modeling/actions/workflows/ci.yml/badge.svg)](https://github.com/moalbaek/regal_modeling/actions/workflows/ci.yml)
 
-A public-information forecasting tool for the outcome of SELLAS Life Sciences' (NASDAQ: **SLS**)
-blinded Phase 3 **REGAL** trial (NCT04229979) of galinpepimut-S (GPS) vs best available therapy
-(BAT) in AML second complete remission.
+A public-information scenario explorer for SELLAS Life Sciences' (NASDAQ: **SLS**) blinded Phase 3
+**REGAL** trial (NCT04229979) of galinpepimut-S (GPS) vs best available therapy (BAT) in AML second
+complete remission.
 
-The blinded death-event milestones (60/72/78) pin only the *pooled* survival curve, so the split
-between arms is an explicit assumption. The tool calibrates the pooled curve to the milestones,
+> [!IMPORTANT]
+> The current Python and HTML engines are the **v1 legacy model**. Their `P(success)` output is a
+> fixed-scenario Monte-Carlo rejection rate conditional on the model assumptions and on reaching the
+> final analysis. It is **not** a posterior probability for the ongoing REGAL trial and does not
+> condition on the observed decision to continue after the 60-event interim. The rebuild is tracked
+> in [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md).
+
+The blinded death-event milestones (60/72/78) constrain only the *pooled* survival trajectory, so the
+split between arms is an explicit assumption. The tool calibrates an assumed pooled curve family to the milestones,
 decomposes it into arms under user-controlled assumptions, and Monte-Carlo simulates the trial's
 pre-specified Cox/log-rank test. The **headline** is the **plateau (GPS-cure)** probability of
 success. The **second panel is a null test, not a co-equal probability**: it holds the BAT arm
@@ -27,6 +34,7 @@ slider are the intended stress controls.
 | `regal_explorer.py` | The same engine in Python. Prints a summary across the five BAT presets and writes the 9-panel `regal_explorer_panel.png`. Requires `numpy` + `matplotlib`. |
 | `REGAL_MODEL_DOCUMENTATION.md` | Full methodology, parameter sourcing, and limitations. |
 | `BAT_CONTROL_ARM_RESEARCH.md` | The research basis for the default BAT-arm settings: component composition/weights (US/EU/China) and per-component mixture-cure survival parameters (median OS, cure fraction, Weibull shape), and how they map to `DEFAULT_COMP`. |
+| `V2_IMPLEMENTATION_PLAN.md` | Scientific and software roadmap for the conditional, protocol-compatible v2 forecast. |
 
 ```bash
 pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)

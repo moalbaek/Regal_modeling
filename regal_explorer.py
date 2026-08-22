@@ -19,6 +19,10 @@ mirrors, function for function, the JavaScript in regal_explorer.html:
   enroll · common · bat_arm · build_plateau · build_no_gps_cure · mc · median · chart(figure)
 
 Research/analysis tool, not investment advice.
+
+IMPORTANT: this v1 engine reports a fixed-scenario simulated rejection rate. It does
+not condition on the observed interim continuation and is not a posterior forecast
+for the ongoing REGAL trial. See V2_IMPLEMENTATION_PLAN.md for the rebuild.
 """
 import os
 import numpy as np
