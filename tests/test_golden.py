@@ -1,8 +1,8 @@
 """Golden regression test for the REGAL Python engine.
 
-Pins the deterministic fits, event accrual, no-GPS-cure verdict, and fixed-seed
+Pins the deterministic fits, event accrual, bounded-alternative fit status, and fixed-seed
 Monte-Carlo readouts across all five presets to values captured in golden.json.
-A change that shifts P(success), a median, or a verdict fails here — regenerate
+A change that shifts a scenario rate, a median, or a fit status fails here — regenerate
 with `python3 tests/gen_golden.py` and inspect the diff when the shift is intended.
 
 Runs under either `python -m unittest discover tests` or `pytest`.
@@ -18,7 +18,7 @@ GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden.json")
 
 # Per-field absolute tolerances. Loose enough to absorb cross-platform float
 # noise in exp/log and the argmin grid search; tight enough that a real change
-# (a shifted fit, a flipped verdict, a P(success) move) still trips the test.
+# (a shifted fit, a flipped status, or a scenario-rate move) still trips the test.
 TOL = {
     # probabilities / fractions
     "pibat": 0.03, "presp": 0.03, "pgps": 0.03, "poolCure": 0.03,
@@ -82,7 +82,7 @@ class GoldenSnapshotTest(unittest.TestCase):
                 self._check_fields(f"presets.{preset}.{panel}", fields, a[preset][panel])
 
     def test_verdicts_match_golden(self):
-        """The synthetic A/B/C fixtures pin the no-GPS-cure verdict's categorical branches."""
+        """The synthetic A/B/C fixtures pin the bounded alternative's categorical branches."""
         g, a = self.golden["verdicts"], self.actual["verdicts"]
         self.assertEqual(sorted(g), sorted(a), "verdict fixture set changed vs golden.json")
         for label, fields in g.items():

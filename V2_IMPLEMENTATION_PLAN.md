@@ -55,8 +55,10 @@ Implementation requirements:
 
 - Add an explicit `survival_scale = overall | net` to every component.
 - Default the current literature inputs to `overall`.
-- Remove the unconditional background-mortality multiplier from the legacy survival mixture.
-- Ensure cured survival follows population mortality rather than forming an immortal plateau.
+- Replace the unconditional multiplier with the scale-aware equations above: for OS inputs, overlay
+  background mortality only on the cured fraction; for net/relative-survival inputs, overlay it on
+  the whole mixture.
+- Ensure the cured fraction follows population mortality rather than forming an immortal plateau.
 - Replace top-survivor truncation with a pre-outcome case-mix/frailty model applied symmetrically to
   both randomized arms. No inclusion rule may depend on future realized survival.
 
@@ -67,14 +69,15 @@ Implementation requirements:
 - Use approximately 25% per stratum as the primary protocol-compatible configuration.
 - Store both the randomization stratum and the patient-level regimen/components, so "and/or"
   combinations do not double-count patients.
-- Remove the bear preset as a protocol-plausible primary case. Retain venetoclax-dominant allocation,
-  if at all, only as an explicitly off-protocol stress test.
+- Treat bear and venetoclax-dominant allocations as stress tests rather than primary protocol
+  reconstructions unless realized-regimen evidence supports them.
 - Treat the current component weights as a legacy comparison.
 
 The legacy equal-strata run is more bullish than the current default (about 99.9% scenario power,
-median HR about 0.30, and about 94% interim efficacy crossing). Those numbers are characterization
-checks, not v2 forecast targets. Their main implication is that the observed interim continuation
-has greater evidential weight under equal allocation.
+median HR about 0.30, and about 94% interim efficacy crossing). Reproduce it with
+`python3 audit/interim_efficacy_replay.py --nsim 10000`. These are characterization checks, not v2
+forecast targets. Equal planned strata are only one interpretation because "and/or" combinations
+can make realized regimens differ from stratification balance.
 
 ### 4. Implement the trial decision process
 
@@ -89,6 +92,9 @@ has greater evidential weight under equal allocation.
 
 ### 5. Build a public-history likelihood
 
+- Re-anchor accrual to the registry's 2021-02-08 study start. The v1 September 2020 window creates
+  pre-opening patients and cannot reach its own approximately 20-patient April 2022 anchor at any
+  enrollment-slider setting. Require all published enrollment anchors to be reachable and test them.
 - Store enrollment and event disclosures in `data/regal_public_history.json`, including observation
   date, announcement date, observation type, reporting-lag uncertainty, source, and notes.
 - Distinguish exact/as-of counts, threshold-hitting observations, announcement dates, and right

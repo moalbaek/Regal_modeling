@@ -1,20 +1,17 @@
-"""REGAL Scenario Explorer — Python engine (port of regal_explorer.html).
+"""REGAL legacy scenario explorer — Python engine (port of regal_explorer.html).
 
-The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is
-always re-calibrated and only the *split between arms* moves. The headline is the
-PLATEAU (GPS-cure) probability of success. The SECOND panel is a NULL TEST, not a
-co-equal probability: it holds the BAT arm bit-for-bit identical and swaps only the
-GPS *responder* component:
+The blinded milestones (60/72/78 deaths) constrain assumed pooled survival families;
+the arm split remains assumption-driven. The engine compares two fixed scenarios
+using an identical BAT arm and changing only the GPS responder component:
 
   * plateau (GPS cure)  — GPS responders get a durable-remission plateau (cure-mixture),
-  * no-GPS-cure null    — GPS responders are a fitted NO-CURE Weibull (median mG, tail sG).
+  * bounded no-GPS-cure alternative — responders use a fitted no-cure Weibull.
 
-GPS non-responders (fnr) track Observation in BOTH panels. The null asks whether the
-milestone plateau *requires* a GPS-specific durable benefit, and emits a three-state
-verdict — A rejected (non-identified: mG/sG runs to a boundary), B rejected
-(inconsistent: milestone residual too large), or C not excluded (a no-cure GPS heavy
-tail also fits, given this BAT). Only State C carries a second P(success). This file
-mirrors, function for function, the JavaScript in regal_explorer.html:
+GPS non-responders track Observation in both scenarios. The bounded alternative emits
+a fit status: A for a boundary/non-identified fit, B for a residual misfit, and C for
+an adequate interior fit. These are diagnostics, not formal hypothesis-test results.
+The `ps` output is a fixed-scenario simulated rejection rate. This file mirrors the
+JavaScript in regal_explorer.html:
 
   enroll · common · bat_arm · build_plateau · build_no_gps_cure · mc · median · chart(figure)
 
@@ -28,6 +25,7 @@ import os
 import numpy as np
 from datetime import date, timedelta
 from concurrent.futures import ProcessPoolExecutor
+from trial_design import obrien_fleming_two_look
 # matplotlib is imported lazily inside figure() — it's only ever used there (the main
 # process), and worker processes spawned for _mc_task() must not pay its import cost.
 
@@ -48,7 +46,7 @@ def sampNC(med, cure, k, u):                                     # sample a NON-
     return lam(med, cure, k) * (-np.log(u)) ** (1.0 / k)
 # Shared responder family used by BOTH panels: a Weibull (shape<1 = heavier tail, monotone
 # non-increasing hazard). The plateau panel wraps it in a cured fraction (Sc above); the
-# no-GPS-cure null uses it bare for GPS responders. wscale maps a median to the scale (S(median)=0.5).
+# bounded no-GPS-cure alternative uses it bare for GPS responders. wscale maps a median to the scale (S(median)=0.5).
 def Sweib(t, scale, shape):                                      # bare Weibull survival
     return np.exp(-(np.clip(t, 0, None) / scale) ** shape)
 sampWeib = lambda scale, shape, u: scale * (-np.log(u)) ** (1.0 / shape)      # inverse-transform Weibull sample
@@ -223,12 +221,12 @@ def build_plateau(cfg):
                 batMed=median(Sb), gpsMed=median(Sg), poolMed=median(Sp),
                 poolCure=0.5 * (pibat + pgps), ed=lambda t: ed(t, presp))
 
-# ---------------------------------- no-GPS-cure NULL test (shared BAT + a NO-CURE Weibull GPS responder)
+# ----------------------- bounded no-GPS-cure alternative (shared BAT + no-cure GPS responder)
 def build_no_gps_cure(cfg):
     """Identical BAT to the plateau panel; GPS responders swap the cure-mixture for a fitted no-cure
     Weibull (median mG, tail shape sG); GPS non-responders (fnr) still track Observation in BOTH
-    panels. Tests the null 'the milestone plateau does not require a GPS-specific durable benefit.'
-    Emits a three-state verdict (A rejected/non-identified, B rejected/inconsistent, C not excluded)."""
+    panels. Emits a bounded-fit diagnostic: A=boundary/non-identified, B=residual misfit,
+    C=adequate interior fit. It does not test or establish a biological cure mechanism."""
     B = bat_arm(cfg)
     w, cm, coh, MT, MOBS, WT = B["w"], B["cm"], B["coh"], B["MT"], B["MOBS"], B["WT"]
     h, hd, F, Ssel, pibat, obs, Sbat = B["h"], B["hd"], B["F"], B["Ssel"], B["pibat"], B["obs"], B["Sbat"]
@@ -281,7 +279,7 @@ def build_no_gps_cure(cfg):
         return e
 
     # §2/§3: fit the GPS responder median mG and (auto) tail shape sG to the 3 milestones. §3: BAT is
-    # FIXED on purpose here (control the confound, vary the thesis parameter); sG is free to go heavy.
+    # FIXED on purpose here while varying the GPS responder family; sG is free to go heavy.
     sgN = 18 if fit_shape else 0
     best, bs = (min(MGHI, (bat_med or 12.0) * 2), 0.6 if fit_shape else cfg["shape"]), 1e18
     mgs = MGLO + (MGHI - MGLO) * np.arange(31) / 30.0
@@ -313,24 +311,23 @@ def build_no_gps_cure(cfg):
         e2 = resid_grid(mms, np.full(21, sG))
         m2b = float(mms[int(np.argmin(e2))])
         mg_track = m2b > MGHI + 1.0
-    # §5 verdict. All non-interior fits are non-identified (State A) with no PoS, but only the
-    # "cure-side" boundaries imply a GPS-specific cure (mg cap/track, or sG heavy edge). The LIGHT
-    # edge (sG->1.5) is an increasing-hazard tail — the OPPOSITE of a plateau — so it is flagged
-    # non-identified/ambiguous (cure_req=False), NOT "cure required". RMS-based tolerance so the
+    # §5 fit status. All non-interior fits are non-identified (State A) with no reported scenario
+    # rate. The legacy cureReq field only separates upper/heavy from light-edge boundaries; neither
+    # subtype is a formal test of a biological mechanism. RMS-based tolerance ensures the
     # weighted fit's deliberate middle-milestone trade-off does not by itself trip State B.
     RMS_TOL, OFF_TOL = 2.0, 3.0
     cure_bound = mg_cap or mg_track or sg_heavy
     cure_req = False
     if cure_bound:
         state = "A"; cure_req = True
-        reason = (("GPS median runs to its %dmo cap%s — a de-facto cure" % (MGHI, " and tracks a raised cap" if mg_track else ""))
+        reason = (("GPS median runs to its %dmo cap%s — the bounded fit is non-identified" % (MGHI, " and tracks a raised cap" if mg_track else ""))
                   if (mg_cap or mg_track) else
                   ("tail shape pinned at the heavy edge (%.2f) — a near-degenerate tail faking the plateau" % SGMIN))
     elif sg_light:
         state = "A"
         reason = ("GPS tail pinned at the light edge (%.2f): the milestones want an even lighter "
                   "(sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This is "
-                  "not a plateau/cure signal — it neither requires nor excludes a GPS-specific cure" % SGMAX)
+                  "this boundary does not identify whether a GPS-specific cure exists" % SGMAX)
     elif rms_resid > RMS_TOL or max_off > OFF_TOL:
         state = "B"
         reason = "residual RMS %.1f (modeled %s vs %s)" % (rms_resid, "/".join("%.0f" % x for x in edv), "/".join("%.0f" % x for x in MOBS))
@@ -364,9 +361,9 @@ def fit_ci(cfg, builder):
 # ---------------------------------------------------------------- shared Monte-Carlo
 def mc(M, nsim=1500, seed=987654321):
     """Enrollment -> per-arm death draws -> censor at FINAL-th event -> log-rank test.
-    Returns dict(ps, reach, medHR, medHR_IA, futOK, aliveG, aliveB): P(significant), fraction
-    reaching the trigger, median final HR, median implied HR at the interim (feature 1), whether
-    that clears the futility threshold, and the mean per-arm patients alive at the 80th (feature 3)."""
+    ``ps`` is the legacy fixed-scenario final rejection rate conditional on reaching
+    FINAL. The return value also exposes an unconditional interim efficacy-crossing
+    diagnostic using the committed two-look O'Brien-Fleming boundary."""
     cfg = M["cfg"]; N, FINAL, HRC, fnr = cfg["N"], cfg["FINAL"], cfg["HRC"], cfg["fnr"]
     h = natH(cfg.get("ndr", 0.0))                                  # background mortality competing risk (an event)
     hdrop = natH(cfg.get("drop", 0.0))                             # loss-to-follow-up (censoring, not an event)
@@ -381,7 +378,10 @@ def mc(M, nsim=1500, seed=987654321):
     n1 = N // 2
     IA = min(int(cfg.get("IA", 60)), FINAL - 1)                    # interim-analysis event count
     futHR = cfg.get("futHR", 1.0)                                  # interim futility HR threshold
-    sig = reached = 0; hrs = []; hrsIA = []; aliveG = aliveB = 0.0
+    ia_design = obrien_fleming_two_look(0.025, IA / FINAL)
+    z_ia_efficacy = ia_design["interim_z"]
+    sig = reached = ia_reached = ia_efficacy = 0
+    hrs = []; hrsIA = []; aliveG = aliveB = 0.0
 
     def score(time, ev):                                          # log-rank/Cox score test (num, var)
         idx = np.argsort(time, kind="mergesort")
@@ -456,6 +456,17 @@ def mc(M, nsim=1500, seed=987654321):
         rawcal = en + surv                                          # death calendar ignoring dropout (alive-count basis)
         dcal = np.where(isdeath, en + surv, 1e9)                    # event calendar feeding the trigger
         fin = np.sort(dcal[dcal < 1e8])
+        if fin.size < IA: continue
+        ia_reached += 1
+        tIA = fin[IA - 1]
+        evIA = (isdeath & (dcal <= tIA)).astype(int)
+        timeIA = np.minimum(obsT, np.clip(tIA - en, 0, None))
+        numIA, varrIA = score(timeIA, evIA)
+        hr_ia_trial = None
+        if varrIA > 0:
+            zIA = -numIA / np.sqrt(varrIA)
+            ia_efficacy += int(zIA >= z_ia_efficacy)
+            hr_ia_trial = np.exp(numIA / varrIA)
         if fin.size < FINAL: continue
         reached += 1
         t80 = fin[FINAL - 1]
@@ -466,12 +477,8 @@ def mc(M, nsim=1500, seed=987654321):
             z = -num / np.sqrt(varr)
             if z > ZC: sig += 1
             hrs.append(np.exp(num / varr))
-        # implied HR at the interim (the futility read-through, feature 1)
-        tIA = fin[IA - 1]
-        evIA = (isdeath & (dcal <= tIA)).astype(int)
-        timeIA = np.minimum(obsT, np.clip(tIA - en, 0, None))
-        numIA, varrIA = score(timeIA, evIA)
-        if varrIA > 0: hrsIA.append(np.exp(numIA / varrIA))
+        # Preserve v1's median-IA-HR conditioning on trials that also reach FINAL.
+        if hr_ia_trial is not None: hrsIA.append(hr_ia_trial)
         # per-arm patients still alive at the 80th event (feature 3, before censoring)
         aliveG += np.sum((arm == 1) & (rawcal > t80))
         aliveB += np.sum((arm == 0) & (rawcal > t80))
@@ -482,6 +489,10 @@ def mc(M, nsim=1500, seed=987654321):
                 medHR=(hrs[len(hrs) // 2] if hrs else np.nan),
                 hrsAll=np.array(hrs),                          # full final-HR distribution (for the histogram)
                 medHR_IA=medHR_IA, futHR=futHR, futOK=bool(medHR_IA <= futHR),
+                reach_IA=ia_reached / nsim,
+                p_IA_efficacy=ia_efficacy / nsim,
+                p_IA_efficacy_given_reach=(ia_efficacy / ia_reached if ia_reached else 0.0),
+                z_IA_efficacy=z_ia_efficacy,
                 aliveG=(aliveG / reached if reached else np.nan),
                 aliveB=(aliveB / reached if reached else np.nan))
 
@@ -500,8 +511,8 @@ def _mc_task(kind, cfg, nsim, seed=987654321, override=None):
 
     Returns {"build": <picklable summary of M, closures stripped>, "mc": <mc() result dict,
     or None if mc() wasn't run>}. mc() always runs for "plateau" or when override is given;
-    for a bare "nogpscure" build it only runs when state == "C" (a rejected/non-identified
-    null carries no P(success) — matches the CLI/figure()'s existing state-gated behavior)."""
+    for a bare "nogpscure" build it only runs when state == "C" (a boundary or residual-misfit
+    alternative has no reported scenario rejection rate)."""
     M = build_plateau(cfg) if kind == "plateau" else build_no_gps_cure(cfg)
     extra = {}
     if override:
@@ -555,7 +566,7 @@ def figure(path, nsim=1500, executor=None, base=None):
     # build_no_gps_cure() here is not "cheap" (a ~785-point fit grid, ~2-3s), so redoing it is
     # worth avoiding when the caller already paid that cost. rc/rl inside base were computed at
     # the caller's own nsim, not this function's nsim argument — passing a base whose rc/rl used
-    # a different nsim than the one given here would make panels a/e report headline numbers at
+    # a different nsim than the one given here would make panels a/e report displayed numbers at
     # a different MC budget than panels b/c/h; the CLI's sole caller keeps both at NSIM=800.
     cfg = apply_preset(default_cfg(), "base")
     if base is not None:
@@ -577,7 +588,7 @@ def figure(path, nsim=1500, executor=None, base=None):
     a.set_xlabel("months from randomization"); a.set_ylabel("% alive")
     a.set_xlim(0, 48); a.set_ylim(0, 101); a.legend(fontsize=7.4, loc="upper right")
 
-    # (b) plateau PoS + no-GPS-cure PoS (State C only) across the non-responder sweep (base preset)
+    # (b) scenario rejection rates across the non-responder sweep (base preset)
     fr = [0, 10, 20, 30, 40]
     fr_cfgs = [apply_preset(default_cfg(fnr=f / 100.0), "base") for f in fr]
     specs = []
@@ -591,11 +602,11 @@ def figure(path, nsim=1500, executor=None, base=None):
     b.plot(fr, pc, color=NAVY, lw=2.4, marker="o", label="Plateau (GPS cure)")
     b.plot(fr, pll, color=ORANGE, lw=2.2, ls="-.", marker="s", label="No-GPS-cure (State C only)")
     b.axhline(50, color=GREY, ls=":", lw=1)
-    b.set_ylim(0, 103); b.set_xlabel("% GPS non-responders"); b.set_ylabel("P(success) %")
-    b.set_title("(b) Non-responders barely move the plateau P(success)",
+    b.set_ylim(0, 103); b.set_xlabel("% GPS non-responders"); b.set_ylabel("scenario rejection %")
+    b.set_title("(b) Non-responders barely move the plateau scenario rate",
                 fontweight="bold", fontsize=9); b.legend(fontsize=7.6)
 
-    # (c) plateau PoS + no-GPS-cure PoS (State C only) across the five BAT-composition presets
+    # (c) scenario rejection rates across the five BAT-composition presets
     names = ["base", "low", "dom", "bear", "bull"]; labels = ["Base", "Low-ven", "Ven-dom", "Bear", "Bull"]
     name_cfgs = [apply_preset(default_cfg(), nm) for nm in names]
     specs = []
@@ -607,10 +618,10 @@ def figure(path, nsim=1500, executor=None, base=None):
           for i in range(len(name_cfgs))]
     c = ax[0, 2]; x = np.arange(len(names))
     c.bar(x - 0.19, gc, 0.36, color=NAVY, label="Plateau (GPS cure)")
-    c.bar(x + 0.19, gl, 0.36, color=ORANGE, label="No-GPS-cure (State C; 0 = rejected)")
+    c.bar(x + 0.19, gl, 0.36, color=ORANGE, label="No-GPS-cure (State C; 0 = withheld)")
     c.set_xticks(x); c.set_xticklabels(labels); c.set_ylim(0, 103)
-    c.set_ylabel("P(success) %")
-    c.set_title("(c) Plateau is the headline; the null is a verdict, not a rival PoS",
+    c.set_ylabel("scenario rejection %")
+    c.set_title("(c) Fixed-scenario rates and bounded-fit status",
                 fontweight="bold", fontsize=9); c.legend(fontsize=7.0)
 
     # (d) event-accrual timeline — modeled cumulative deaths vs calendar, milestone anchors, 80-event trigger
@@ -636,13 +647,13 @@ def figure(path, nsim=1500, executor=None, base=None):
     d.legend(fontsize=7.2, loc="lower right")
     for lab in d.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
 
-    # (e) distribution of simulated final HRs — P(success) is the mass left of the threshold
+    # (e) distribution of simulated final HRs — scenario rejection is the mass left of the threshold
     e = ax[1, 1]; HRC = cfg["HRC"]
     bins = np.linspace(0.0, 1.6, 41)
     hc = rc["hrsAll"]; hl = rl["hrsAll"]
     hc = np.clip(hc[np.isfinite(hc)], 0, 1.59); hl = np.clip(hl[np.isfinite(hl)], 0, 1.59)
-    e.hist(hc, bins=bins, density=True, color=NAVY, alpha=.55, label=f"Plateau (GPS cure)  (P={100*rc['ps']:.0f}%)")
-    _npl = f"P={100*rl['ps']:.0f}%" if Ml["state"] == "C" else f"State {Ml['state']}"
+    e.hist(hc, bins=bins, density=True, color=NAVY, alpha=.55, label=f"Plateau (GPS cure)  (rate={100*rc['ps']:.0f}%)")
+    _npl = f"rate={100*rl['ps']:.0f}%" if Ml["state"] == "C" else f"State {Ml['state']}"
     e.hist(hl, bins=bins, density=True, color=ORANGE, alpha=.45, label=f"No-GPS-cure  ({_npl})")
     e.axvspan(0, HRC, color=TEAL, alpha=.07)
     e.axvline(HRC, color=RED, lw=1.4, ls="--")
@@ -650,7 +661,7 @@ def figure(path, nsim=1500, executor=None, base=None):
     ytop = e.get_ylim()[1]
     e.text(HRC - 0.02, ytop * 0.92, f"significant\nHR ≤ {HRC:.3f}", color=RED, fontsize=7.2, ha="right", va="top")
     e.set_xlim(0, 1.6); e.set_xlabel("simulated final hazard ratio (GPS / BAT)"); e.set_ylabel("density")
-    e.set_title("(e) Each trial's HR is a draw; success = mass below the line",
+    e.set_title("(e) Each trial's HR is a draw; rejection = mass below threshold",
                 fontweight="bold", fontsize=9); e.legend(fontsize=7.2, loc="upper right")
 
     # (f) GPS-cure vs no-GPS-cure pooled divergence — both pinned at the milestones, fan apart in the tail
@@ -678,16 +689,16 @@ def figure(path, nsim=1500, executor=None, base=None):
     gx.scatter([_to_date(mo(y, m, 28)) for (y, m, _) in anchors], [n for (_, _, n) in anchors],
                color=RED, s=42, zorder=5, label="sourced PR anchors (~20/104/126)")
     gx.set_ylabel("patients enrolled"); gx.set_ylim(0, N * 1.05)
-    gx.set_title("(g) Modeled enrollment tracks the sourced public milestones",
+    gx.set_title("(g) Legacy enrollment reconstruction vs sourced anchors",
                  fontweight="bold", fontsize=9); gx.legend(fontsize=7.2, loc="lower right")
     for lab in gx.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
 
-    # (h) P(success) as a power curve vs the implied treatment effect; shaded = the effect the data allow
+    # (h) scenario rejection rate vs the implied treatment effect
     hx = ax[2, 1]; nsim_h = max(250, nsim // 3)
 
     def power_sweep(M, key, vals):
-        """Sweep one effect knob (presp for plateau, GPS median mG for the null); return implied HR,
-        P(success), and milestone misfit at each point. The pooled curve is only data-consistent near the fit.
+        """Sweep one effect knob (presp for plateau, GPS median mG for the bounded alternative); return implied HR,
+        scenario rejection rate, and milestone misfit at each point.
         Each swept point rebuilds M inside its own worker (via M['cfg']/M['kind']) rather than mutating
         this M in place, so the sweep runs as one parallel batch instead of a serial loop."""
         specs = [(M["kind"], M["cfg"], nsim_h, 987654321, {key: v}) for v in vals]
@@ -714,10 +725,10 @@ def figure(path, nsim=1500, executor=None, base=None):
     hx.scatter([rc["medHR"]], [100 * rc["ps"]], color=NAVY, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
     hx.scatter([rl["medHR"]], [100 * rl["ps"]], color=ORANGE, s=130, marker="*", zorder=6, edgecolor="#fff", linewidth=.8)
     hx.axvline(HRC, color=RED, ls="--", lw=1.2)
-    hx.text(HRC + 0.012, 6, f"success threshold HR={HRC:.3f}", color=RED, fontsize=7, rotation=90, va="bottom")
+    hx.text(HRC + 0.012, 6, f"test threshold HR={HRC:.3f}", color=RED, fontsize=7, rotation=90, va="bottom")
     hx.set_xlim(0, 1.15); hx.set_ylim(0, 103)
-    hx.set_xlabel("implied trial hazard ratio (GPS / BAT)"); hx.set_ylabel("P(success) %")
-    hx.set_title("(h) P(success) vs effect size; ★ = current fit, shaded = effect the data allow",
+    hx.set_xlabel("implied trial hazard ratio (GPS / BAT)"); hx.set_ylabel("scenario rejection %")
+    hx.set_title("(h) Scenario rejection rate vs effect size; ★ = current fit",
                  fontweight="bold", fontsize=9); hx.legend(fontsize=7.2, loc="lower left")
 
     # (i) how enrollment selection q lifts the BAT arm — median OS and cure fraction, the two
@@ -748,8 +759,8 @@ def figure(path, nsim=1500, executor=None, base=None):
     h1, l1 = ix.get_legend_handles_labels(); h2, l2 = ix2.get_legend_handles_labels()
     ix.legend(h1 + h2, l1 + l2, fontsize=7.2, loc="upper left")
 
-    fig.suptitle("REGAL Scenario Explorer — plateau (GPS-cure) P(success) is the headline; the second panel is a "
-                 "no-GPS-cure NULL test (shared BAT) asking whether the plateau requires a GPS-specific durable benefit.",
+    fig.suptitle("REGAL legacy scenario explorer — fixed-scenario rejection rates and bounded-fit diagnostics; "
+                 "not a posterior forecast for the ongoing trial.",
                  fontweight="bold", fontsize=10.5, y=1.01)
     fig.tight_layout(); fig.savefig(path, bbox_inches="tight")
     return path
@@ -783,26 +794,26 @@ if __name__ == "__main__":
             ia = f"{rc['medHR_IA']:.2f} (futility {fut})"
         else:
             ia = "n/a (80th not reached)"
-        print(f"\n  HEADLINE  PLATEAU (GPS cure) : P(success) {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
+        print(f"\n  PLATEAU SCENARIO : rejection rate {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
         print(f"         interim: implied HR@{base['IA']} {ia}   "
               f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
         sh_tag = "fitted" if Ml['fitShape'] else "override"
         if Ml['state'] == "C":
-            print(f"  NULL TEST no-GPS-cure : State C — NOT excluded. A no-cure GPS responder "
+            print(f"  BOUNDED NO-GPS-CURE : State C — adequate interior fit. A no-cure GPS responder "
                   f"(median {Ml['mG']:.0f}mo, tail sG={Ml['sG']:.2f} {sh_tag}) also fits.")
-            print(f"         P(success) {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   ratio {Ml['ratio']:.1f}x   "
-                  f"resid RMS {Ml['rmsResid']:.1f}  (GPS cure not required to fit, given this BAT)")
+            print(f"         scenario rejection rate {100*rl['ps']:.0f}%   medHR {rl['medHR']:.2f}   ratio {Ml['ratio']:.1f}x   "
+                  f"resid RMS {Ml['rmsResid']:.1f}  (conditional on this BAT assumption)")
         elif Ml['state'] == "A" and not Ml['cureReq']:
-            print(f"  NULL TEST no-GPS-cure : State A — NON-IDENTIFIED (ambiguous). {Ml['reason']}.")
-            print(f"         no PoS shown; a boundary (light-edge) solution — neither requires nor excludes a GPS-specific cure.")
+            print(f"  BOUNDED NO-GPS-CURE : State A — boundary / non-identified. {Ml['reason']}.")
+            print("         scenario rejection rate withheld; boundary status is not a biological conclusion.")
         else:
-            verdict = "A (non-identified)" if Ml['state'] == "A" else "B (inconsistent)"
-            print(f"  NULL TEST no-GPS-cure : State {verdict} — REJECTED. {Ml['reason']}.")
-            print(f"         no PoS shown; GPS-specific durable benefit is required "
+            fit_status = "A (boundary / non-identified)" if Ml['state'] == "A" else "B (residual misfit)"
+            print(f"  BOUNDED NO-GPS-CURE : State {fit_status}. {Ml['reason']}.")
+            print(f"         scenario rejection rate withheld; this is a fit diagnostic "
                   f"(modeled {'/'.join(f'{x:.0f}' for x in Ml['edv'])} vs {'/'.join(f'{x:.0f}' for x in Ml['MOBS'])}).")
         print()
 
-        print(f"{'preset':>8} | {'f_nr':>5} | {'P(plateau)':>10} | {'null verdict':>26} | {'BATmed':>7} {'GPSmed':>7}")
+        print(f"{'preset':>8} | {'f_nr':>5} | {'plateau rate':>12} | {'alternative fit':>26} | {'BATmed':>7} {'GPSmed':>7}")
         preset_names = ["base", "low", "dom", "bear", "bull"]
         preset_cfgs = [apply_preset(default_cfg(), nm) for nm in preset_names]
         specs = []
@@ -813,9 +824,9 @@ if __name__ == "__main__":
             p_res, n_res = results[2 * i], results[2 * i + 1]
             mcc, mll, rcc = p_res["build"], n_res["build"], p_res["mc"]
             if mll['state'] == "C":
-                rll = n_res["mc"]; nv = f"C · not excl (P={100*rll['ps']:.0f}%)"
+                rll = n_res["mc"]; nv = f"C · adequate (rate={100*rll['ps']:.0f}%)"
             else:
-                nv = f"{mll['state']} · REJECTED"
+                nv = f"{mll['state']} · " + ("boundary" if mll['state'] == "A" else "residual misfit")
             print(f"{nm:>8} | {100*c['fnr']:4.0f}% | {100*rcc['ps']:9.0f}% | {nv:>26} | "
                   f"{fmt_med(mcc['batMed']):>7} {fmt_med(mll['mG']):>7}")
 
