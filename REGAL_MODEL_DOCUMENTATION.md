@@ -12,7 +12,8 @@ explanations using the same BAT arm. Their boundary and residual classifications
 formal hypothesis tests, and cannot identify whether the pooled tail is GPS-specific.
 
 **Deliverables:** `regal_explorer.html` (self-contained interactive explorer) and
-`regal_explorer.py` (the same engine in Python, with a CLI summary and a 9-panel figure).
+`regal_explorer.py` (the legacy engine in Python, with additional audit-only interim fields, a CLI
+summary, and a 9-panel figure).
 
 > **Legacy-v1 status.** The current `ps` values are fixed-scenario rejection rates conditional on the selected assumptions
 > and on reaching the final analysis. V1 does not condition on the observed decision to continue
@@ -48,13 +49,13 @@ test of a biological mechanism.
 
 ## 1. Module map
 
-The tool is a single engine, delivered in two equivalent forms:
+The legacy survival, fitting, and final-analysis engine is delivered in two forms:
 
 | File | Role | Key outputs |
 |------|------|-------------|
 | `regal_explorer.html` | Self-contained legacy explorer with BAT, survival, enrollment, censoring, and shape controls plus live diagnostic charts. | fixed-scenario rejection rates, median HR, implied interim HR, event reach, fit status, per-arm curves |
-| `regal_explorer.py` | The same engine in Python (`bat_arm`, `build_plateau`, `build_no_gps_cure`, `mc`), with a CLI summary and 9-panel figure. | scenario rates, A/B/C fit status, preset/non-responder sweeps |
-| `trial_design.py` | Dependency-light two-look canonical O'Brien-Fleming boundary calculation. | interim/final efficacy z boundaries |
+| `regal_explorer.py` | Python engine (`bat_arm`, `build_plateau`, `build_no_gps_cure`, `mc`) with a CLI, 9-panel figure, and audit-only interim-efficacy fields not present in the browser. | scenario rates, A/B/C fit status, preset/non-responder sweeps, interim audit fields |
+| `trial_design.py` | Cached classical two-look O'Brien-Fleming boundary calculation for the legacy replay; not the protocol's Lan-DeMets spending implementation. | interim/final audit z boundaries |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-strata operating-characteristic replay. | reproducible interim efficacy crossing, final rate, and median HR |
 
 Both share one enrollment reconstruction, one set of survival primitives, the same significance
@@ -352,8 +353,10 @@ or no benefit by the interim would have been *stopped*, not continued.
 
 V1's primary output only compares its median simulated interim HR with an assumed futility threshold;
 it does not stop trials at the interim or condition on the observed continuation region. The committed
-audit path now also records the 60-event score and compares it with a canonical two-look
+audit path now also records the 60-event score and compares it with a classical two-look
 O'Brien–Fleming efficacy boundary, solely to reproduce the equal-strata operating characteristic.
+That discrete-look `c/√t` boundary is not the protocol's Lan-DeMets alpha-spending construction;
+the numerical difference is small here, and WP4 replaces it for v2.
 V2 will implement every decision branch and treat continuation as likelihood information, with
 sensitivity analysis for the unpublished futility rule.
 
@@ -575,9 +578,11 @@ families, likelihoods, priors, and posterior sensitivity.
 
 Names below use the Python spelling; the JavaScript in `regal_explorer.html` uses the camelCase
 equivalents (`bat_arm` → `batArm`, `build_plateau` → `buildPlateau`, `build_no_gps_cure` →
-`buildNoGPSCure`, and the shared `Sweib`/`sampWeib`/`wscale` primitives). The two implementations are
-function-for-function equivalent (the Python `common()` reads its inputs from the `cfg` dict, where the
-JavaScript reads module-level state, but the computed results match).
+`buildNoGPSCure`, and the shared `Sweib`/`sampWeib`/`wscale` primitives). Their legacy survival,
+fitting, and final-Monte-Carlo outputs match (the Python `common()` reads its inputs from `cfg`, while
+JavaScript reads module-level state). Python `mc()` additionally returns `reach_IA`,
+`p_IA_efficacy`, `p_IA_efficacy_given_reach`, and `z_IA_efficacy` for the committed replay. Those
+audit-only fields are intentionally absent from the browser; automated full parity is v2 WP8 work.
 
 | Function | Purpose |
 |----------|---------|

@@ -1,5 +1,6 @@
-"""Tests for explicit protocol-boundary and interim-replay primitives."""
+"""Tests for legacy audit-boundary and interim-replay primitives."""
 
+import math
 import os
 import sys
 import unittest
@@ -8,8 +9,10 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from trial_design import obrien_fleming_two_look  # noqa: E402
 from audit.interim_efficacy_replay import replay  # noqa: E402
+import regal_explorer as regal  # noqa: E402
+import trial_design  # noqa: E402
+from trial_design import obrien_fleming_two_look  # noqa: E402
 
 
 class TrialDesignTest(unittest.TestCase):
@@ -21,6 +24,23 @@ class TrialDesignTest(unittest.TestCase):
     def test_invalid_information_fraction(self):
         with self.assertRaises(ValueError):
             obrien_fleming_two_look(interim_information=1.0)
+
+    def test_cached_solver_does_not_share_mutable_results(self):
+        trial_design._solve_obrien_fleming_two_look.cache_clear()
+        first = obrien_fleming_two_look()
+        first["interim_z"] = -1
+        second = obrien_fleming_two_look()
+        self.assertAlmostEqual(second["interim_z"], 2.32708, places=4)
+        cache = trial_design._solve_obrien_fleming_two_look.cache_info()
+        self.assertEqual((cache.misses, cache.hits), (1, 1))
+
+    def test_nonpositive_interim_count_is_clamped(self):
+        cfg = regal.default_cfg()
+        cfg["IA"] = 0
+        result = regal.mc(regal.build_plateau(cfg), nsim=5)
+        self.assertTrue(math.isfinite(result["z_IA_efficacy"]))
+        expected = obrien_fleming_two_look(interim_information=1 / cfg["FINAL"])
+        self.assertAlmostEqual(result["z_IA_efficacy"], expected["interim_z"], places=8)
 
     def test_equal_strata_replay_characterization(self):
         result = replay(nsim=1000)

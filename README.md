@@ -27,11 +27,11 @@ has been established.
 | File | What it is |
 |------|------------|
 | `regal_explorer.html` | Self-contained legacy scenario explorer — open in any browser, no build or dependencies. It reports scenario rejection rates and fit diagnostics, plus live survival, event-accrual, HR, enrollment, effect-sweep, and BAT-sensitivity charts. |
-| `regal_explorer.py` | The same engine in Python. Prints a summary across the five BAT presets and writes the 9-panel `regal_explorer_panel.png`. Requires `numpy` + `matplotlib`. |
+| `regal_explorer.py` | The legacy scenario engine in Python, plus audit-only interim-efficacy fields not computed by the browser. Prints five BAT presets and writes the 9-panel `regal_explorer_panel.png`. Requires `numpy` + `matplotlib`. |
 | `REGAL_MODEL_DOCUMENTATION.md` | Full methodology, parameter sourcing, and limitations. |
 | `BAT_CONTROL_ARM_RESEARCH.md` | The research basis for the default BAT-arm settings: component composition/weights (US/EU/China) and per-component mixture-cure survival parameters (median OS, cure fraction, Weibull shape), and how they map to `DEFAULT_COMP`. |
 | `V2_IMPLEMENTATION_PLAN.md` | Scientific and software roadmap for the conditional, protocol-compatible v2 forecast. |
-| `trial_design.py` | Dependency-light canonical two-look O'Brien–Fleming boundary calculation shared by the audit harness. |
+| `trial_design.py` | Cached, dependency-light classical two-look O'Brien–Fleming boundary used by the legacy audit; this is not the protocol's Lan-DeMets spending implementation planned for v2. |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-planned-strata replay of the interim boundary-crossing and final scenario-rejection rates. |
 
 ```bash

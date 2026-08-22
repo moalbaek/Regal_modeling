@@ -1,10 +1,12 @@
-"""Protocol decision-boundary primitives used by reproducibility audits.
+"""Decision-boundary primitives used by the legacy reproducibility audit.
 
-The current v1 final test remains unchanged. This module makes the two-look canonical
-O'Brien-Fleming efficacy boundary explicit so interim-crossing diagnostics can be
-regenerated from committed code.
+The current v1 final test remains unchanged. This module uses the classical discrete-look
+O'Brien-Fleming ``c / sqrt(t)`` boundary so the interim-crossing characterization can be
+regenerated from committed code. It is not the protocol's Lan-DeMets O'Brien-Fleming
+alpha-spending construction; implementing that spending function remains v2 work.
 """
 
+from functools import lru_cache
 from math import exp, pi, sqrt
 from statistics import NormalDist
 
@@ -39,13 +41,9 @@ def _bivariate_normal_cdf(x, y, rho, quadrature_order=96):
     return float(0.5 * (upper - lower) * np.dot(weights, values))
 
 
-def obrien_fleming_two_look(alpha=0.025, interim_information=0.75):
-    """Return canonical one-sided two-look O'Brien-Fleming efficacy boundaries.
-
-    Boundaries have the form ``c / sqrt(t)`` at information fraction ``t`` and
-    ``c`` at the final look. ``c`` is calibrated so the probability of crossing
-    either correlated normal boundary under the null equals ``alpha``.
-    """
+@lru_cache(maxsize=None)
+def _solve_obrien_fleming_two_look(alpha, interim_information):
+    """Solve and cache the expensive scalar boundary calculation."""
 
     if not 0.0 < alpha < 0.5:
         raise ValueError("alpha must be between 0 and 0.5")
@@ -67,7 +65,25 @@ def obrien_fleming_two_look(alpha=0.025, interim_information=0.75):
         else:
             upper = midpoint
     final = 0.5 * (lower + upper)
-    interim = final / sqrt(interim_information)
+    return final / sqrt(interim_information), final
+
+
+def obrien_fleming_two_look(alpha=0.025, interim_information=0.75):
+    """Return classical one-sided two-look O'Brien-Fleming efficacy boundaries.
+
+    Boundaries have the form ``c / sqrt(t)`` at information fraction ``t`` and
+    ``c`` at the final look. ``c`` is calibrated so the probability of crossing
+    either correlated normal boundary under the null equals ``alpha``. This
+    classical construction differs slightly from Lan-DeMets O'Brien-Fleming
+    alpha spending; see the module docstring.
+
+    The expensive solve is cached, while each call returns a fresh dict so a
+    caller cannot mutate cached state.
+    """
+
+    alpha = float(alpha)
+    interim_information = float(interim_information)
+    interim, final = _solve_obrien_fleming_two_look(alpha, interim_information)
     return {
         "interim_z": interim,
         "final_z": final,

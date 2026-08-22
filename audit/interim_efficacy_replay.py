@@ -42,6 +42,7 @@ def replay(nsim=10000, seed=987654321):
     boundary = obrien_fleming_two_look(0.025, cfg["IA"] / cfg["FINAL"])
     return {
         "interpretation": "legacy fixed-scenario operating characteristic",
+        "boundary_variant": "classical two-look O'Brien-Fleming; not Lan-DeMets spending",
         "nsim": nsim,
         "seed": seed,
         "bat_weights": [component["w"] for component in cfg["comp"]],

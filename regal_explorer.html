@@ -195,9 +195,9 @@
       <table id="evTable" style="margin-top:8px"><thead><tr><th scope="col">Milestone</th><th scope="col">Date</th><th scope="col">Deaths</th></tr></thead><tbody></tbody></table>
       <table style="margin-top:12px"><tbody>
         <tr><th scope="row">Enrolled (N)</th><td></td><td><input id="N" type="number" value="126" aria-label="Enrolled sample size N"></td></tr>
-        <tr><th scope="row">Final-analysis events</th><td></td><td><input id="FINAL" type="number" value="80" aria-label="Final-analysis event count"></td></tr>
+        <tr><th scope="row">Final-analysis events</th><td></td><td><input id="FINAL" type="number" min="2" value="80" aria-label="Final-analysis event count"></td></tr>
         <tr><th scope="row">Significance HR threshold</th><td></td><td><input id="HRC" type="number" step="0.001" value="0.636" aria-label="Significance hazard-ratio threshold"></td></tr>
-        <tr><th scope="row">Interim-analysis events</th><td></td><td><input id="IA" type="number" value="60" aria-label="Interim-analysis event count"></td></tr>
+        <tr><th scope="row">Interim-analysis events</th><td></td><td><input id="IA" type="number" min="1" value="60" aria-label="Interim-analysis event count"></td></tr>
         <tr><th scope="row">Interim futility HR</th><td></td><td><input id="futHR" type="number" step="0.05" value="1.0" aria-label="Interim futility hazard-ratio threshold"></td></tr>
       </tbody></table>
       <div class="sub">Interim futility HR: the trial cleared the IDMC futility look at the 60-event interim, so a scenario whose
@@ -469,7 +469,7 @@ function buildNoGPSCure(cfg){
 // ---------- shared Monte-Carlo ----------
 function mc(M,nsim){
   const {N,FINAL,HRC,fnr}=M.cfg, ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
-  const IA=Math.min(Math.round(M.cfg.IA||60),FINAL-1);   // interim-analysis event count
+  const IA=Math.max(1,Math.min(Math.round(M.cfg.IA||60),FINAL-1)); // interim-analysis event count
   const futHR=M.cfg.futHR||1.0;                          // interim futility HR threshold
   const h=natH(M.cfg.ndr||0);     // background mortality competing risk (an event)
   const hdrop=natH(M.cfg.drop||0);// loss-to-follow-up (censoring, not an event)

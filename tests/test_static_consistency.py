@@ -7,7 +7,15 @@ import unittest
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SURFACE_FILES = (
+BAN_SURFACE_FILES = (
+    "README.md",
+    "regal_explorer.html",
+    "regal_explorer.py",
+    "REGAL_MODEL_DOCUMENTATION.md",
+    "BAT_CONTROL_ARM_RESEARCH.md",
+    "docs.html",
+)
+DISCLOSURE_FILES = (
     "README.md",
     "regal_explorer.html",
     "regal_explorer.py",
@@ -19,7 +27,7 @@ class StaticConsistencyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.surfaces = {}
-        for name in SURFACE_FILES:
+        for name in BAN_SURFACE_FILES:
             with open(os.path.join(ROOT, name), encoding="utf-8") as fh:
                 cls.surfaces[name] = fh.read()
         cls.html = cls.surfaces["regal_explorer.html"]
@@ -79,6 +87,8 @@ class StaticConsistencyTest(unittest.TestCase):
         # Dynamic component and event controls are rebuilt from these same canonical defaults.
         self.assertIn("comp=structuredClone(DEFAULT_COMP)", body)
         self.assertIn("ev=structuredClone(DEFAULT_EV)", body)
+        self.assertEqual(self._quoted_attr(tags_by_id["IA"], "min"), "1")
+        self.assertEqual(self._quoted_attr(tags_by_id["FINAL"], "min"), "2")
 
     def test_legacy_disclosure_bans_obsolete_inference_claims(self):
         forbidden = {
@@ -93,7 +103,11 @@ class StaticConsistencyTest(unittest.TestCase):
             "old rejected status": r"·\s*REJECTED\b",
             "old figure title": r"PLATEAU\s+\(GPS-cure\)\s+probability of success",
         }
-        for name, source in self.surfaces.items():
+        # These expressions are tripwires for the repo's known historical phrasings,
+        # not semantic proof that every possible overclaim is absent. Some deliberately
+        # also match a negated sentence; reviewer judgment remains the real guardrail.
+        for name in BAN_SURFACE_FILES:
+            source = self.surfaces[name]
             for claim, pattern in forbidden.items():
                 self.assertNotRegex(
                     source,
@@ -101,7 +115,8 @@ class StaticConsistencyTest(unittest.TestCase):
                     f"{name} still contains obsolete {claim} language",
                 )
 
-            normalized = source.replace("*", "").lower()
+        for name in DISCLOSURE_FILES:
+            normalized = self.surfaces[name].replace("*", "").lower()
             self.assertIn("fixed-scenario", normalized, f"{name} omits the scenario qualifier")
             self.assertRegex(
                 normalized,

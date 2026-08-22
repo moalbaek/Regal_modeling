@@ -10,10 +10,14 @@ using an identical BAT arm and changing only the GPS responder component:
 GPS non-responders track Observation in both scenarios. The bounded alternative emits
 a fit status: A for a boundary/non-identified fit, B for a residual misfit, and C for
 an adequate interior fit. These are diagnostics, not formal hypothesis-test results.
-The `ps` output is a fixed-scenario simulated rejection rate. This file mirrors the
-JavaScript in regal_explorer.html:
+The `ps` output is a fixed-scenario simulated rejection rate. The survival, fitting,
+and legacy final-Monte-Carlo outputs mirror the JavaScript in regal_explorer.html:
 
-  enroll · common · bat_arm · build_plateau · build_no_gps_cure · mc · median · chart(figure)
+  enroll · common · bat_arm · build_plateau · build_no_gps_cure · median · chart(figure)
+
+Python `mc()` additionally exposes four audit-only interim-efficacy fields used by
+`audit/interim_efficacy_replay.py`. The browser retains the v1 Monte-Carlo outputs and
+does not compute that boundary diagnostic; full Python/HTML parity remains v2 WP8 work.
 
 Research/analysis tool, not investment advice.
 
@@ -376,7 +380,7 @@ def mc(M, nsim=1500, seed=987654321):
     ncw = np.array([w[i] * (1 - F - cm[i]["cure"]) for i in range(len(cm))])
     ncw = ncw / ncw.sum()                                          # BAT non-cured component mix (selected)
     n1 = N // 2
-    IA = min(int(cfg.get("IA", 60)), FINAL - 1)                    # interim-analysis event count
+    IA = max(1, min(int(cfg.get("IA", 60)), FINAL - 1))            # interim-analysis event count
     futHR = cfg.get("futHR", 1.0)                                  # interim futility HR threshold
     ia_design = obrien_fleming_two_look(0.025, IA / FINAL)
     z_ia_efficacy = ia_design["interim_z"]

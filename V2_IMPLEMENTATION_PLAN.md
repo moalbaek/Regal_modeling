@@ -83,7 +83,8 @@ can make realized regimens differ from stratification balance.
 
 - Calculate the one-sided 0.025 Lan-DeMets/O'Brien-Fleming efficacy boundaries from the spending
   function and the 60/80 information fraction. Expected validation values are approximately
-  `z60 = 2.33` and `z80 = 2.02`.
+  `z60 = 2.340` and `z80 = 2.012`. The legacy replay's classical discrete-look values
+  (`2.327` / `2.015`) are characterization snapshots, not v2 validation targets.
 - Simulate all interim branches: efficacy stop, futility stop, and continuation.
 - Keep the unknown futility rule configurable and report a sensitivity grid.
 - Replace the unstratified one-step approximation with the protocol-compatible stratified log-rank
