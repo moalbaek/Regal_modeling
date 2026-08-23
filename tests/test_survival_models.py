@@ -73,6 +73,16 @@ class SurvivalScaleTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "overall.*net"):
             CureMixtureComponent("bad scale", self.uncured, 0.2, "disease-free")
 
+    def test_overall_scale_rejects_nonunit_disease_frailty(self):
+        component = CureMixtureComponent("OS input", self.uncured, 0.2)
+        message = "non-unit frailty.*net"
+        with self.assertRaisesRegex(ValueError, message):
+            component.survival(24.0, self.background, frailty=0.5)
+        with self.assertRaisesRegex(ValueError, message):
+            component.sample_event_times(
+                np.random.default_rng(399), self.background, np.full(10, 2.0)
+            )
+
     def test_sampling_matches_each_scale_analytic_survival(self):
         frailty = np.ones(100000)
         for scale in (SurvivalScale.OVERALL, SurvivalScale.NET):
@@ -86,6 +96,31 @@ class SurvivalScaleTest(unittest.TestCase):
                 empirical = np.mean(times > 24.0)
                 expected = component.survival(24.0, self.background)
                 self.assertAlmostEqual(empirical, expected, delta=0.005)
+
+    def test_net_sampling_matches_analytic_survival_at_nonunit_frailty(self):
+        component = CureMixtureComponent(
+            "net sample check", self.uncured, 0.3, SurvivalScale.NET
+        )
+        for index, frailty_value in enumerate((0.5, 1.0, 2.0)):
+            with self.subTest(frailty=frailty_value):
+                frailty = np.full(100000, frailty_value)
+                times = component.sample_event_times(
+                    np.random.default_rng(410 + index), self.background, frailty
+                )
+                empirical = np.mean(times > 24.0)
+                expected = component.survival(
+                    24.0, self.background, frailty=frailty_value
+                )
+                self.assertAlmostEqual(empirical, expected, delta=0.005)
+
+    def test_zero_background_mortality_preserves_paired_rng_stream(self):
+        zero_rng = np.random.default_rng(500)
+        positive_rng = np.random.default_rng(500)
+        zero = ExponentialBackgroundMortality(0.0)
+        positive = ExponentialBackgroundMortality(1e-9)
+        self.assertTrue(np.all(np.isinf(zero.sample_event_times(zero_rng, 100))))
+        positive.sample_event_times(positive_rng, 100)
+        self.assertEqual(zero_rng.random(), positive_rng.random())
 
 
 class FrailtyCaseMixTest(unittest.TestCase):
@@ -102,7 +137,10 @@ class FrailtyCaseMixTest(unittest.TestCase):
         self.assertLess(np.mean(selected), np.mean(source) - 0.1)
 
         component = CureMixtureComponent(
-            "no-cure event model", WeibullSurvival(12.0, 1.0), 0.0
+            "no-cure event model",
+            WeibullSurvival(12.0, 1.0),
+            0.0,
+            SurvivalScale.NET,
         )
         no_background = ExponentialBackgroundMortality(0.0)
         self.assertLess(marginal_survival(component, 0.5, no_background, selected), 1.0)
@@ -111,10 +149,10 @@ class FrailtyCaseMixTest(unittest.TestCase):
         )
         self.assertTrue(np.any(event_times < 0.5))
 
-    def test_selection_does_not_mechanically_inflate_cure_fraction(self):
+    def test_current_case_mix_assumes_frailty_independent_cure_fraction(self):
         selected = self.case_mix.sample_enrolled(5000, np.random.default_rng(10))
         component = CureMixtureComponent(
-            "cure mixture", WeibullSurvival(12.0, 1.0), 0.1
+            "cure mixture", WeibullSurvival(12.0, 1.0), 0.1, SurvivalScale.NET
         )
         no_background = ExponentialBackgroundMortality(0.0)
         self.assertAlmostEqual(
@@ -131,6 +169,15 @@ class FrailtyCaseMixTest(unittest.TestCase):
         self.assertAlmostEqual(np.mean(treated), np.mean(control), delta=0.03)
         with self.assertRaises(ValueError):
             cohort.frailty[0] = 99.0
+
+    def test_randomized_cohort_uses_identity_equality_and_hashing(self):
+        first = self.case_mix.sample_randomized(20, np.random.default_rng(120))
+        second = self.case_mix.sample_randomized(20, np.random.default_rng(120))
+        np.testing.assert_array_equal(first.frailty, second.frailty)
+        np.testing.assert_array_equal(first.treatment, second.treatment)
+        self.assertIsNot(first, second)
+        self.assertNotEqual(first, second)
+        self.assertIsInstance(hash(first), int)
 
     def test_neutral_gradient_does_not_change_population_case_mix(self):
         neutral = FrailtyCaseMix(
@@ -154,6 +201,20 @@ class FrailtyCaseMixTest(unittest.TestCase):
         self.assertAlmostEqual(
             marginal_survival(component, 24.0, background, selected),
             component.survival(24.0, background),
+        )
+
+    def test_marginal_survival_over_a_time_grid(self):
+        grid = np.array([0.0, 6.0, 12.0, 24.0, 60.0])
+        selected = self.case_mix.sample_enrolled(5000, np.random.default_rng(16))
+        component = CureMixtureComponent(
+            "grid", WeibullSurvival(12.0, 1.0), 0.2, SurvivalScale.NET
+        )
+        background = ExponentialBackgroundMortality(0.02)
+        curve = marginal_survival(component, grid, background, selected)
+        self.assertEqual(curve.shape, grid.shape)
+        np.testing.assert_allclose(
+            curve,
+            [marginal_survival(component, t, background, selected) for t in grid],
         )
 
 

@@ -213,7 +213,9 @@ US-heavy") bracket the range.
 > **Legacy v1 mechanism.** The top-survivor truncation documented below remains only so the v1
 > scenario outputs stay reproducible. V2 does not select patients using future survival. Its
 > `survival_models.py` layer selects on baseline frailty before randomization, retains positive
-> early-event probability, and does not mechanically increase the cure fraction.
+> early-event probability, and does not mechanically increase the cure fraction. Non-unit disease
+> frailty requires a net/relative-survival input; current OS inputs remain neutral until they are
+> refitted or given a validated excess-hazard decomposition.
 
 The component medians in Section 2.5 describe **all** CR2 transplant-ineligible patients on each
 therapy. But a trial's eligibility bar (performance status, organ function, blast counts, …) enrols a

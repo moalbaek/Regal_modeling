@@ -10,6 +10,9 @@ randomization.  Eligibility may depend on that prognostic quantity, and the same
 selected frailty distribution is then randomized across both arms.  Conditional
 event times retain support immediately after enrollment, so selection creates no
 guaranteed-survival interval and does not mechanically inflate the cure fraction.
+Non-unit disease frailty requires a net-survival component: an overall-survival
+curve already embeds population mortality and cannot be safely rescaled without an
+explicit excess-hazard decomposition.
 
 The module is not imported by ``regal_explorer.py``.  That separation preserves the
 v1 legacy scenario outputs while later v2 work builds on these corrected primitives.
@@ -85,9 +88,11 @@ class ExponentialBackgroundMortality:
         return _scalar_or_array(np.exp(-self.monthly_hazard * times))
 
     def sample_event_times(self, rng, size: Size):
+        # Consume one draw per subject even at zero hazard so paired simulations keep
+        # the same downstream random-number stream across mortality settings.
+        uniforms = np.maximum(rng.random(size=size), np.finfo(float).tiny)
         if self.monthly_hazard == 0.0:
             return np.full(size, np.inf, dtype=float)
-        uniforms = np.maximum(rng.random(size=size), np.finfo(float).tiny)
         return -np.log(uniforms) / self.monthly_hazard
 
 
@@ -137,6 +142,12 @@ class CureMixtureComponent:
     contains population mortality, so background mortality is added only to the
     cured fraction.  A ``net`` input excludes population mortality, so the background
     curve multiplies the complete cure mixture.
+
+    Disease frailty is supported only for ``net`` inputs. Applying it directly to an
+    overall-survival curve would also scale that curve's embedded population hazard,
+    while the cured fraction receives unscaled population mortality. ``cure_fraction``
+    is currently assumed independent of frailty pending an explicit, calibrated cure
+    model; selection can change the uncured hazard but not cure probability.
     """
 
     name: str
@@ -157,8 +168,17 @@ class CureMixtureComponent:
         object.__setattr__(self, "cure_fraction", cure)
         object.__setattr__(self, "survival_scale", scale)
 
+    def _validate_frailty_scale(self, frailty):
+        if self.survival_scale is SurvivalScale.OVERALL and np.any(frailty != 1.0):
+            raise ValueError(
+                "non-unit frailty requires survival_scale='net'; overall inputs "
+                "already embed population mortality"
+            )
+
     def survival(self, months, background: BackgroundMortality, frailty=1.0):
-        uncured = np.asarray(self.uncured.survival(months, frailty), dtype=float)
+        risks = _positive_frailty(frailty)
+        self._validate_frailty_scale(risks)
+        uncured = np.asarray(self.uncured.survival(months, risks), dtype=float)
         population = np.asarray(background.survival(months), dtype=float)
         cure = self.cure_fraction
         if self.survival_scale is SurvivalScale.OVERALL:
@@ -169,6 +189,7 @@ class CureMixtureComponent:
 
     def sample_event_times(self, rng, background: BackgroundMortality, frailty):
         risks = _positive_frailty(frailty)
+        self._validate_frailty_scale(risks)
         cured = rng.random(size=risks.shape) < self.cure_fraction
         uncured_times = np.asarray(
             self.uncured.sample_event_times(rng, risks), dtype=float
@@ -183,9 +204,14 @@ class CureMixtureComponent:
         return _scalar_or_array(times)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class RandomizedCohort:
-    """Baseline frailty and assignments for an already eligible cohort."""
+    """Baseline frailty and assignments for an already eligible cohort.
+
+    Cohorts deliberately use object-identity equality and hashing. NumPy arrays do
+    not provide scalar field equality, and content hashing would be expensive for a
+    patient-level container.
+    """
 
     frailty: np.ndarray
     treatment: np.ndarray
@@ -239,6 +265,7 @@ class FrailtyCaseMix:
         object.__setattr__(self, "population_log_sd", log_sd)
         object.__setattr__(self, "eligibility_logit_intercept", intercept)
         object.__setattr__(self, "eligibility_health_gradient", gradient)
+        object.__setattr__(self, "max_draw_multiplier", self.max_draw_multiplier)
 
     def draw_population(self, size, rng):
         if not isinstance(size, int) or size < 0:

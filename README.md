@@ -51,7 +51,9 @@ change that silently moves a number or flips a fit status fails loudly. CI
 (`.github/workflows/ci.yml`) runs it on Python 3.9–3.12 and smoke-tests the CLI.
 The v2 survival tests independently verify OS-versus-net background-mortality handling,
 non-immortal cured survival, analytic/sampled agreement, and case-mix selection that cannot inspect
-future event times or manufacture a guaranteed-survival interval.
+future event times or manufacture a guaranteed-survival interval. Non-unit disease frailty is
+restricted to net/relative-survival inputs; overall-survival inputs remain at neutral frailty until
+they have a validated excess-hazard decomposition.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test

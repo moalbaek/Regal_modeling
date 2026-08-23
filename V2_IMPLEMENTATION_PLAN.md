@@ -65,10 +65,17 @@ PR 2 implements these requirements in the isolated `survival_models.py` layer:
 The frailty model draws baseline prognosis, applies a probabilistic eligibility rule, and only then
 randomizes the selected cohort. Its neutral default has zero frailty variance and no prognostic
 enrichment, exactly reproducing the component curve; both quantities must later receive priors or
-external calibration rather than inheriting
-v1's arbitrary 25% top-survivor setting. The legacy Python/HTML engines remain unchanged, and the v2
+external calibration rather than inheriting v1's arbitrary 25% top-survivor setting. The legacy
+Python/HTML engines remain unchanged, and the v2
 primitives are not a trial forecast until subsequent BAT, likelihood, and simulation work wires them
 into the canonical engine.
+
+Non-unit disease frailty is permitted only for `net` inputs. An `overall` curve already contains
+population mortality, so scaling its full hazard would inconsistently scale background mortality
+for uncured patients but not cured patients. Existing OS inputs therefore remain at neutral frailty
+until they are refitted to net/relative survival or supplied with a validated excess-hazard
+decomposition. Cure probability is provisionally frailty-independent and must be revisited when the
+case-mix prior is calibrated.
 
 ### 3. Represent BAT randomization strata and regimens
 
