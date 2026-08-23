@@ -159,17 +159,46 @@ conditions on the observed continuation.
 
 ### 5. Build a public-history likelihood
 
-- Re-anchor accrual to the registry's 2021-02-08 study start. The v1 September 2020 window creates
+- [x] Re-anchor accrual to the registry's 2021-02-08 study start. The v1 September 2020 window creates
   pre-opening patients and cannot reach its own approximately 20-patient April 2022 anchor at any
   enrollment-slider setting. Require all published enrollment anchors to be reachable and test them.
-- Store enrollment and event disclosures in `data/regal_public_history.json`, including observation
+- [x] Store enrollment and event disclosures in `data/regal_public_history.json`, including observation
   date, announcement date, observation type, reporting-lag uncertainty, source, and notes.
-- Distinguish exact/as-of counts, threshold-hitting observations, announcement dates, and right
+- [x] Distinguish exact/as-of counts, threshold-hitting observations, announcement dates, and right
   censoring of the 80th event.
-- Replace weighted least squares and independent Poisson error bars with a joint likelihood over
+- [x] Replace weighted least squares and independent Poisson error bars with a joint likelihood over
   integer enrollment cohorts and correlated event increments.
-- Represent uncertainty over event trajectories. Three aggregate event counts do not uniquely
+- [x] Represent uncertainty over event trajectories. Three aggregate event counts do not uniquely
   identify the pooled survival curve.
+
+`event_likelihood.py` implements the isolated WP5 likelihood layer. The default fixed-N accrual reference
+starts on 2021-02-08 and is piecewise uniform between the explicit 20/104/126 anchor centers; every
+draw therefore contains exactly 126 patients and none can predate study opening. The intermediate
+104 anchor is correctly classified as the rounded center of the sponsor's forward-looking 101-106
+projection (126 less 20-25 anticipated China patients). It centers the provisional reference path but is excluded
+from the observation likelihood. The first-20 and completed-126 constraints remain integer-valued
+likelihood evidence, and tests require every anchor to be both reachable and centered. This reference
+parameterization is not an independent Bayesian prior; WP7 posterior work must not reuse the same
+likelihood evidence when specifying the accrual-parameter prior.
+
+The event likelihood accepts one cumulative event probability per patient at each disclosure cutoff.
+It converts those CDFs to mutually exclusive calendar intervals and uses dynamic programming to sum
+the Poisson-multinomial mass of every latent patient/event allocation compatible with the cumulative
+constraints. Thus 60/72/78 are evaluated jointly rather than as independent residuals, while
+heterogeneous enrollment dates and survival profiles remain available to the caller. The public data
+distinguish the 60-event threshold hit from the exact 72- and 78-event as-of counts. SELLAS's
+2026-08-11 statement that the study was still approaching event 80 is encoded as announcement-process
+right censoring, integrated over an explicit 0-14 day reporting-lag sensitivity distribution. The
+lag prior is an assumption, not a company disclosure. WP5 deliberately exposes the marginal
+enrollment-anchor likelihood and the event likelihood conditional on patient-level calendar CDFs as
+separate components. WP6 must integrate or condition on the same latent enrollment history; it must
+not silently multiply mismatched marginal and conditional quantities.
+
+`audit/v2_public_history_validation.py` pins the schema, accrual gates, a brute-force-verifiable
+small-cohort correlation example, and the right-censor lag path. This package evaluates
+the component likelihoods needed for `P(public history | fixed scenario)`; full integration over a
+consistent latent enrollment history remains part of WP6. It still does not condition on interim
+continuation, average over parameter/model uncertainty, or produce the headline REGAL forecast.
 
 ### 6. Condition on the observed interim continuation
 

@@ -37,6 +37,9 @@ has been established.
 | `audit/v2_trial_decision_validation.py` | Fixed-seed null type-I-error and futility-threshold sensitivity report for the v2 decision engine. |
 | `survival_models.py` | Isolated v2 survival layer: scale-aware cure mixtures, population mortality, and pre-outcome frailty/case-mix selection followed by randomization. It is not wired into the legacy explorer. |
 | `bat_regimens.py` | Isolated v2 BAT layer: joint planned-stratum/delivered-regimen pathways, combination exposures with one validated outcome profile per patient, an equal-strata primary proxy, explicit zero-mass policy, and labeled legacy/stress allocations with a reproducible bear survival library. |
+| `data/regal_public_history.json` | Versioned enrollment/event evidence with observation and announcement dates, typed counts, source notes, and explicit reporting-lag uncertainty; current through the 11 Aug 2026 event-80 right censor. |
+| `event_likelihood.py` | Isolated v2 public-history layer: registry-anchored fixed-N accrual and a joint Poisson-multinomial likelihood over correlated integer event increments and latent patient trajectories. |
+| `audit/v2_public_history_validation.py` | Deterministic WP5 audit for schema integrity, reachable 20/104/126 accrual anchors, small-cohort likelihood correctness, and event-80 reporting-lag sensitivity. |
 
 ```bash
 pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)
@@ -66,12 +69,18 @@ recalculation when all deaths tied at a cutoff are retained, all interim/final b
 cutoffs, null type-I error, and paired sensitivity rows for the unpublished futility threshold. The
 canonical audit is backed by a separate exponential-null run through the complete patient-level
 calendar-trigger and stratified-analysis path. The legacy classical 2.327/2.015 audit boundary
-remains unchanged.
+remains unchanged. The v2 public-history tests brute-force the joint integer-count likelihood on
+small cohorts, prove that cumulative count marginals are not multiplied as independent, forbid
+pre-opening enrollment, pin all 20/104/126 accrual anchors, distinguish threshold and as-of evidence,
+and integrate the unannounced 80th event over explicit reporting-lag uncertainty. The 104-patient
+planning projection centers the provisional reference path but is deliberately excluded from
+likelihood evidence; the reference path is not an independent Bayesian prior.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
 python3 audit/interim_efficacy_replay.py --nsim 10000  # reproduce the equal-strata interim result
 python3 audit/v2_trial_decision_validation.py --nsim 200000  # validate v2 alpha/branches/futility grid
+python3 audit/v2_public_history_validation.py  # validate WP5 data/accrual/joint likelihood
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 

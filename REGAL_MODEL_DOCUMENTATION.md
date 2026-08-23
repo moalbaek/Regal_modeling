@@ -61,12 +61,16 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 | `audit/v2_trial_decision_validation.py` | Fixed-seed v2 design audit. | null type-I error, branch conservation, and paired futility-threshold sensitivity grid |
 | `survival_models.py` | Corrected, isolated v2 survival primitives; not consumed by the legacy explorer. | scale-aware OS/net cure mixtures, population mortality, pre-outcome frailty/case mix, post-selection randomization |
 | `bat_regimens.py` | Corrected, isolated v2 BAT representation; not consumed by the legacy explorer. | joint planned-stratum/delivered-regimen pathways, combination exposure, one survival profile per patient, and scenario-role labels |
+| `data/regal_public_history.json` | Versioned WP5 public evidence, current through 11 Aug 2026. | typed enrollment/event counts, observation and announcement dates, source notes, reporting-lag distributions |
+| `event_likelihood.py` | Isolated v2 public-history likelihood; not consumed by the legacy explorer. | registry-anchored fixed-N accrual, correlated Poisson-multinomial event increments, event-80 announcement right censor |
+| `audit/v2_public_history_validation.py` | Deterministic WP5 data/likelihood audit. | anchor reachability, integer-count correlation, reporting-lag sensitivity |
 
-Both share one enrollment reconstruction, one set of survival primitives, the same significance
-threshold (Section 2.1), and — critically — **one shared BAT arm** (`bat_arm`): the plateau and bounded-alternative
+The two legacy implementations share one enrollment reconstruction, one set of survival primitives,
+the same significance threshold (Section 2.1), and — critically — **one shared BAT arm** (`bat_arm`): the plateau and bounded-alternative
 panels consume byte-identical BAT (same per-component medians, cures, shapes, and left-truncation
 selection), so they are literally **one biological lever apart**. Both are fit to the **identical
-milestones**; they differ only in the GPS **responder** component:
+milestones**; they differ only in the GPS **responder** component. The isolated v2 modules do not
+reuse the legacy accrual or fitting path:
 
 - **`build_plateau` — plateau (GPS cure).** The shared BAT plus GPS responders modelled as a Weibull
   **cure-mixture**. Only the GPS responder cure `π_resp` is fit to the events; the BAT arm is fixed by
@@ -111,14 +115,14 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 
 | Date | Cumulative deaths | % of 126 | Type | Source |
 |------|-------------------|----------|------|--------|
-| 2024-12-10 | 60 | 47.6% | [S]* | Interim-analysis trigger; IDMC review completed and announced Jan 2025 [R4][R5]. *Exact 8-K date used in code (2024-12-10) should be reconciled against SELLAS IR; the milestone itself (interim at 60) is firmly sourced. |
-| 2025-12-26 | 72 | 57.1% | [S] | SELLAS IR / TipRanks, 29 Dec 2025 [R3]. |
+| 2024-12-10 | 60 | 47.6% | [S] threshold hit | SELLAS announced that the prespecified threshold had been reached that day [R9]; IDMC continuation was announced Jan 2025 [R4][R5]. |
+| 2025-12-26 | 72 | 57.1% | [S] exact/as-of | CRO count as of 26 Dec, announced by SELLAS 29 Dec 2025 [R3]. |
 | 2026-05-11 | 78 | 61.9% | [S] | SEC 8-K exhibit 99.1 and Q1-2026 release, 12 May 2026 [R6]. |
-| ~2026-06-21 | still 78 | 61.9% | [S] | No 80th-event announcement as of late June 2026 [R8] → near-zero accrual late Q2. |
+| 2026-08-11 | 80 not announced; last exact count remains 78 | — | [S]/right censor | SELLAS said REGAL was still approaching event 80 and would announce when it occurs [R8]. WP5 treats this as censoring of the announcement process with explicit 0-14 day lag uncertainty, not as an invented event count on 11 Aug. |
 
-Inter-milestone accrual ≈ **1 death/month** throughout — the central empirical anomaly that drives
-the whole analysis (a cohort mostly 2–4 years past randomization should be dying far faster unless
-survival is unexpectedly long).
+The exact-count increments were 12 deaths over roughly 12.5 months and then six over roughly 4.5
+months. Event 80 remained unannounced on 11 Aug 2026. These sparse cumulative disclosures strongly
+constrain calendar event accrual but do not identify a unique pooled survival curve or either arm.
 
 ### 2.3 Enrollment reconstruction
 
@@ -131,13 +135,23 @@ patients enrolled at the sourced anchor dates, so drift away from the anchors is
 
 | Anchor | Value | Type | Source |
 |--------|-------|------|--------|
-| Registration | NCT04229979 first posted Jan 2020 | [S] | ClinicalTrials.gov. |
-| Early protocol | WT1-positivity required initially, later broadened | [S] | OncLive eligibility note [R5]. |
-| Cumulative enrolled (anchors) | ~20 by Apr 2022 · ~104 by Nov 2023 · 126 by Apr 2024 | [S] | SELLAS PRs (2023) / SAP [R2]. |
+| Registration | Actual study start 2021-02-08 | [S] | ClinicalTrials.gov / NCT04229979. |
+| First accrual anchor | First 20 enrolled before protocol version 3 (Apr 2022); month-end is an explicit operational cutoff because the individual date is not public | [S]/[A] | Design paper [R1]. |
+| Intermediate accrual anchor | Sponsor projected November 2023 completion outside China with 20-25 of 126 still anticipated from China: interval 101-106, rounded center 104 | [S]/projection | SELLAS, 12 Oct 2023 [R10]. It centers the provisional WP5 reference path but is not likelihood evidence. |
+| Enrollment complete | 126 randomized, completed Apr 2024; month-end used because the individual completion date is not public | [S] | Later sponsor reconciliation [R11]. |
 | China cohort (via 3D Medicines) | enrolled ~Dec 2023 – Mar 2024 | [S] | SAP/partnership disclosures [R2]. |
 | Last patient in | ~March 2024 | [S] | CEO, May 2026 conference [R7]. |
 | Original expectation to 80th event | 12–15 months after last patient (~mid-2025) | [S] | CEO, May 2026 conference [R7]. |
-| **Code reconstruction (base)** | slow 2020–21 (COVID + WT1-only) → heavy 2022–23 → China bolus to Mar-2024, summing to 126; **implied median ≈ Mar 2023** | [A] | Legacy piecewise monthly rates. The current window starts before the registered 2021-02-08 study opening and produces ~30 rather than ~20 patients by Apr-2022; WP5 of the v2 plan treats this as a code defect and requires a reachable-anchor reconstruction. |
+| **Legacy code reconstruction (base)** | slow 2020–21 → heavy 2022–23 → China bolus, summing to 126; implied median ≈ Mar 2023 | [A] | Preserved for v1 reproducibility, but starts before study opening and misses the first-20 anchor. |
+| **V2 WP5 accrual reference** | fixed N=126; support begins 2021-02-08; piecewise-uniform mass centered exactly on 20/104/126 | [A] | `event_likelihood.py`; no simulated patient can predate opening and every anchor is tested for reachability. It is not an independent Bayesian prior. |
+
+WP5 evaluates enrollment constraints jointly under a fixed-N multinomial model. Event likelihood is
+also joint: each patient supplies probabilities for mutually exclusive calendar intervals, and a
+dynamic program sums all patient allocations compatible with 60/72/78 plus the event-80 right
+censor. These are the WP5 likelihood ingredients for `P(public history | fixed scenario)`, not a
+quantity conditioned on the IDMC decision and not a posterior forecast. The marginal enrollment-anchor likelihood and event likelihood conditional on
+patient-level calendar CDFs remain separate; WP6 must integrate them over one consistent latent
+enrollment history rather than assume an unjustified factorization.
 
 ### 2.4 Interim disclosures (Jan 2025, at 60 deaths)
 
@@ -722,8 +736,8 @@ dates matter.
   Now at 80 Events," GlobeNewswire, 14 Nov 2022.
   https://www.globenewswire.com/news-release/2022/11/14/2554907/0/en/SELLAS-Life-Sciences-Announces-Update-on-Phase-3-REGAL-Clinical-Trial-Evaluating-Lead-Asset-Galinpepimut-S-in-Acute-Myeloid-Leukemia.html
 - **[R3]** SELLAS, "Update on Pivotal Phase 3 REGAL … 72 events as of December 26, 2025"
-  (steering-committee ~8-mo BAT context), 29 Dec 2025 (IR / TipRanks).
-  https://www.tipranks.com/news/the-fly/sellas-life-sciences-says-regal-trial-cro-informs-company-72-events-occurred-thefly
+  (steering-committee ~8-mo BAT context), 29 Dec 2025.
+  https://ir.sellaslifesciences.com/news/News-Details/2025/SELLAS-Life-Sciences-Provides-Update-on-Pivotal-Phase-3-REGAL-Trial-of-Galinpepimut-S-GPS-in-Acute-Myeloid-Leukemia-AML/default.aspx
 - **[R4]** "Galinpepimut-S Completes Phase 3 REGAL Interim Analysis in AML," CancerNetwork (interim:
   median FU ~13.5 mo, <50% dead, pooled median ≥13.5 vs ~6-mo historical, IDMC continue, ~80% WT1
   response). https://www.cancernetwork.com/view/galinpepimut-s-completes-phase-3-regal-interim-analysis-in-aml
@@ -737,8 +751,18 @@ dates matter.
 - **[R7]** CEO remarks, Stifel 2026 Targeted Oncology Forum, 20 May 2026 (126 patients; 12.6 vs
   8.1-mo design medians; last patient ~Mar 2024; original 12–15-mo expectation to 80th event;
   patients >3 yr on treatment). https://stocktwits.com/news-articles/markets/equity/sls-stock-gps-very-good-chance-beat-earlier-survival-outcomes/cZXDpXKReVe
-- **[R8]** Status check, late June 2026 — no 80th-event announcement yet (still 78).
-  https://www.merlintrader.com/sellas-life-sciences/
+- **[R8]** SELLAS, Q2 2026 results and corporate update, 11 Aug 2026 — REGAL described as
+  approaching the prespecified 80th event; company will announce when it occurs.
+  https://ir.sellaslifesciences.com/news/News-Details/2026/SELLAS-Life-Sciences-Reports-Second-Quarter-2026-Financial-Results-and-Provides-Corporate-Update/default.aspx
+- **[R9]** SELLAS, "Triggers Interim Analysis …", 10 Dec 2024 — prespecified 60-event threshold
+  reached.
+  https://ir.sellaslifesciences.com/news/News-Details/2024/SELLAS-Life-Sciences-Triggers-Interim-Analysis-in-Phase-3-REGAL-Trial-of-GPS-in-Acute-Myeloid-Leukemia/
+- **[R10]** SELLAS, REGAL enrollment update, 12 Oct 2023 — projected November completion outside
+  China with 20-25 patients anticipated from China.
+  https://ir.sellaslifesciences.com/news/News-Details/2023/SELLAS-Life-Sciences-Provides-Update-on-Phase-3-REGAL-Clinical-Trial-for-Galinpepimut-S-in-Acute-Myeloid-Leukemia/default.aspx
+- **[R11]** SELLAS, IDMC periodic review, 7 Aug 2025 — 126 randomized; enrollment completed in
+  April 2024.
+  https://ir.sellaslifesciences.com/news/News-Details/2025/SELLAS-Life-Sciences-Announces-Independent-Data-Monitoring-Committee-Periodic-Review-and-Positive-Recommendation-to-Continue-Pivotal-Phase-3-REGAL-Trial-of-GPS-in-AML-Without-Modification/default.aspx
 
 *Comparator literature anchors for [A] component survival (Section 2.5) were drawn from published
 AML CR2 / R/R venetoclax-HMA and azacitidine-maintenance outcome studies; the specific
