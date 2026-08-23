@@ -55,8 +55,10 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 |------|------|-------------|
 | `regal_explorer.html` | Self-contained legacy explorer with BAT, survival, enrollment, censoring, and shape controls plus live diagnostic charts. | fixed-scenario rejection rates, median HR, implied interim HR, event reach, fit status, per-arm curves |
 | `regal_explorer.py` | Python engine (`bat_arm`, `build_plateau`, `build_no_gps_cure`, `mc`) with a CLI, 9-panel figure, and audit-only interim-efficacy fields not present in the browser. | scenario rates, A/B/C fit status, preset/non-responder sweeps, interim audit fields |
-| `trial_design.py` | Cached classical two-look O'Brien-Fleming boundary calculation for the legacy replay; not the protocol's Lan-DeMets spending implementation. | interim/final audit z boundaries |
+| `trial_design.py` | Legacy classical audit boundary plus isolated v2 Lan-DeMets spending and protocol-factor stratified score analysis. | legacy and v2 efficacy boundaries; stratified primary statistic; named one-step diagnostics |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-strata operating-characteristic replay. | reproducible interim efficacy crossing, final rate, and median HR |
+| `simulation.py` | Isolated v2 event-driven decision process; not consumed by the legacy explorer. | 60/80-event cutoffs, efficacy/futility/continuation branches, final decisions, canonical operating characteristics |
+| `audit/v2_trial_decision_validation.py` | Fixed-seed v2 design audit. | null type-I error, branch conservation, and paired futility-threshold sensitivity grid |
 | `survival_models.py` | Corrected, isolated v2 survival primitives; not consumed by the legacy explorer. | scale-aware OS/net cure mixtures, population mortality, pre-outcome frailty/case mix, post-selection randomization |
 | `bat_regimens.py` | Corrected, isolated v2 BAT representation; not consumed by the legacy explorer. | joint planned-stratum/delivered-regimen pathways, combination exposure, one survival profile per patient, and scenario-role labels |
 
@@ -95,14 +97,15 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 | Alpha spending | Lan–DeMets **O'Brien–Fleming**, one interim at 60 deaths | [S] | Design paper [R1]; OncLive [R5]. |
 | Stratification factors | CR2 vs CR2p; cytogenetic risk; MRD status; CR1 duration (<1 yr vs ≥1 yr) | [S] | Targeted Oncology [R4]. |
 | Design effect size | HR 0.636 ⇒ medians 12.6 mo (GPS) vs ~8.0–8.1 mo (BAT) | [S] | SAP/IR [R2]; conference coverage states 12.6 vs 8.1 mo [R7]. |
-| **Significance threshold used in code** | observed HR ≤ **0.636**, i.e. z_crit = \|ln 0.636\|·√80 / 2 = **2.024** (one-sided p ≈ 0.0215) | [D] | Derived from N, 80 events, and one-sided 0.025 with a small OBF interim spend; matches SELLAS's stated 0.636. |
+| **Legacy-v1 significance threshold** | observed one-step HR ≤ **0.636**, i.e. z_crit = \|ln 0.636\|·√80 / 2 = **2.024** (one-sided p ≈ 0.0215) | [D] | Preserved for v1 numerical reproducibility; matches SELLAS's stated design effect size but is not the v2 boundary implementation. |
+| **V2 efficacy boundaries** | `z60 = 2.339711`; `z80 = 2.011777` | [D] | Calculated from one-sided 0.025 Lan–DeMets O'Brien–Fleming spending at information fractions 60/80 and 1. |
 | BAT-arm allowed agents | observation/hydroxyurea, hypomethylating agents (HMA), venetoclax, low-dose ara-C (LDAC); targeted maintenance (e.g. FLT3i) **excluded** | [S] | Targeted Oncology [R4]; OncLive [R5]. |
 
-> **Note on the threshold.** The log-rank test is the score test of the Cox model, so the
-> Monte-Carlo significance decision (`score_z > z_crit`) is the operating characteristic of the
-> trial's *actual* pre-specified test. A fully-iterated Cox MLE differs from the one-step estimate
-> by ≤0.001 in HR here (balanced 1:1, single covariate), so the approximation does not affect any
-> conclusion.
+> **Note on the analyses.** V1 uses an unstratified score and one-step `exp(U/V)` HR with the fixed
+> 0.636 threshold. V2 now uses the stratified log-rank score—equivalently the beta-zero score test of
+> the treatment-only stratified Cox model—for efficacy at the calculated Lan–DeMets boundaries. It
+> accepts all public protocol factors as separate columns and forms risk sets within their combined
+> strata. The unstratified score and one-step HR remain available only as named diagnostics.
 
 ### 2.2 Event milestones (pooled deaths, calendar)
 
@@ -382,26 +385,35 @@ it does not stop trials at the interim or condition on the observed continuation
 audit path now also records the 60-event score and compares it with a classical two-look
 O'Brien–Fleming efficacy boundary, solely to reproduce the equal-strata operating characteristic.
 That discrete-look `c/√t` boundary is not the protocol's Lan-DeMets alpha-spending construction;
-the numerical difference is small here, and WP4 replaces it for v2.
-V2 will implement every decision branch and treat continuation as likelihood information, with
-sensitivity analysis for the unpublished futility rule.
+the numerical difference is small here, and it remains intact only for v1 reproducibility.
+
+The isolated v2 path now calculates the Lan-DeMets spending boundaries (`z60 = 2.339711`,
+`z80 = 2.011777`) and applies the protocol-factor stratified score at both event-driven cutoffs.
+It simulates mutually exclusive efficacy-stop, assumed-futility-stop, and continuation branches;
+continued trials can reject, not reject, or fail to reach the 80th event. This implements the trial
+mechanics but does not yet use the fact that REGAL actually continued as likelihood information—that
+conditioning remains WP6.
 
 | Control | Range / default | Type | Role |
 |---------|-----------------|------|------|
 | Interim-analysis events | default 60 | [S] | The event count at the IDMC interim (SAP [R2]). |
-| Interim futility HR | default 1.00 | [A] | The trial is taken to have been on track for futility-stop only if the *implied* HR at the interim was below this threshold. 1.00 = "no benefit trend"; tighten it (e.g. 0.85) to impose the stronger reading that continuation implied a real interim signal. |
+| Interim futility HR | v1 default 1.00; v2 has no default and audits disabled/0.80/0.90/1.00/1.10/1.20 | [A] | A sensitivity row assumes futility stop when the diagnostic interim HR is at or above the stated threshold. Smaller thresholds impose a stronger continuation requirement. No row is asserted to be the unpublished protocol rule. |
 
-**Mechanics.** In the Monte-Carlo the model already simulates every event time, so it computes the
-implied Cox/log-rank HR and score at the moment the 60th death occurs. If the median **implied interim
-HR exceeds the futility threshold**, the scenario is flagged as inconsistent with the selected
-futility assumption. The additional score-boundary readout is reported by
-`audit/interim_efficacy_replay.py`; it does not alter v1's final-analysis simulation or condition it on
-the actual IDMC decision.
+**Mechanics.** V1 computes an unstratified score and implied one-step HR at the 60th death, then only
+flags the median simulated HR against its UI threshold. In v2, `evaluate_event_driven_trial` excludes
+patients not yet randomized at each calendar cutoff, forms risk sets separately within the combined
+protocol strata, and applies efficacy first, assumed futility second, and continuation otherwise.
+The unstratified score and one-step HR are named diagnostics; efficacy uses the stratified score.
+`audit/v2_trial_decision_validation.py` uses paired canonical-normal draws to validate one-sided null
+type-I error and show how the assumed futility threshold reallocates branches without Monte-Carlo
+noise between sensitivity rows. It separately sends identical exponential GPS/BAT outcomes through
+the complete patient-level enrollment, event-trigger, and protocol-factor stratified path as a
+non-circular null check.
 
-**Caveat.** The futility *boundary* itself is an assumption [A], not a published number, so it is an
-adjustable input. At the default 1.00 even the pessimistic **bear corner** clears it (implied interim
-HR ≈ 0.7), so the constraint mainly excludes extreme anti-GPS scenarios; tightening the threshold
-makes it bite harder. It is a soft, user-controlled constraint, deliberately not a hard gate.
+**Caveat.** The futility rule's form and boundary are assumptions [A], not published numbers. The v2
+efficacy design therefore commits no futility default. Every HR threshold is labeled as sensitivity,
+and the no-futility row preserves the nominal 0.025 efficacy design. Later conditioning must average
+or stress-test these rules rather than treating any one threshold as known.
 
 ### 2.11 Loss to follow-up (administrative censoring)
 
@@ -623,15 +635,21 @@ audit-only fields are intentionally absent from the browser; automated full pari
 | `build_no_gps_cure` | Bounded no-GPS-cure alternative: shares `bat_arm`, fits GPS responder median `m_G` and tail shape `s_G` (auto) with GPS non-responders tracking Observation; emits the three-state fit status (A/B/C), boundary flags, and milestone residual (Section 4.7). |
 | `median(S)` | Bisection median of a survival function (`∞`/"NR" if never below 0.5 within 900 mo). |
 | `mc(M, nsim)` | Monte-Carlo trial: enrollment → per-arm death draws → censor at the 80th event → **log-rank/Cox score test**; returns P(significant), 80th-event-reached fraction, median HR (Section 4.5). |
+| `lan_demets_obrien_fleming_two_look` | V2 one-sided alpha-spending solve for the sequential 60/80 efficacy boundaries; separate from the legacy classical audit function. |
+| `stratified_logrank` | V2 beta-zero score test with independent risk sets inside combined protocol-factor strata and hypergeometric tie variance. |
+| `evaluate_event_driven_trial` | V2 patient-level 60/80-event decision path: interim efficacy/futility/continuation followed, when applicable, by the final stratified test. |
+| `simulate_futility_sensitivity_grid` | Paired canonical-normal operating-characteristic rows for no futility and explicit assumed one-step-HR thresholds. |
+| `simulate_patient_level_exponential_null` | Independent null validation of the full enrollment-calendar, event-trigger, and stratified-analysis path. |
 | `figure()` / `render` + `chart*` | 9-panel figure (py, 3×3 grid) / live SVG charts and metrics panel (html): `chart` (survival), `chartAccrual`, `chartHist`, `chartDiverge`, `chartEnroll`, `chartPower`, `chartSelect`. |
 
 ---
 
 ## 6. Principal findings
 
-1. **The framework matches the trial.** The confirmed primary test is a stratified Cox at one-sided
-   0.025 with an OBF interim [R1]; the model's significance machinery and HR ≤ 0.636 threshold are
-   consistent with it.
+1. **The v2 decision mechanics match the public trial design.** The confirmed primary test is a
+   stratified Cox at one-sided 0.025 with a Lan–DeMets OBF interim [R1]. V2 now calculates the
+   2.339711/2.011777 boundaries and applies the equivalent stratified score test. V1's unstratified
+   HR ≤ 0.636 rule remains a reproducibility-only approximation.
 2. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 3. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a
@@ -668,10 +686,9 @@ audit-only fields are intentionally absent from the browser; automated full pari
   lever for stress-testing that, but the constant-hazard, disease-independent form is a simplification.
 - **Promotional bias.** Several anchors (e.g. the ~8-mo BAT figure, the "longer-than-expected
   survival" framing) originate with SELLAS or affiliates and should be discounted accordingly.
-- **Interim futility pass is a soft check, not a hard gate.** The IDMC's continuation past the
-  60-event futility look is used as an adjustable consistency constraint on the arm split
-  (Section 2.10), flagging implausible scenarios rather than rejecting them outright; the futility
-  boundary itself is an assumed number.
+- **The interim futility rule remains unknown.** V1 treats continuation as a soft HR consistency
+  check. V2 can execute an assumed futility stop and reports paired threshold sensitivity, but WP6
+  must condition on actual continuation without pretending that any one unpublished rule is known.
 - **Loss to follow-up is modeled as a flat, independent rate.** Administrative censoring (Section 2.11)
   enters both the fit and the simulation, but as a single constant all-cause-independent hazard
   (default 0); real dropout is time- and arm-varying.
@@ -681,8 +698,9 @@ audit-only fields are intentionally absent from the browser; automated full pari
   upper bound on how cleanly eligibility can enrich the cohort; treat it as "how much healthier could
   the enrolled population plausibly be," not a literal drop-rate. It is applied within each component
   (holding the composition weights fixed) and equally to both arms.
-- **Not incorporated (conservative):** stratification of the Cox model (the trial stratifies; the
-  simulation does not — a minor, likely slightly power-increasing, difference).
+- **V1 remains unstratified.** The isolated v2 decision engine now performs the protocol-factor
+  stratified score test, but its patient-level factor distribution is not a REGAL input and must be
+  generated or integrated over by later scenario/posterior work.
 
 ---
 
