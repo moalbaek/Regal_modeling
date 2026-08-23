@@ -58,6 +58,7 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 | `trial_design.py` | Cached classical two-look O'Brien-Fleming boundary calculation for the legacy replay; not the protocol's Lan-DeMets spending implementation. | interim/final audit z boundaries |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-strata operating-characteristic replay. | reproducible interim efficacy crossing, final rate, and median HR |
 | `survival_models.py` | Corrected, isolated v2 survival primitives; not consumed by the legacy explorer. | scale-aware OS/net cure mixtures, population mortality, pre-outcome frailty/case mix, post-selection randomization |
+| `bat_regimens.py` | Corrected, isolated v2 BAT representation; not consumed by the legacy explorer. | joint planned-stratum/delivered-regimen pathways, combination exposure, one survival profile per patient, and scenario-role labels |
 
 Both share one enrollment reconstruction, one set of survival primitives, the same significance
 threshold (Section 2.1), and — critically — **one shared BAT arm** (`bat_arm`): the plateau and bounded-alternative
@@ -189,7 +190,24 @@ The last quantity is reproducible with
 stratification statement, not proof of the realized regimen mix: the publication's "and/or" wording
 allows combinations, and balanced planned strata need not equal delivered treatments. Accordingly,
 venetoclax-dominant and bear remain clearly labeled allocation stress tests rather than primary
-protocol reconstructions. V2 will store planned stratum separately from received regimen.
+protocol reconstructions. The isolated v2 `bat_regimens.py` layer now stores planned stratum
+separately from received regimen. A combination such as HMA + venetoclax records both component
+exposures but selects one outcome profile, so it remains one patient in regimen and survival
+marginals. Its primary configuration has four 25% planned strata; the current 27/8/22/35/8 component
+weights are retained only as a legacy comparison. The primary's single-profile delivered-regimen
+mapping is provisional until patient-level or realized-regimen evidence is available. In particular,
+the venetoclax survival profile is reconstructed from VEN+azacitidine and is best supported for the
+explicit HMA+VEN combination. Reusing that profile when co-therapy is unspecified—especially for
+venetoclax monotherapy—can overstate BAT survival and should be revised when realized regimens are
+known. V2 therefore exposes combination-regimen primitives without committing an evidence-free
+combination allocation constant.
+
+The v2 `BEAR_STRONG_BAT_STRESS` allocation pairs explicitly with the separate immutable
+`BEAR_STRONG_BAT_COMPONENT_LIBRARY`, which changes only the venetoclax cure fraction from 15% to
+25%. Keeping allocation and survival parameters separate makes the legacy bear assumption fully
+reproducible without hiding it in component weights. Primary BAT designs require positive mass in
+all four planned strata. Comparison and stress designs may retain a zero-probability pathway for an
+absent stratum; such a pathway is never sampled and does not require an unused survival profile.
 
 Supporting literature anchors for these assumptions [A]:
 - Contemporary non-transplant CR2 maintenance (HMA and/or BCL-2 inhibitor): **~8-month** expected
