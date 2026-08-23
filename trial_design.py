@@ -57,7 +57,13 @@ def _solve_obrien_fleming_two_look(alpha, interim_information):
         no_cross = _bivariate_normal_cdf(interim, constant, rho)
         return 1.0 - no_cross
 
-    lower, upper = 1.0, 4.0
+    # At c=0 the chance of crossing either one-sided boundary is at least 0.5,
+    # so it brackets every supported alpha from below. Expand the upper end
+    # until its crossing probability is below alpha instead of assuming the
+    # conventional [1, 4] range, which fails for large (and very small) alpha.
+    lower, upper = 0.0, 1.0
+    while crossing_probability(upper) > alpha:
+        upper *= 2.0
     for _ in range(60):
         midpoint = 0.5 * (lower + upper)
         if crossing_probability(midpoint) > alpha:

@@ -369,6 +369,7 @@ def mc(M, nsim=1500, seed=987654321):
     FINAL. The return value also exposes an unconditional interim efficacy-crossing
     diagnostic using the committed two-look O'Brien-Fleming boundary."""
     cfg = M["cfg"]; N, FINAL, HRC, fnr = cfg["N"], cfg["FINAL"], cfg["HRC"], cfg["fnr"]
+    FINAL = max(2, int(FINAL))                                    # engine-level guard for notebook/API callers
     h = natH(cfg.get("ndr", 0.0))                                  # background mortality competing risk (an event)
     hdrop = natH(cfg.get("drop", 0.0))                             # loss-to-follow-up (censoring, not an event)
     ZC = abs(np.log(HRC)) * np.sqrt(FINAL) / 2.0

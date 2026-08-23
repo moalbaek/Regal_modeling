@@ -25,6 +25,20 @@ class TrialDesignTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             obrien_fleming_two_look(interim_information=1.0)
 
+    def test_solver_realizes_alpha_outside_the_conventional_bracket(self):
+        information = 0.75
+        for alpha in (0.00001, 0.025, 0.2, 0.4):
+            with self.subTest(alpha=alpha):
+                boundary = obrien_fleming_two_look(
+                    alpha=alpha, interim_information=information
+                )
+                realized = 1.0 - trial_design._bivariate_normal_cdf(
+                    boundary["interim_z"],
+                    boundary["final_z"],
+                    math.sqrt(information),
+                )
+                self.assertAlmostEqual(realized, alpha, places=9)
+
     def test_cached_solver_does_not_share_mutable_results(self):
         trial_design._solve_obrien_fleming_two_look.cache_clear()
         first = obrien_fleming_two_look()
@@ -41,6 +55,18 @@ class TrialDesignTest(unittest.TestCase):
         self.assertTrue(math.isfinite(result["z_IA_efficacy"]))
         expected = obrien_fleming_two_look(interim_information=1 / cfg["FINAL"])
         self.assertAlmostEqual(result["z_IA_efficacy"], expected["interim_z"], places=8)
+
+    def test_final_event_count_below_two_is_clamped(self):
+        expected = obrien_fleming_two_look(interim_information=0.5)
+        for final_events in (1, 0, -1):
+            with self.subTest(final_events=final_events):
+                cfg = regal.default_cfg()
+                cfg["FINAL"] = final_events
+                result = regal.mc(regal.build_plateau(cfg), nsim=5)
+                self.assertTrue(math.isfinite(result["z_IA_efficacy"]))
+                self.assertAlmostEqual(
+                    result["z_IA_efficacy"], expected["interim_z"], places=8
+                )
 
     def test_equal_strata_replay_characterization(self):
         result = replay(nsim=1000)

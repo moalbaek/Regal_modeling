@@ -468,7 +468,7 @@ function buildNoGPSCure(cfg){
 }
 // ---------- shared Monte-Carlo ----------
 function mc(M,nsim){
-  const {N,FINAL,HRC,fnr}=M.cfg, ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
+  const {N,HRC,fnr}=M.cfg, FINAL=Math.max(2,Math.round(M.cfg.FINAL||2)), ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
   const IA=Math.max(1,Math.min(Math.round(M.cfg.IA||60),FINAL-1)); // interim-analysis event count
   const futHR=M.cfg.futHR||1.0;                          // interim futility HR threshold
   const h=natH(M.cfg.ndr||0);     // background mortality competing risk (an event)
@@ -830,7 +830,7 @@ function chartSelect(cfg){
 
 // ---------- render ----------
 const $=id=>document.getElementById(id);
-const cfgFromUI=()=>({N:+$("N").value||126,FINAL:+$("FINAL").value||80,HRC:+$("HRC").value||0.636,
+const cfgFromUI=()=>({N:+$("N").value||126,FINAL:Math.max(2,+$("FINAL").value||2),HRC:+$("HRC").value||0.636,
   fnr:(+$("nr").value)/100,bl:+$("bl").value,shape:+$("shape").value,shapeOverride:$("shapeOverride").checked,
   ndr:(+$("ndr").value)/100,IA:+$("IA").value||60,futHR:+$("futHR").value||1.0,
   drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,unweighted:$("unweighted").checked});
