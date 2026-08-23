@@ -125,15 +125,37 @@ can make realized regimens differ from stratification balance.
 
 ### 4. Implement the trial decision process
 
-- Calculate the one-sided 0.025 Lan-DeMets/O'Brien-Fleming efficacy boundaries from the spending
+- [x] Calculate the one-sided 0.025 Lan-DeMets/O'Brien-Fleming efficacy boundaries from the spending
   function and the 60/80 information fraction. Expected validation values are approximately
   `z60 = 2.340` and `z80 = 2.012`. The legacy replay's classical discrete-look values
   (`2.327` / `2.015`) are characterization snapshots, not v2 validation targets.
-- Simulate all interim branches: efficacy stop, futility stop, and continuation.
-- Keep the unknown futility rule configurable and report a sensitivity grid.
-- Replace the unstratified one-step approximation with the protocol-compatible stratified log-rank
+- [x] Simulate all interim branches: efficacy stop, futility stop, and continuation.
+- [x] Keep the unknown futility rule configurable and report a sensitivity grid.
+- [x] Replace the unstratified one-step approximation with the protocol-compatible stratified log-rank
   or Cox analysis; keep the approximation only as a diagnostic.
-- Validate the null type-I error and decision branches by simulation.
+- [x] Validate the null type-I error and decision branches by simulation.
+
+`trial_design.py` now keeps the legacy classical boundary intact while adding the protocol spending
+function and sequential boundary solve. At 60/80 information the v2 values are
+`z60 = 2.339711` and `z80 = 2.011777`; the correlated probability of crossing either boundary under
+the null is one-sided 0.025. The v2 primary statistic is the stratified log-rank score, equivalently
+the score test at beta zero for a treatment-only stratified Cox model. It accepts either combined
+stratum labels or multiple protocol-factor columns and uses tied-event hypergeometric variance. The
+unstratified score and `exp(U/V)` one-step HR are returned only as named diagnostics.
+
+`simulation.py` applies those analyses at the 60th and 80th observed deaths, excluding patients not
+yet randomized at each event-calendar cutoff. It retains every death tied at the cutoff and uses the
+realized event count divided by 80 as the public design's information proxy, recalculating both
+sequential boundaries so overshoot does not silently make the design conservative or inflate alpha.
+Interim efficacy, assumed futility, and continuation are mutually exclusive; a continued trial can
+then reject, not reject, or fail to reach the final look. No futility rule is embedded in the
+committed efficacy design because its form and boundary are unpublished. `HazardRatioFutilityRule`
+makes an assumed one-step-HR cutoff explicit, and
+`audit/v2_trial_decision_validation.py` reports paired sensitivity rows for no futility and thresholds
+0.80 through 1.20. Its canonical correlated-normal null simulation pins branch conservation and
+approximately 0.025 overall type-I error. A separate exponential-null audit runs the complete
+patient-level calendar-trigger and stratified-analysis path. Neither is a REGAL survival forecast or
+conditions on the observed continuation.
 
 ### 5. Build a public-history likelihood
 

@@ -31,8 +31,10 @@ has been established.
 | `REGAL_MODEL_DOCUMENTATION.md` | Full methodology, parameter sourcing, and limitations. |
 | `BAT_CONTROL_ARM_RESEARCH.md` | The research basis for the default BAT-arm settings: component composition/weights (US/EU/China) and per-component mixture-cure survival parameters (median OS, cure fraction, Weibull shape), and how they map to `DEFAULT_COMP`. |
 | `V2_IMPLEMENTATION_PLAN.md` | Scientific and software roadmap for the conditional, protocol-compatible v2 forecast. |
-| `trial_design.py` | Cached, dependency-light classical two-look O'Brien–Fleming boundary used by the legacy audit; this is not the protocol's Lan-DeMets spending implementation planned for v2. |
+| `trial_design.py` | Keeps the cached classical boundary for the legacy audit and adds isolated v2 Lan-DeMets O'Brien–Fleming spending, protocol-factor stratified log-rank analysis, and explicit futility-rule primitives. |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-planned-strata replay of the interim boundary-crossing and final scenario-rejection rates. |
+| `simulation.py` | Isolated v2 60/80-event decision engine: stratified interim/final analyses, mutually exclusive efficacy/futility/continuation branches, and canonical operating-characteristic validation. |
+| `audit/v2_trial_decision_validation.py` | Fixed-seed null type-I-error and futility-threshold sensitivity report for the v2 decision engine. |
 | `survival_models.py` | Isolated v2 survival layer: scale-aware cure mixtures, population mortality, and pre-outcome frailty/case-mix selection followed by randomization. It is not wired into the legacy explorer. |
 | `bat_regimens.py` | Isolated v2 BAT layer: joint planned-stratum/delivered-regimen pathways, combination exposures with one validated outcome profile per patient, an equal-strata primary proxy, explicit zero-mass policy, and labeled legacy/stress allocations with a reproducible bear survival library. |
 
@@ -58,10 +60,18 @@ they have a validated excess-hazard decomposition. The v2 BAT tests separately p
 delivered-regimen, component-exposure, and single-outcome-profile marginals, including exact
 categorical boundaries, seeded marginal recovery, custom-library coverage, and combination regimens
 that count as one patient even when they create more than one component exposure.
+The v2 decision tests independently pin the planned 2.339711/2.011777 protocol-spending boundaries,
+tied-event stratified score calculations over multiple factor columns, realized-information boundary
+recalculation when all deaths tied at a cutoff are retained, all interim/final branches, event-calendar
+cutoffs, null type-I error, and paired sensitivity rows for the unpublished futility threshold. The
+canonical audit is backed by a separate exponential-null run through the complete patient-level
+calendar-trigger and stratified-analysis path. The legacy classical 2.327/2.015 audit boundary
+remains unchanged.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
 python3 audit/interim_efficacy_replay.py --nsim 10000  # reproduce the equal-strata interim result
+python3 audit/v2_trial_decision_validation.py --nsim 200000  # validate v2 alpha/branches/futility grid
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 
