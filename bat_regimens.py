@@ -22,12 +22,13 @@ allocations.  Nothing in this module is a forecast for the ongoing trial, and it
 not imported by the legacy explorer.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from math import isclose, isfinite
 from numbers import Integral
 from types import MappingProxyType
-from typing import Dict, Mapping, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 
@@ -249,7 +250,8 @@ class BATDesign:
 
     All designs name all four protocol strata. Primary designs must give every
     stratum positive mass; comparison and stress designs may use explicit
-    zero-probability pathways to represent an absent stratum.
+    zero-probability pathways to represent an absent stratum. Pathway totals are
+    accepted within ``PROBABILITY_TOLERANCE`` and retain their supplied floats.
     """
 
     name: str
@@ -283,13 +285,6 @@ class BATDesign:
             abs_tol=PROBABILITY_TOLERANCE,
         ):
             raise ValueError("pathway probabilities must sum to 1")
-        normalized = [pathway.probability / total for pathway in pathways]
-        anchor = max(range(len(normalized)), key=normalized.__getitem__)
-        normalized[anchor] += 1.0 - sum(normalized)
-        pathways = tuple(
-            BATPathway(pathway.stratum, pathway.regimen, probability)
-            for pathway, probability in zip(pathways, normalized)
-        )
         stratum_probabilities = {stratum: 0.0 for stratum in BATStratum}
         for pathway in pathways:
             stratum_probabilities[pathway.stratum] += pathway.probability
@@ -313,7 +308,7 @@ class BATDesign:
 
     @property
     def regimen_probabilities(self):
-        """Patient shares by regimen; the returned values always sum to one."""
+        """Patient shares by regimen, summing within ``PROBABILITY_TOLERANCE``."""
 
         probabilities: Dict[BATRegimen, float] = {}
         for pathway in self.pathways:
@@ -324,7 +319,7 @@ class BATDesign:
 
     @property
     def survival_component_probabilities(self):
-        """Patient shares by outcome profile; the values always sum to one."""
+        """Outcome-profile shares, summing within ``PROBABILITY_TOLERANCE``."""
 
         probabilities = {component: 0.0 for component in BATComponent}
         for pathway in self.pathways:
@@ -351,18 +346,17 @@ class BATDesign:
 
         if library is None:
             library = DEFAULT_COMPONENT_LIBRARY
-        try:
-            required = {
-                pathway.regimen.survival_component
-                for pathway in self.pathways
-                if pathway.probability > 0.0
-            }
-            missing = sorted(
-                (component for component in required if component not in library),
-                key=lambda component: component.value,
-            )
-        except TypeError as error:
-            raise ValueError("component library must be a mapping") from error
+        if not isinstance(library, Mapping):
+            raise ValueError("component library must be a mapping")
+        required = {
+            pathway.regimen.survival_component
+            for pathway in self.pathways
+            if pathway.probability > 0.0
+        }
+        missing = sorted(
+            (component for component in required if component not in library),
+            key=lambda component: component.value,
+        )
         if missing:
             names = ", ".join(component.value for component in missing)
             raise ValueError(f"component library is missing survival profiles: {names}")
@@ -561,9 +555,11 @@ def _component_library_with_cure(library, component, cure_fraction):
     """Copy a component library with one explicit cure-fraction sensitivity."""
 
     component = _enum_value(component, BATComponent, "component")
+    if not isinstance(library, Mapping):
+        raise ValueError("component library must be a mapping")
     try:
         source = library[component]
-    except (KeyError, TypeError) as error:
+    except KeyError as error:
         raise ValueError(
             f"component library is missing survival profile: {component.value}"
         ) from error
@@ -597,10 +593,12 @@ def component_for(assignment, library=DEFAULT_COMPONENT_LIBRARY):
 
     if not isinstance(assignment, BATPatientAssignment):
         raise ValueError("assignment must be a BATPatientAssignment")
+    if not isinstance(library, Mapping):
+        raise ValueError("component library must be a mapping")
     key = assignment.regimen.survival_component
     try:
         component = library[key]
-    except (KeyError, TypeError) as error:
+    except KeyError as error:
         raise ValueError(
             f"component library is missing survival profile: {key.value}"
         ) from error
@@ -631,6 +629,7 @@ __all__ = [
     "LEGACY_COMPONENT_MIX",
     "OBSERVATION_REGIMEN",
     "PRIMARY_EQUAL_STRATA",
+    "PROBABILITY_TOLERANCE",
     "VENETOCLAX_DOMINANT_STRESS",
     "VENETOCLAX_UNSPECIFIED_REGIMEN",
     "component_for",

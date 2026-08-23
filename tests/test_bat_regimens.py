@@ -10,6 +10,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+import bat_regimens as bat_regimens_module  # noqa: E402
 from bat_regimens import (  # noqa: E402
     BATComponent,
     BATDesign,
@@ -28,6 +29,7 @@ from bat_regimens import (  # noqa: E402
     LEGACY_COMPONENT_MIX,
     OBSERVATION_REGIMEN,
     PRIMARY_EQUAL_STRATA,
+    PROBABILITY_TOLERANCE,
     VENETOCLAX_DOMINANT_STRESS,
     VENETOCLAX_UNSPECIFIED_REGIMEN,
     component_for,
@@ -396,12 +398,15 @@ class BATValidationTest(unittest.TestCase):
             )
             for index, pathway in enumerate(base)
         )
-        normalized = BATDesign(
+        accepted = BATDesign(
             "near unit",
             BATDesignRole.STRESS_TEST,
             near_unit,
         )
-        self.assertEqual(sum(path.probability for path in normalized.pathways), 1.0)
+        accepted_total = sum(path.probability for path in accepted.pathways)
+        self.assertEqual(accepted.pathways, near_unit)
+        self.assertGreater(accepted_total, 1.0)
+        self.assertLessEqual(abs(accepted_total - 1.0), PROBABILITY_TOLERANCE)
         with self.assertRaisesRegex(ValueError, "sum to 1"):
             BATDesign(
                 "outside tolerance",
@@ -442,6 +447,22 @@ class BATValidationTest(unittest.TestCase):
             PRIMARY_EQUAL_STRATA.validate_library(invalid)
         with self.assertRaisesRegex(ValueError, "BATPatientAssignment"):
             component_for(HMA_REGIMEN)
+
+        component_keys = list(BATComponent)
+        for not_a_mapping in (component_keys, object()):
+            with self.subTest(api="validate_library", value=type(not_a_mapping)):
+                with self.assertRaisesRegex(ValueError, "must be a mapping"):
+                    PRIMARY_EQUAL_STRATA.validate_library(not_a_mapping)
+            with self.subTest(api="component_for", value=type(not_a_mapping)):
+                with self.assertRaisesRegex(ValueError, "must be a mapping"):
+                    component_for(assignment, not_a_mapping)
+            with self.subTest(api="cure_override", value=type(not_a_mapping)):
+                with self.assertRaisesRegex(ValueError, "must be a mapping"):
+                    bat_regimens_module._component_library_with_cure(
+                        not_a_mapping,
+                        BATComponent.VENETOCLAX,
+                        0.25,
+                    )
 
         active_only = {
             BATComponent.HMA: DEFAULT_COMPONENT_LIBRARY[BATComponent.HMA],
