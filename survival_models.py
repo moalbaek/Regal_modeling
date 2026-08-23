@@ -21,12 +21,14 @@ v1 legacy scenario outputs while later v2 work builds on these corrected primiti
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite, log
+from numbers import Integral
 from typing import Protocol, Tuple, Union
 
 import numpy as np
 
 
 Size = Union[int, Tuple[int, ...]]
+NEUTRAL_FRAILTY_RTOL = 8.0 * np.finfo(float).eps
 
 
 def _scalar_or_array(value):
@@ -168,16 +170,24 @@ class CureMixtureComponent:
         object.__setattr__(self, "cure_fraction", cure)
         object.__setattr__(self, "survival_scale", scale)
 
-    def _validate_frailty_scale(self, frailty):
-        if self.survival_scale is SurvivalScale.OVERALL and np.any(frailty != 1.0):
-            raise ValueError(
-                "non-unit frailty requires survival_scale='net'; overall inputs "
-                "already embed population mortality"
-            )
+    def _frailty_for_scale(self, frailty):
+        if self.survival_scale is SurvivalScale.OVERALL:
+            if not np.allclose(
+                frailty, 1.0, rtol=NEUTRAL_FRAILTY_RTOL, atol=0.0
+            ):
+                raise ValueError(
+                    "frailty materially different from 1 requires "
+                    "survival_scale='net'; overall inputs already embed "
+                    "population mortality"
+                )
+            # Treat normalization noise as exactly neutral instead of letting an
+            # accepted one-ULP perturbation rescale the embedded population hazard.
+            return np.ones_like(frailty, dtype=float)
+        return frailty
 
     def survival(self, months, background: BackgroundMortality, frailty=1.0):
         risks = _positive_frailty(frailty)
-        self._validate_frailty_scale(risks)
+        risks = self._frailty_for_scale(risks)
         uncured = np.asarray(self.uncured.survival(months, risks), dtype=float)
         population = np.asarray(background.survival(months), dtype=float)
         cure = self.cure_fraction
@@ -189,7 +199,7 @@ class CureMixtureComponent:
 
     def sample_event_times(self, rng, background: BackgroundMortality, frailty):
         risks = _positive_frailty(frailty)
-        self._validate_frailty_scale(risks)
+        risks = self._frailty_for_scale(risks)
         cured = rng.random(size=risks.shape) < self.cure_fraction
         uncured_times = np.asarray(
             self.uncured.sample_event_times(rng, risks), dtype=float
@@ -260,12 +270,17 @@ class FrailtyCaseMix:
             raise ValueError("eligibility_logit_intercept must be finite")
         if not isfinite(gradient) or gradient < 0.0:
             raise ValueError("eligibility_health_gradient must be finite and non-negative")
-        if not isinstance(self.max_draw_multiplier, int) or self.max_draw_multiplier < 1:
+        multiplier = self.max_draw_multiplier
+        if (
+            isinstance(multiplier, bool)
+            or not isinstance(multiplier, Integral)
+            or multiplier < 1
+        ):
             raise ValueError("max_draw_multiplier must be a positive integer")
         object.__setattr__(self, "population_log_sd", log_sd)
         object.__setattr__(self, "eligibility_logit_intercept", intercept)
         object.__setattr__(self, "eligibility_health_gradient", gradient)
-        object.__setattr__(self, "max_draw_multiplier", self.max_draw_multiplier)
+        object.__setattr__(self, "max_draw_multiplier", int(multiplier))
 
     def draw_population(self, size, rng):
         if not isinstance(size, int) or size < 0:

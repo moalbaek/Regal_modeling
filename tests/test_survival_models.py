@@ -75,13 +75,23 @@ class SurvivalScaleTest(unittest.TestCase):
 
     def test_overall_scale_rejects_nonunit_disease_frailty(self):
         component = CureMixtureComponent("OS input", self.uncured, 0.2)
-        message = "non-unit frailty.*net"
+        message = "materially different.*net"
         with self.assertRaisesRegex(ValueError, message):
             component.survival(24.0, self.background, frailty=0.5)
         with self.assertRaisesRegex(ValueError, message):
             component.sample_event_times(
                 np.random.default_rng(399), self.background, np.full(10, 2.0)
             )
+
+    def test_overall_scale_snaps_rounding_noise_to_neutral_frailty(self):
+        component = CureMixtureComponent("OS input", self.uncured, 0.2)
+        almost_one = np.nextafter(1.0, 2.0)
+        self.assertEqual(
+            component.survival(24.0, self.background, frailty=almost_one),
+            component.survival(24.0, self.background, frailty=1.0),
+        )
+        with self.assertRaisesRegex(ValueError, "materially different.*net"):
+            component.survival(24.0, self.background, frailty=1.0 + 1e-12)
 
     def test_sampling_matches_each_scale_analytic_survival(self):
         frailty = np.ones(100000)
@@ -121,6 +131,23 @@ class SurvivalScaleTest(unittest.TestCase):
         self.assertTrue(np.all(np.isinf(zero.sample_event_times(zero_rng, 100))))
         positive.sample_event_times(positive_rng, 100)
         self.assertEqual(zero_rng.random(), positive_rng.random())
+
+    def test_component_sampling_consumes_three_draws_per_subject(self):
+        size = 100
+        reference_rng = np.random.default_rng(501)
+        reference_rng.random(3 * size)
+        expected_next_draw = reference_rng.random()
+        for scale in (SurvivalScale.OVERALL, SurvivalScale.NET):
+            for cure_fraction in (0.0, 0.5, 1.0):
+                with self.subTest(scale=scale, cure_fraction=cure_fraction):
+                    rng = np.random.default_rng(501)
+                    component = CureMixtureComponent(
+                        "paired stream", self.uncured, cure_fraction, scale
+                    )
+                    component.sample_event_times(
+                        rng, self.background, np.ones(size)
+                    )
+                    self.assertEqual(rng.random(), expected_next_draw)
 
 
 class FrailtyCaseMixTest(unittest.TestCase):
@@ -188,6 +215,15 @@ class FrailtyCaseMixTest(unittest.TestCase):
         source = neutral.draw_population(30000, np.random.default_rng(13))
         selected = neutral.sample_enrolled(10000, np.random.default_rng(14))
         self.assertAlmostEqual(np.mean(selected), np.mean(source), delta=0.03)
+
+    def test_retry_budget_rejects_bool_and_normalizes_integral_values(self):
+        for invalid in (True, False, 0, 1.5):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    FrailtyCaseMix(max_draw_multiplier=invalid)
+        model = FrailtyCaseMix(max_draw_multiplier=np.int64(4))
+        self.assertEqual(model.max_draw_multiplier, 4)
+        self.assertIs(type(model.max_draw_multiplier), int)
 
     def test_default_case_mix_leaves_the_reference_curve_unchanged(self):
         neutral = FrailtyCaseMix()
