@@ -34,7 +34,7 @@ has been established.
 | `trial_design.py` | Cached, dependency-light classical two-look O'Brien–Fleming boundary used by the legacy audit; this is not the protocol's Lan-DeMets spending implementation planned for v2. |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-planned-strata replay of the interim boundary-crossing and final scenario-rejection rates. |
 | `survival_models.py` | Isolated v2 survival layer: scale-aware cure mixtures, population mortality, and pre-outcome frailty/case-mix selection followed by randomization. It is not wired into the legacy explorer. |
-| `bat_regimens.py` | Isolated v2 BAT layer: joint planned-stratum/delivered-regimen pathways, combination exposures with one outcome profile per patient, an equal-strata primary proxy, and explicitly labeled legacy/stress allocations. |
+| `bat_regimens.py` | Isolated v2 BAT layer: joint planned-stratum/delivered-regimen pathways, combination exposures with one validated outcome profile per patient, an equal-strata primary proxy, explicit zero-mass policy, and labeled legacy/stress allocations with a reproducible bear survival library. |
 
 ```bash
 pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)
@@ -55,8 +55,9 @@ non-immortal cured survival, analytic/sampled agreement, and case-mix selection 
 future event times or manufacture a guaranteed-survival interval. Non-unit disease frailty is
 restricted to net/relative-survival inputs; overall-survival inputs remain at neutral frailty until
 they have a validated excess-hazard decomposition. The v2 BAT tests separately pin planned-stratum,
-delivered-regimen, component-exposure, and single-outcome-profile marginals, including combination
-regimens that count as one patient even when they create more than one component exposure.
+delivered-regimen, component-exposure, and single-outcome-profile marginals, including exact
+categorical boundaries, seeded marginal recovery, custom-library coverage, and combination regimens
+that count as one patient even when they create more than one component exposure.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test

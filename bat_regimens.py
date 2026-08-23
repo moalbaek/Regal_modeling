@@ -16,8 +16,10 @@ patient nor the outcome is counted twice.
 The primary constant below reproduces approximately equal planned strata.  It is
 a protocol-compatible proxy, not evidence of REGAL's realized regimen mix.  The
 legacy, venetoclax-dominant, and bear constants are explicitly classified as a
-comparison or stress tests.  Nothing in this module is a forecast for the ongoing
-trial, and it is not imported by the legacy explorer.
+comparison or stress tests.  The v1 low-venetoclax and bull presets are not carried
+forward because work package 3 names only the venetoclax-dominant and bear
+allocations.  Nothing in this module is a forecast for the ongoing trial, and it is
+not imported by the legacy explorer.
 """
 
 from dataclasses import dataclass
@@ -77,6 +79,11 @@ _STRATUM_COMPONENTS = {
 
 
 def _enum_value(value, enum_type, field_name):
+    if isinstance(value, Enum) and not isinstance(value, enum_type):
+        raise ValueError(
+            f"{field_name} must be a {enum_type.__name__}, "
+            f"not {type(value).__name__}"
+        )
     try:
         return enum_type(value)
     except (TypeError, ValueError) as error:
@@ -100,7 +107,10 @@ class BATRegimen:
     ``components`` records all known exposures.  ``survival_component`` is the
     one component-library key used to generate the patient's event time.  For
     example, HMA + venetoclax records both exposures but uses the venetoclax
-    profile, which is the current literature bucket for venetoclax-based therapy.
+    profile. That profile is derived from VEN + azacitidine, making this explicit
+    combination its best-supported mapping. Applying it to venetoclax with unknown
+    co-therapy is a provisional, directionally BAT-favorable proxy that may
+    overstate survival for venetoclax monotherapy.
     """
 
     key: str
@@ -113,9 +123,13 @@ class BATRegimen:
             raise ValueError("key must be a non-empty string")
         key = self.key.strip()
         try:
-            supplied = tuple(BATComponent(component) for component in self.components)
-        except (TypeError, ValueError) as error:
+            raw_components = tuple(self.components)
+        except TypeError as error:
             raise ValueError("components must contain only BATComponent values") from error
+        supplied = tuple(
+            _enum_value(component, BATComponent, "components")
+            for component in raw_components
+        )
         if not supplied:
             raise ValueError("components must contain at least one BAT component")
         if len(set(supplied)) != len(supplied):
@@ -137,7 +151,12 @@ class BATRegimen:
 
 @dataclass(frozen=True)
 class BATPathway:
-    """One cell of the joint planned-stratum/delivered-regimen distribution."""
+    """One cell of the joint planned-stratum/delivered-regimen distribution.
+
+    A zero probability explicitly retains an absent stratum in a non-primary
+    design. It is never sampled and contributes no regimen, exposure, or profile
+    mass.
+    """
 
     stratum: BATStratum
     regimen: BATRegimen
@@ -148,13 +167,13 @@ class BATPathway:
         if not isinstance(self.regimen, BATRegimen):
             raise ValueError("regimen must be a BATRegimen")
         if isinstance(self.probability, bool):
-            raise ValueError("probability must be finite and in (0, 1]")
+            raise ValueError("probability must be finite and in [0, 1]")
         try:
             probability = float(self.probability)
         except (TypeError, ValueError) as error:
-            raise ValueError("probability must be finite and in (0, 1]") from error
-        if not isfinite(probability) or probability <= 0.0 or probability > 1.0:
-            raise ValueError("probability must be finite and in (0, 1]")
+            raise ValueError("probability must be finite and in [0, 1]") from error
+        if not isfinite(probability) or probability < 0.0 or probability > 1.0:
+            raise ValueError("probability must be finite and in [0, 1]")
         _validate_stratum_regimen(stratum, self.regimen)
         object.__setattr__(self, "stratum", stratum)
         object.__setattr__(self, "probability", probability)
@@ -226,7 +245,12 @@ class BATCohort:
 
 @dataclass(frozen=True)
 class BATDesign:
-    """A joint distribution over planned BAT strata and delivered regimens."""
+    """A joint distribution over planned BAT strata and delivered regimens.
+
+    All designs name all four protocol strata. Primary designs must give every
+    stratum positive mass; comparison and stress designs may use explicit
+    zero-probability pathways to represent an absent stratum.
+    """
 
     name: str
     role: BATDesignRole
@@ -252,8 +276,27 @@ class BATDesign:
         if len(set(cells)) != len(cells):
             raise ValueError("each stratum/regimen pathway must be unique")
         total = sum(pathway.probability for pathway in pathways)
-        if not isclose(total, 1.0, rel_tol=0.0, abs_tol=PROBABILITY_TOLERANCE):
+        if not isclose(
+            total,
+            1.0,
+            rel_tol=PROBABILITY_TOLERANCE,
+            abs_tol=PROBABILITY_TOLERANCE,
+        ):
             raise ValueError("pathway probabilities must sum to 1")
+        normalized = [pathway.probability / total for pathway in pathways]
+        anchor = max(range(len(normalized)), key=normalized.__getitem__)
+        normalized[anchor] += 1.0 - sum(normalized)
+        pathways = tuple(
+            BATPathway(pathway.stratum, pathway.regimen, probability)
+            for pathway, probability in zip(pathways, normalized)
+        )
+        stratum_probabilities = {stratum: 0.0 for stratum in BATStratum}
+        for pathway in pathways:
+            stratum_probabilities[pathway.stratum] += pathway.probability
+        if role is BATDesignRole.PRIMARY and any(
+            probability <= 0.0 for probability in stratum_probabilities.values()
+        ):
+            raise ValueError("primary designs require positive mass in all four strata")
         if not isinstance(self.description, str):
             raise ValueError("description must be a string")
         object.__setattr__(self, "name", name)
@@ -297,6 +340,46 @@ class BATDesign:
             for component in pathway.regimen.components:
                 probabilities[component] += pathway.probability
         return probabilities
+
+    def validate_library(self, library=None):
+        """Validate that every positive-mass outcome profile can be resolved.
+
+        Zero-mass pathways explicitly represent absent strata in non-primary
+        designs and therefore do not require an otherwise-unused survival profile.
+        Extra library entries are permitted.
+        """
+
+        if library is None:
+            library = DEFAULT_COMPONENT_LIBRARY
+        try:
+            required = {
+                pathway.regimen.survival_component
+                for pathway in self.pathways
+                if pathway.probability > 0.0
+            }
+            missing = sorted(
+                (component for component in required if component not in library),
+                key=lambda component: component.value,
+            )
+        except TypeError as error:
+            raise ValueError("component library must be a mapping") from error
+        if missing:
+            names = ", ".join(component.value for component in missing)
+            raise ValueError(f"component library is missing survival profiles: {names}")
+        invalid = sorted(
+            (
+                component
+                for component in required
+                if not isinstance(library[component], CureMixtureComponent)
+            ),
+            key=lambda component: component.value,
+        )
+        if invalid:
+            names = ", ".join(component.value for component in invalid)
+            raise ValueError(
+                f"component library contains invalid survival profiles: {names}"
+            )
+        return library
 
     def sample(self, size, rng):
         """Sample patient assignments with one categorical draw per patient."""
@@ -412,7 +495,7 @@ VENETOCLAX_DOMINANT_STRESS = BATDesign(
     name="venetoclax_dominant",
     role=BATDesignRole.STRESS_TEST,
     pathways=_proxy_pathways(0.08, 0.04, 0.18, 0.60, 0.10),
-    description="US-heavy delivered-regimen allocation stress test.",
+    description="US-heavy component-weight allocation stress test.",
 )
 
 BEAR_STRONG_BAT_STRESS = BATDesign(
@@ -474,6 +557,60 @@ def default_component_library():
     return dict(DEFAULT_COMPONENT_LIBRARY)
 
 
+def _component_library_with_cure(library, component, cure_fraction):
+    """Copy a component library with one explicit cure-fraction sensitivity."""
+
+    component = _enum_value(component, BATComponent, "component")
+    try:
+        source = library[component]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            f"component library is missing survival profile: {component.value}"
+        ) from error
+    if not isinstance(source, CureMixtureComponent):
+        raise ValueError(
+            f"component library contains invalid survival profile: {component.value}"
+        )
+    result = dict(library)
+    result[component] = CureMixtureComponent(
+        name=source.name,
+        uncured=source.uncured,
+        cure_fraction=cure_fraction,
+        survival_scale=source.survival_scale,
+    )
+    return result
+
+
+BEAR_STRONG_BAT_COMPONENT_LIBRARY: Mapping[BATComponent, CureMixtureComponent] = (
+    MappingProxyType(
+        _component_library_with_cure(
+            DEFAULT_COMPONENT_LIBRARY,
+            BATComponent.VENETOCLAX,
+            0.25,
+        )
+    )
+)
+
+
+def component_for(assignment, library=DEFAULT_COMPONENT_LIBRARY):
+    """Return the single survival component that generates a patient's outcome."""
+
+    if not isinstance(assignment, BATPatientAssignment):
+        raise ValueError("assignment must be a BATPatientAssignment")
+    key = assignment.regimen.survival_component
+    try:
+        component = library[key]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            f"component library is missing survival profile: {key.value}"
+        ) from error
+    if not isinstance(component, CureMixtureComponent):
+        raise ValueError(
+            f"component library contains invalid survival profile: {key.value}"
+        )
+    return component
+
+
 __all__ = [
     "BATComponent",
     "BATCohort",
@@ -483,6 +620,7 @@ __all__ = [
     "BATPatientAssignment",
     "BATRegimen",
     "BATStratum",
+    "BEAR_STRONG_BAT_COMPONENT_LIBRARY",
     "BEAR_STRONG_BAT_STRESS",
     "DEFAULT_COMPONENT_LIBRARY",
     "HMA_REGIMEN",
@@ -495,5 +633,6 @@ __all__ = [
     "PRIMARY_EQUAL_STRATA",
     "VENETOCLAX_DOMINANT_STRESS",
     "VENETOCLAX_UNSPECIFIED_REGIMEN",
+    "component_for",
     "default_component_library",
 ]

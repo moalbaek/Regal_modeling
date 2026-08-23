@@ -87,6 +87,10 @@ case-mix prior is calibrated.
 - [x] Treat bear and venetoclax-dominant allocations as stress tests rather than primary protocol
   reconstructions unless realized-regimen evidence supports them.
 - [x] Treat the current component weights as a legacy comparison.
+- [x] Resolve each patient assignment to exactly one validated survival component, with named
+  failures when a custom component library is incomplete or invalid.
+- [x] Permit explicit zero-mass strata only in non-primary designs; keep all four primary strata
+  positive.
 
 `bat_regimens.py` implements a joint distribution over planned stratum and delivered regimen. Each
 patient pathway carries both values, while each regimen carries all known component exposures and
@@ -99,10 +103,19 @@ REGAL treatments.
 
 The committed `LEGACY_COMPONENT_MIX` is classified as `legacy_comparison`; the 60% venetoclax-dominant
 and 70% bear allocations are classified as `stress_test`. The bear preset's separate 25% venetoclax
-cure assumption remains a survival-parameter sensitivity rather than being hidden in allocation.
-The component library now connects the documented Observation, Hydroxyurea, HMA, venetoclax, and
-LDAC inputs to the scale-aware work-package-2 survival API, all explicitly on the overall-survival
-scale.
+cure assumption is reproduced by the separately named, immutable
+`BEAR_STRONG_BAT_COMPONENT_LIBRARY` rather than being hidden in allocation. The component library
+connects the documented Observation, Hydroxyurea, HMA, venetoclax, and LDAC inputs to the scale-aware
+work-package-2 survival API, all explicitly on the overall-survival scale. `component_for()` resolves
+one patient assignment to its outcome profile, while `BATDesign.validate_library()` checks all
+positive-mass pathways before simulation.
+
+The venetoclax profile is VEN+azacitidine-derived. Applying it where co-therapy is unknown,
+particularly to monotherapy, is a provisional BAT-favorable mapping that may overstate survival.
+The tested public combination-regimen machinery is therefore retained without an illustrative
+production allocation constant until evidence supports one. Primary designs require positive mass
+in every planned stratum; non-primary comparison and stress designs may use an explicit zero-mass
+pathway to represent an absent stratum.
 
 The legacy equal-strata run is more bullish than the current default (about 99.9% scenario power,
 median HR about 0.30, and about 94% interim efficacy crossing). Reproduce it with

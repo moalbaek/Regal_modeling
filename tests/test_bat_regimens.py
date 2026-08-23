@@ -14,9 +14,11 @@ from bat_regimens import (  # noqa: E402
     BATComponent,
     BATDesign,
     BATDesignRole,
+    BATPatientAssignment,
     BATPathway,
     BATRegimen,
     BATStratum,
+    BEAR_STRONG_BAT_COMPONENT_LIBRARY,
     BEAR_STRONG_BAT_STRESS,
     DEFAULT_COMPONENT_LIBRARY,
     HMA_REGIMEN,
@@ -27,6 +29,8 @@ from bat_regimens import (  # noqa: E402
     OBSERVATION_REGIMEN,
     PRIMARY_EQUAL_STRATA,
     VENETOCLAX_DOMINANT_STRESS,
+    VENETOCLAX_UNSPECIFIED_REGIMEN,
+    component_for,
     default_component_library,
 )
 from survival_models import SurvivalScale  # noqa: E402
@@ -47,6 +51,29 @@ def combination_design():
             BATPathway(BATStratum.HMA, HMA_VENETOCLAX_REGIMEN, 0.25),
             BATPathway(BATStratum.VENETOCLAX, HMA_VENETOCLAX_REGIMEN, 0.25),
             BATPathway(BATStratum.LDAC, LDAC_VENETOCLAX_REGIMEN, 0.25),
+        ),
+    )
+
+
+def zero_mass_stress_design():
+    """Non-primary design retaining two explicitly absent planned strata."""
+
+    return BATDesign(
+        name="zero_mass_stress",
+        role=BATDesignRole.STRESS_TEST,
+        pathways=(
+            BATPathway(
+                BATStratum.SUPPORTIVE_CARE_HYDROXYUREA,
+                OBSERVATION_REGIMEN,
+                0.0,
+            ),
+            BATPathway(BATStratum.HMA, HMA_REGIMEN, 0.5),
+            BATPathway(
+                BATStratum.VENETOCLAX,
+                VENETOCLAX_UNSPECIFIED_REGIMEN,
+                0.5,
+            ),
+            BATPathway(BATStratum.LDAC, LDAC_REGIMEN, 0.0),
         ),
     )
 
@@ -112,6 +139,32 @@ class CommittedBATDesignTest(unittest.TestCase):
                     probability,
                 )
                 self.assertAlmostEqual(sum(design.regimen_probabilities.values()), 1.0)
+
+        self.assertIn("component-weight", VENETOCLAX_DOMINANT_STRESS.description)
+        self.assertNotIn("delivered-regimen", VENETOCLAX_DOMINANT_STRESS.description)
+
+    def test_bear_survival_library_pairs_the_allocation_with_25_percent_ven_cure(self):
+        self.assertIs(
+            BEAR_STRONG_BAT_STRESS.validate_library(
+                BEAR_STRONG_BAT_COMPONENT_LIBRARY
+            ),
+            BEAR_STRONG_BAT_COMPONENT_LIBRARY,
+        )
+        default = DEFAULT_COMPONENT_LIBRARY[BATComponent.VENETOCLAX]
+        bear = BEAR_STRONG_BAT_COMPONENT_LIBRARY[BATComponent.VENETOCLAX]
+        self.assertEqual(default.cure_fraction, 0.15)
+        self.assertEqual(bear.cure_fraction, 0.25)
+        self.assertEqual(bear.name, default.name)
+        self.assertEqual(bear.uncured, default.uncured)
+        self.assertIs(bear.survival_scale, default.survival_scale)
+        for component in BATComponent:
+            if component is not BATComponent.VENETOCLAX:
+                self.assertIs(
+                    BEAR_STRONG_BAT_COMPONENT_LIBRARY[component],
+                    DEFAULT_COMPONENT_LIBRARY[component],
+                )
+        with self.assertRaises(TypeError):
+            BEAR_STRONG_BAT_COMPONENT_LIBRARY[BATComponent.VENETOCLAX] = default
 
     def test_default_component_library_uses_documented_overall_survival_inputs(self):
         expected = {
@@ -192,6 +245,59 @@ class CombinationRegimenTest(unittest.TestCase):
             BATComponent.VENETOCLAX,
         )
 
+    def test_sampling_assigns_exact_cdf_boundaries_to_the_next_pathway(self):
+        class BoundaryRng:
+            @staticmethod
+            def random(size):
+                if size != 3:
+                    raise AssertionError("unexpected requested size")
+                return np.array([0.25, 0.50, 0.75])
+
+        cohort = combination_design().sample(3, BoundaryRng())
+        self.assertEqual(
+            [assignment.stratum for assignment in cohort.assignments],
+            [BATStratum.HMA, BATStratum.VENETOCLAX, BATStratum.LDAC],
+        )
+
+    def test_seeded_sampling_recovers_stratum_and_profile_marginals(self):
+        size = 50_000
+        cohort = PRIMARY_EQUAL_STRATA.sample(size, np.random.default_rng(20260823))
+        for stratum, expected in PRIMARY_EQUAL_STRATA.stratum_probabilities.items():
+            with self.subTest(marginal="stratum", value=stratum.value):
+                self.assertAlmostEqual(
+                    cohort.stratum_counts()[stratum] / size,
+                    expected,
+                    delta=0.01,
+                )
+        for component, expected in (
+            PRIMARY_EQUAL_STRATA.survival_component_probabilities.items()
+        ):
+            with self.subTest(marginal="profile", value=component.value):
+                self.assertAlmostEqual(
+                    cohort.survival_component_counts()[component] / size,
+                    expected,
+                    delta=0.01,
+                )
+
+    def test_zero_mass_pathways_are_never_sampled(self):
+        class FixedRng:
+            @staticmethod
+            def random(size):
+                if size != 4:
+                    raise AssertionError("unexpected requested size")
+                return np.array([0.0, 0.49, 0.50, 0.99])
+
+        cohort = zero_mass_stress_design().sample(4, FixedRng())
+        self.assertEqual(
+            [assignment.stratum for assignment in cohort.assignments],
+            [
+                BATStratum.HMA,
+                BATStratum.HMA,
+                BATStratum.VENETOCLAX,
+                BATStratum.VENETOCLAX,
+            ],
+        )
+
 
 class BATValidationTest(unittest.TestCase):
     def test_regimens_reject_duplicate_or_unprofiled_components(self):
@@ -203,6 +309,19 @@ class BATValidationTest(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "also appear"):
             BATRegimen("unprofiled", (BATComponent.HMA,), BATComponent.VENETOCLAX)
+
+    def test_foreign_enum_members_are_rejected_but_raw_strings_remain_supported(self):
+        with self.assertRaisesRegex(ValueError, "BATComponent.*BATStratum"):
+            BATRegimen("foreign component", (BATStratum.HMA,), BATComponent.HMA)
+        with self.assertRaisesRegex(ValueError, "BATComponent.*BATStratum"):
+            BATRegimen("foreign profile", (BATComponent.HMA,), BATStratum.HMA)
+        with self.assertRaisesRegex(ValueError, "BATStratum.*BATComponent"):
+            BATPathway(BATComponent.HMA, HMA_REGIMEN, 1.0)
+
+        regimen = BATRegimen("string values", ("hma",), "hma")
+        pathway = BATPathway("hma", regimen, 1.0)
+        self.assertIs(regimen.survival_component, BATComponent.HMA)
+        self.assertIs(pathway.stratum, BATStratum.HMA)
 
     def test_pathways_reject_regimens_in_the_wrong_planned_stratum(self):
         with self.assertRaisesRegex(ValueError, "compatible"):
@@ -258,6 +377,79 @@ class BATValidationTest(unittest.TestCase):
                     base[3],
                 ),
             )
+
+    def test_zero_mass_policy_and_tolerant_totals_are_explicit(self):
+        stress = zero_mass_stress_design()
+        self.assertEqual(
+            stress.stratum_probabilities[BATStratum.SUPPORTIVE_CARE_HYDROXYUREA],
+            0.0,
+        )
+        with self.assertRaisesRegex(ValueError, "positive mass"):
+            BATDesign("zero mass primary", BATDesignRole.PRIMARY, stress.pathways)
+
+        base = combination_design().pathways
+        near_unit = tuple(
+            BATPathway(
+                pathway.stratum,
+                pathway.regimen,
+                pathway.probability + (5e-13 if index == 0 else 0.0),
+            )
+            for index, pathway in enumerate(base)
+        )
+        normalized = BATDesign(
+            "near unit",
+            BATDesignRole.STRESS_TEST,
+            near_unit,
+        )
+        self.assertEqual(sum(path.probability for path in normalized.pathways), 1.0)
+        with self.assertRaisesRegex(ValueError, "sum to 1"):
+            BATDesign(
+                "outside tolerance",
+                BATDesignRole.STRESS_TEST,
+                tuple(
+                    BATPathway(
+                        pathway.stratum,
+                        pathway.regimen,
+                        pathway.probability + (5e-9 if index == 0 else 0.0),
+                    )
+                    for index, pathway in enumerate(base)
+                ),
+            )
+
+    def test_component_resolution_and_library_coverage_fail_by_profile_name(self):
+        assignment = BATPatientAssignment(BATStratum.HMA, HMA_REGIMEN)
+        self.assertIs(
+            component_for(assignment),
+            DEFAULT_COMPONENT_LIBRARY[BATComponent.HMA],
+        )
+        self.assertIs(
+            PRIMARY_EQUAL_STRATA.validate_library(),
+            DEFAULT_COMPONENT_LIBRARY,
+        )
+
+        missing = default_component_library()
+        missing.pop(BATComponent.VENETOCLAX)
+        with self.assertRaisesRegex(ValueError, "missing.*venetoclax"):
+            combination_design().validate_library(missing)
+        with self.assertRaisesRegex(ValueError, "missing.*hma"):
+            component_for(assignment, {})
+
+        invalid = default_component_library()
+        invalid[BATComponent.HMA] = "not a survival component"
+        with self.assertRaisesRegex(ValueError, "invalid.*hma"):
+            component_for(assignment, invalid)
+        with self.assertRaisesRegex(ValueError, "invalid.*hma"):
+            PRIMARY_EQUAL_STRATA.validate_library(invalid)
+        with self.assertRaisesRegex(ValueError, "BATPatientAssignment"):
+            component_for(HMA_REGIMEN)
+
+        active_only = {
+            BATComponent.HMA: DEFAULT_COMPONENT_LIBRARY[BATComponent.HMA],
+            BATComponent.VENETOCLAX: DEFAULT_COMPONENT_LIBRARY[
+                BATComponent.VENETOCLAX
+            ],
+        }
+        self.assertIs(zero_mass_stress_design().validate_library(active_only), active_only)
 
     def test_sample_size_and_rng_draws_are_validated(self):
         for invalid in (True, False, 0, -1, 1.5):
