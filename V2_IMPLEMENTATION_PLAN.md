@@ -51,16 +51,24 @@ If a component is refitted to net or relative survival, use
 S(t)=S_{bg}(t)\{c+(1-c)S_{uncured,net}(t)\}.
 \]
 
-Implementation requirements:
+PR 2 implements these requirements in the isolated `survival_models.py` layer:
 
-- Add an explicit `survival_scale = overall | net` to every component.
-- Default the current literature inputs to `overall`.
-- Replace the unconditional multiplier with the scale-aware equations above: for OS inputs, overlay
+- [x] Add an explicit `survival_scale = overall | net` to every component.
+- [x] Default the current literature inputs to `overall`.
+- [x] Replace the unconditional multiplier with the scale-aware equations above: for OS inputs, overlay
   background mortality only on the cured fraction; for net/relative-survival inputs, overlay it on
   the whole mixture.
-- Ensure the cured fraction follows population mortality rather than forming an immortal plateau.
-- Replace top-survivor truncation with a pre-outcome case-mix/frailty model applied symmetrically to
+- [x] Ensure the cured fraction follows population mortality rather than forming an immortal plateau.
+- [x] Replace top-survivor truncation with a pre-outcome case-mix/frailty model applied symmetrically to
   both randomized arms. No inclusion rule may depend on future realized survival.
+
+The frailty model draws baseline prognosis, applies a probabilistic eligibility rule, and only then
+randomizes the selected cohort. Its neutral default has zero frailty variance and no prognostic
+enrichment, exactly reproducing the component curve; both quantities must later receive priors or
+external calibration rather than inheriting
+v1's arbitrary 25% top-survivor setting. The legacy Python/HTML engines remain unchanged, and the v2
+primitives are not a trial forecast until subsequent BAT, likelihood, and simulation work wires them
+into the canonical engine.
 
 ### 3. Represent BAT randomization strata and regimens
 

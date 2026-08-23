@@ -33,6 +33,7 @@ has been established.
 | `V2_IMPLEMENTATION_PLAN.md` | Scientific and software roadmap for the conditional, protocol-compatible v2 forecast. |
 | `trial_design.py` | Cached, dependency-light classical two-look O'Brien–Fleming boundary used by the legacy audit; this is not the protocol's Lan-DeMets spending implementation planned for v2. |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-planned-strata replay of the interim boundary-crossing and final scenario-rejection rates. |
+| `survival_models.py` | Isolated v2 survival layer: scale-aware cure mixtures, population mortality, and pre-outcome frailty/case-mix selection followed by randomization. It is not wired into the legacy explorer. |
 
 ```bash
 pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)
@@ -48,6 +49,9 @@ plus synthetic fixtures that exercise each bounded no-GPS-cure fit-status branch
 upper/heavy boundary and light-edge, State B residual misfit; State C is the presets), so a
 change that silently moves a number or flips a fit status fails loudly. CI
 (`.github/workflows/ci.yml`) runs it on Python 3.9–3.12 and smoke-tests the CLI.
+The v2 survival tests independently verify OS-versus-net background-mortality handling,
+non-immortal cured survival, analytic/sampled agreement, and case-mix selection that cannot inspect
+future event times or manufacture a guaranteed-survival interval.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test

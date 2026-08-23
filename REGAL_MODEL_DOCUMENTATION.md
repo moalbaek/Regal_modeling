@@ -57,6 +57,7 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 | `regal_explorer.py` | Python engine (`bat_arm`, `build_plateau`, `build_no_gps_cure`, `mc`) with a CLI, 9-panel figure, and audit-only interim-efficacy fields not present in the browser. | scenario rates, A/B/C fit status, preset/non-responder sweeps, interim audit fields |
 | `trial_design.py` | Cached classical two-look O'Brien-Fleming boundary calculation for the legacy replay; not the protocol's Lan-DeMets spending implementation. | interim/final audit z boundaries |
 | `audit/interim_efficacy_replay.py` | Fixed-seed equal-strata operating-characteristic replay. | reproducible interim efficacy crossing, final rate, and median HR |
+| `survival_models.py` | Corrected, isolated v2 survival primitives; not consumed by the legacy explorer. | scale-aware OS/net cure mixtures, population mortality, pre-outcome frailty/case mix, post-selection randomization |
 
 Both share one enrollment reconstruction, one set of survival primitives, the same significance
 threshold (Section 2.1), and — critically — **one shared BAT arm** (`bat_arm`): the plateau and bounded-alternative
@@ -208,6 +209,11 @@ HMA ~22%, LDAC ~8%); two alternates ("low-venetoclax / access-constrained", "ven
 US-heavy") bracket the range.
 
 ### 2.5.1 Enrollment selection (eligibility filter)
+
+> **Legacy v1 mechanism.** The top-survivor truncation documented below remains only so the v1
+> scenario outputs stay reproducible. V2 does not select patients using future survival. Its
+> `survival_models.py` layer selects on baseline frailty before randomization, retains positive
+> early-event probability, and does not mechanically increase the cure fraction.
 
 The component medians in Section 2.5 describe **all** CR2 transplant-ineligible patients on each
 therapy. But a trial's eligibility bar (performance status, organ function, blast counts, …) enrols a
