@@ -65,6 +65,10 @@ def validation_report(
             "interim_events": design.interim_events,
             "final_events": design.final_events,
             "interim_information": design.interim_information,
+            "realized_information_policy": (
+                "include every death tied at a cutoff; use observed events / "
+                "planned final events and recalculate both sequential boundaries"
+            ),
             "one_sided_alpha": design.alpha,
             "protocol_efficacy_boundaries": protocol,
             "legacy_classical_audit_boundaries": legacy,

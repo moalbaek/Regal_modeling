@@ -144,10 +144,13 @@ stratum labels or multiple protocol-factor columns and uses tied-event hypergeom
 unstratified score and `exp(U/V)` one-step HR are returned only as named diagnostics.
 
 `simulation.py` applies those analyses at the 60th and 80th observed deaths, excluding patients not
-yet randomized at each event-calendar cutoff. Interim efficacy, assumed futility, and continuation
-are mutually exclusive; a continued trial can then reject, not reject, or fail to reach the final
-look. No futility rule is embedded in the committed efficacy design because its form and boundary
-are unpublished. `HazardRatioFutilityRule` makes an assumed one-step-HR cutoff explicit, and
+yet randomized at each event-calendar cutoff. It retains every death tied at the cutoff and uses the
+realized event count divided by 80 as the public design's information proxy, recalculating both
+sequential boundaries so overshoot does not silently make the design conservative or inflate alpha.
+Interim efficacy, assumed futility, and continuation are mutually exclusive; a continued trial can
+then reject, not reject, or fail to reach the final look. No futility rule is embedded in the
+committed efficacy design because its form and boundary are unpublished. `HazardRatioFutilityRule`
+makes an assumed one-step-HR cutoff explicit, and
 `audit/v2_trial_decision_validation.py` reports paired sensitivity rows for no futility and thresholds
 0.80 through 1.20. Its canonical correlated-normal null simulation pins branch conservation and
 approximately 0.025 overall type-I error. A separate exponential-null audit runs the complete

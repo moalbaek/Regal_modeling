@@ -1,6 +1,7 @@
 """Tests for v2 event-driven branches and operating-characteristic validation."""
 
 from dataclasses import replace
+import math
 import os
 import sys
 import unittest
@@ -11,6 +12,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+import simulation  # noqa: E402
 from simulation import (  # noqa: E402
     EventDrivenTrialData,
     REGAL_V2_EFFICACY_DESIGN,
@@ -137,6 +139,62 @@ class EventDrivenDecisionTest(unittest.TestCase):
         self.assertLess(result.final.cutoff_time, 1000.0)
         self.assertEqual(result.final.primary.events, 80)
 
+    def test_tied_cutoffs_use_realized_information_for_both_boundaries(self):
+        groups = paired_event_groups(29)
+        groups.append(
+            (30.0, list(GPS[29:34]) + list(BAT[29:34]))
+        )
+        groups += [
+            (31.0 + pair, [GPS[34 + pair], BAT[34 + pair]])
+            for pair in range(5)
+        ]
+        groups.append(
+            (36.0, list(GPS[39:43]) + list(BAT[39:43]))
+        )
+
+        result = evaluate_event_driven_trial(event_driven_fixture(groups))
+        expected = REGAL_V2_EFFICACY_DESIGN.efficacy_boundaries_for_event_counts(
+            68, 86
+        )
+
+        self.assertIs(result.interim_decision, InterimDecision.CONTINUE)
+        self.assertIs(result.final_decision, FinalDecision.DO_NOT_REJECT)
+        self.assertEqual(result.interim.observed_events, 68)
+        self.assertEqual(result.final.observed_events, 86)
+        self.assertAlmostEqual(result.interim.information_fraction, 68 / 80)
+        self.assertAlmostEqual(result.final.information_fraction, 86 / 80)
+        self.assertAlmostEqual(
+            result.interim.efficacy_boundary, expected["interim_z"]
+        )
+        self.assertAlmostEqual(
+            result.final.efficacy_boundary, expected["final_z"]
+        )
+        self.assertLess(
+            result.interim.efficacy_boundary,
+            REGAL_V2_EFFICACY_DESIGN.efficacy_boundaries["interim_z"],
+        )
+
+    def test_tie_reaching_final_target_skips_a_duplicate_interim_test(self):
+        groups = [
+            (1.0, list(GPS[:40]) + list(BAT[:40]))
+        ]
+        design = replace(
+            REGAL_V2_EFFICACY_DESIGN,
+            futility_rule=HazardRatioFutilityRule(0.5),
+        )
+
+        result = evaluate_event_driven_trial(
+            event_driven_fixture(groups), design
+        )
+
+        self.assertIs(result.interim_decision, InterimDecision.CONTINUE)
+        self.assertIs(result.final_decision, FinalDecision.DO_NOT_REJECT)
+        self.assertEqual(result.interim.observed_events, 80)
+        self.assertEqual(result.final.observed_events, 80)
+        self.assertIsNone(result.interim.efficacy_boundary)
+        self.assertAlmostEqual(result.final.efficacy_boundary, 1.959964, places=6)
+        self.assertEqual(result.interim.cutoff_time, result.final.cutoff_time)
+
     def test_data_and_design_contracts_are_validated_and_immutable(self):
         data = event_driven_fixture(paired_event_groups(30))
         with self.assertRaises(ValueError):
@@ -167,6 +225,27 @@ class EventDrivenDecisionTest(unittest.TestCase):
 
 
 class CanonicalValidationTest(unittest.TestCase):
+    def test_diagnostic_hr_mapping_pins_balanced_information_scaling(self):
+        z_values = np.array([-1.0, 0.0, 1.0])
+        actual = simulation._diagnostic_hr_from_z(z_values, event_count=100)
+        expected = np.exp(-2.0 * z_values / math.sqrt(100))
+        np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-15)
+
+    def test_alternative_mean_and_correlation_follow_information_scaling(self):
+        interim_z, final_z, normalized_mean = simulation._canonical_z_draws(
+            REGAL_V2_EFFICACY_DESIGN,
+            nsim=200000,
+            seed=1234,
+            final_z_mean=2.0,
+        )
+        rho = math.sqrt(REGAL_V2_EFFICACY_DESIGN.interim_information)
+        self.assertEqual(normalized_mean, 2.0)
+        self.assertAlmostEqual(np.mean(interim_z), 2.0 * rho, delta=0.01)
+        self.assertAlmostEqual(np.mean(final_z), 2.0, delta=0.01)
+        self.assertAlmostEqual(
+            np.corrcoef(interim_z, final_z)[0, 1], rho, delta=0.005
+        )
+
     def test_null_simulation_realizes_type_one_error_and_conserves_branches(self):
         result = simulate_canonical_operating_characteristics(
             nsim=300000, seed=20260823

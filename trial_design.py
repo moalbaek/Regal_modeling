@@ -141,8 +141,10 @@ def lan_demets_obrien_fleming_spending(information_fraction, alpha=0.025):
 
 
 @lru_cache(maxsize=None)
-def _solve_lan_demets_obrien_fleming_two_look(alpha, interim_information):
-    """Solve the two sequential z boundaries for the spending targets."""
+def _solve_lan_demets_obrien_fleming_two_look(
+    alpha, interim_information, final_information
+):
+    """Solve sequential z boundaries at the realized information fractions."""
 
     interim_spend = lan_demets_obrien_fleming_spending(
         interim_information, alpha
@@ -154,8 +156,11 @@ def _solve_lan_demets_obrien_fleming_two_look(alpha, interim_information):
         )
     normal = NormalDist()
     interim_z = -normal.inv_cdf(interim_spend)
-    final_spend = lan_demets_obrien_fleming_spending(1.0, alpha)
-    rho = sqrt(interim_information)
+    final_spending_information = min(final_information, 1.0)
+    final_spend = lan_demets_obrien_fleming_spending(
+        final_spending_information, alpha
+    )
+    rho = sqrt(interim_information / final_information)
 
     def crossing_probability(final_z):
         no_cross = _bivariate_normal_cdf(interim_z, final_z, rho)
@@ -171,38 +176,67 @@ def _solve_lan_demets_obrien_fleming_two_look(alpha, interim_information):
         else:
             upper = midpoint
     final_z = 0.5 * (lower + upper)
-    return interim_z, final_z, interim_spend, final_spend
+    return (
+        interim_z,
+        final_z,
+        interim_spend,
+        final_spend,
+        final_spending_information,
+        rho,
+    )
 
 
 def lan_demets_obrien_fleming_two_look(
-    alpha=0.025, interim_information=0.75
+    alpha=0.025, interim_information=0.75, final_information=1.0
 ):
     """Return v2 Lan-DeMets O'Brien-Fleming boundaries for two looks.
 
     At REGAL's 60/80 information fraction this returns approximately 2.340 at
     interim and 2.012 at final.  The first boundary spends ``alpha(t_1)``; the
     second is solved so the correlated probability of crossing either boundary
-    equals the cumulative spend at the final look.
+    equals the cumulative spend at the final look. Information fractions are
+    relative to the planned final information. ``final_information`` may exceed
+    one after an event-count overshoot; spending is then capped at one while the
+    canonical correlation continues to use the realized information ratio.
     """
 
+    if isinstance(alpha, bool) or isinstance(interim_information, bool):
+        raise ValueError("alpha and interim_information must be numeric")
+    if isinstance(final_information, bool):
+        raise ValueError("final_information must be numeric")
     try:
         alpha = float(alpha)
         interim_information = float(interim_information)
+        final_information = float(final_information)
     except (TypeError, ValueError) as error:
-        raise ValueError("alpha and interim_information must be numeric") from error
+        raise ValueError("information fractions and alpha must be numeric") from error
     # The spending function performs the finite/range checks.  Call it before
     # the cached solve so invalid NaNs never become cache keys.
     lan_demets_obrien_fleming_spending(interim_information, alpha)
     if interim_information >= 1.0:
         raise ValueError("interim_information must be strictly below 1")
-    interim, final, interim_spend, final_spend = (
-        _solve_lan_demets_obrien_fleming_two_look(alpha, interim_information)
+    if not isfinite(final_information) or final_information <= interim_information:
+        raise ValueError(
+            "final_information must be finite and exceed interim_information"
+        )
+    (
+        interim,
+        final,
+        interim_spend,
+        final_spend,
+        final_spending_information,
+        rho,
+    ) = _solve_lan_demets_obrien_fleming_two_look(
+        alpha, interim_information, final_information
     )
     return {
         "interim_z": interim,
         "final_z": final,
         "alpha": alpha,
         "interim_information": interim_information,
+        "final_information": final_information,
+        "final_spending_information": final_spending_information,
+        "canonical_correlation": rho,
         "interim_alpha_spent": interim_spend,
         "final_alpha_spent": final_spend,
         "spending_family": "Lan-DeMets O'Brien-Fleming",
@@ -452,6 +486,45 @@ class TrialDecisionDesign:
     def efficacy_boundaries(self):
         return lan_demets_obrien_fleming_two_look(
             self.alpha, self.interim_information
+        )
+
+    def efficacy_boundaries_for_event_counts(
+        self, interim_observed_events, final_observed_events=None
+    ):
+        """Return boundaries using observed event counts as information.
+
+        Every death tied at a calendar cutoff remains in the analysis. Event
+        count is the public design's available information proxy, so realized
+        counts are divided by the planned final count. A final-look overshoot
+        spends no more than the design alpha but still changes the canonical
+        correlation through its additional information.
+        """
+
+        counts = (interim_observed_events,)
+        if final_observed_events is not None:
+            counts += (final_observed_events,)
+        for value in counts:
+            if isinstance(value, bool) or not isinstance(value, Integral):
+                raise ValueError("observed event counts must be integers")
+            if value < 1:
+                raise ValueError("observed event counts must be positive")
+        interim_observed_events = int(interim_observed_events)
+        if final_observed_events is None:
+            final_observed_events = self.final_events
+        else:
+            final_observed_events = int(final_observed_events)
+        if interim_observed_events >= self.final_events:
+            raise ValueError(
+                "interim observed events must be below planned final events"
+            )
+        if final_observed_events <= interim_observed_events:
+            raise ValueError(
+                "final observed events must exceed interim observed events"
+            )
+        return lan_demets_obrien_fleming_two_look(
+            self.alpha,
+            interim_observed_events / self.final_events,
+            final_observed_events / self.final_events,
         )
 
 

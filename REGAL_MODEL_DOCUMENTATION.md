@@ -98,7 +98,7 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 | Stratification factors | CR2 vs CR2p; cytogenetic risk; MRD status; CR1 duration (<1 yr vs ≥1 yr) | [S] | Targeted Oncology [R4]. |
 | Design effect size | HR 0.636 ⇒ medians 12.6 mo (GPS) vs ~8.0–8.1 mo (BAT) | [S] | SAP/IR [R2]; conference coverage states 12.6 vs 8.1 mo [R7]. |
 | **Legacy-v1 significance threshold** | observed one-step HR ≤ **0.636**, i.e. z_crit = \|ln 0.636\|·√80 / 2 = **2.024** (one-sided p ≈ 0.0215) | [D] | Preserved for v1 numerical reproducibility; matches SELLAS's stated design effect size but is not the v2 boundary implementation. |
-| **V2 efficacy boundaries** | `z60 = 2.339711`; `z80 = 2.011777` | [D] | Calculated from one-sided 0.025 Lan–DeMets O'Brien–Fleming spending at information fractions 60/80 and 1. |
+| **V2 planned efficacy boundaries** | `z60 = 2.339711`; `z80 = 2.011777` | [D] | Calculated from one-sided 0.025 Lan–DeMets O'Brien–Fleming spending at information fractions 60/80 and 1; recalculated from realized event-count information if a tied cutoff overshoots. |
 | BAT-arm allowed agents | observation/hydroxyurea, hypomethylating agents (HMA), venetoclax, low-dose ara-C (LDAC); targeted maintenance (e.g. FLT3i) **excluded** | [S] | Targeted Oncology [R4]; OncLive [R5]. |
 
 > **Note on the analyses.** V1 uses an unstratified score and one-step `exp(U/V)` HR with the fixed
@@ -387,12 +387,14 @@ O'Brien–Fleming efficacy boundary, solely to reproduce the equal-strata operat
 That discrete-look `c/√t` boundary is not the protocol's Lan-DeMets alpha-spending construction;
 the numerical difference is small here, and it remains intact only for v1 reproducibility.
 
-The isolated v2 path now calculates the Lan-DeMets spending boundaries (`z60 = 2.339711`,
-`z80 = 2.011777`) and applies the protocol-factor stratified score at both event-driven cutoffs.
-It simulates mutually exclusive efficacy-stop, assumed-futility-stop, and continuation branches;
-continued trials can reject, not reject, or fail to reach the 80th event. This implements the trial
-mechanics but does not yet use the fact that REGAL actually continued as likelihood information—that
-conditioning remains WP6.
+The isolated v2 path now calculates the planned Lan-DeMets spending boundaries
+(`z60 = 2.339711`, `z80 = 2.011777`) and applies the protocol-factor stratified score at both
+event-driven cutoffs. Every death tied at a cutoff is retained; observed events divided by the
+planned 80 are used as the information proxy, and both sequential boundaries are recalculated to
+preserve one-sided alpha. It simulates mutually exclusive efficacy-stop, assumed-futility-stop, and
+continuation branches; continued trials can reject, not reject, or fail to reach the 80th event. This
+implements the trial mechanics but does not yet use the fact that REGAL actually continued as
+likelihood information—that conditioning remains WP6.
 
 | Control | Range / default | Type | Role |
 |---------|-----------------|------|------|
@@ -401,8 +403,10 @@ conditioning remains WP6.
 
 **Mechanics.** V1 computes an unstratified score and implied one-step HR at the 60th death, then only
 flags the median simulated HR against its UI threshold. In v2, `evaluate_event_driven_trial` excludes
-patients not yet randomized at each calendar cutoff, forms risk sets separately within the combined
-protocol strata, and applies efficacy first, assumed futility second, and continuation otherwise.
+patients not yet randomized at each calendar cutoff, retains every death tied at the cutoff, forms
+risk sets separately within the combined protocol strata, recalculates alpha spending from realized
+event-count information, and applies efficacy first, assumed futility second, and continuation
+otherwise.
 The unstratified score and one-step HR are named diagnostics; efficacy uses the stratified score.
 `audit/v2_trial_decision_validation.py` uses paired canonical-normal draws to validate one-sided null
 type-I error and show how the assumed futility threshold reallocates branches without Monte-Carlo
@@ -648,8 +652,9 @@ audit-only fields are intentionally absent from the browser; automated full pari
 
 1. **The v2 decision mechanics match the public trial design.** The confirmed primary test is a
    stratified Cox at one-sided 0.025 with a Lan–DeMets OBF interim [R1]. V2 now calculates the
-   2.339711/2.011777 boundaries and applies the equivalent stratified score test. V1's unstratified
-   HR ≤ 0.636 rule remains a reproducibility-only approximation.
+   planned 2.339711/2.011777 boundaries, recalculates them after a tied-event overshoot, and applies
+   the equivalent stratified score test. V1's unstratified HR ≤ 0.636 rule remains a
+   reproducibility-only approximation.
 2. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 3. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a

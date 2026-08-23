@@ -7,16 +7,20 @@ futility rule is unpublished, so the committed efficacy design has no futility
 default and ``simulate_futility_sensitivity_grid`` reports explicit assumed
 hazard-ratio thresholds instead.
 
-The canonical-normal simulator validates alpha spending and branch conservation.
-It is an operating-characteristic diagnostic, not a patient-level REGAL forecast
-and not conditioning on the observed interim continuation.  Patient-level data
-use ``evaluate_event_driven_trial`` and the stratified analysis in
+All deaths tied at an event-calendar cutoff remain in the analysis. The
+patient-level path uses the realized event count as the information proxy and
+recalculates the Lan-DeMets boundaries; the canonical-normal simulator validates
+alpha spending and branch conservation. It is an operating-characteristic
+diagnostic, not a patient-level REGAL forecast and not conditioning on the
+observed interim continuation. Patient-level data use
+``evaluate_event_driven_trial`` and the stratified analysis in
 ``trial_design.py``; the unstratified score and one-step HR are diagnostics only.
 """
 
 from dataclasses import dataclass, replace
 from math import isfinite, sqrt
 from numbers import Integral
+from statistics import NormalDist
 from typing import Optional
 
 import numpy as np
@@ -27,7 +31,9 @@ from trial_design import (
     InterimDecision,
     StratifiedLogRankResult,
     TrialDecisionDesign,
+    _binary_indicator,
     classify_interim,
+    lan_demets_obrien_fleming_spending,
     stratified_logrank,
     unstratified_logrank_diagnostic,
 )
@@ -35,18 +41,6 @@ from trial_design import (
 
 REGAL_V2_EFFICACY_DESIGN = TrialDecisionDesign()
 FUTILITY_HR_SENSITIVITY_GRID = (None, 0.80, 0.90, 1.00, 1.10, 1.20)
-
-
-def _binary_indicator(values, name):
-    try:
-        array = np.asarray(values, dtype=float)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{name} must contain only zero/one values") from error
-    if array.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional")
-    if np.any(~np.isfinite(array)) or np.any((array != 0.0) & (array != 1.0)):
-        raise ValueError(f"{name} must contain only zero/one values")
-    return array.astype(bool)
 
 
 @dataclass(frozen=True, eq=False)
@@ -125,9 +119,11 @@ class AnalysisSnapshot:
 
     planned_events: int
     observed_events: int
+    information_fraction: float
     cutoff_time: float
     primary: StratifiedLogRankResult
     unstratified_diagnostic: StratifiedLogRankResult
+    efficacy_boundary: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -148,7 +144,7 @@ class TrialDecisionResult:
         )
 
 
-def _analysis_at_event_count(data, planned_events):
+def _analysis_at_event_count(data, planned_events, planned_final_events):
     event_calendar = (
         data.entry_time[data.event_observed]
         + data.followup_time[data.event_observed]
@@ -168,9 +164,11 @@ def _analysis_at_event_count(data, planned_events):
     diagnostic = unstratified_logrank_diagnostic(
         analysis_time, event, treatment
     )
+    observed_events = int(np.count_nonzero(event))
     return AnalysisSnapshot(
         planned_events=planned_events,
-        observed_events=int(np.count_nonzero(event)),
+        observed_events=observed_events,
+        information_fraction=observed_events / planned_final_events,
         cutoff_time=cutoff,
         primary=primary,
         unstratified_diagnostic=diagnostic,
@@ -178,22 +176,59 @@ def _analysis_at_event_count(data, planned_events):
 
 
 def evaluate_event_driven_trial(data, design=REGAL_V2_EFFICACY_DESIGN):
-    """Apply interim and final decisions to one patient-level trial realization."""
+    """Apply realized-information decisions to one patient-level trial.
+
+    Calendar ties are not broken arbitrarily: every death at a trigger time is
+    included. Event counts proxy information relative to the planned final
+    count. If a tie reaches the final target at the first operational analysis,
+    the duplicate interim look is skipped and the cumulative final alpha is
+    applied once.
+    """
 
     if not isinstance(data, EventDrivenTrialData):
         raise ValueError("data must be EventDrivenTrialData")
     if not isinstance(design, TrialDecisionDesign):
         raise ValueError("design must be TrialDecisionDesign")
-    boundaries = design.efficacy_boundaries
-    interim = _analysis_at_event_count(data, design.interim_events)
+    interim = _analysis_at_event_count(
+        data, design.interim_events, design.final_events
+    )
     if interim is None:
         return TrialDecisionResult(
             design=design,
             interim_decision=InterimDecision.NOT_REACHED,
             final_decision=FinalDecision.NOT_APPLICABLE,
         )
+
+    if interim.observed_events >= design.final_events:
+        final = _analysis_at_event_count(
+            data, design.final_events, design.final_events
+        )
+        final_alpha_spent = lan_demets_obrien_fleming_spending(
+            1.0, design.alpha
+        )
+        final_boundary = -NormalDist().inv_cdf(final_alpha_spent)
+        final = replace(final, efficacy_boundary=final_boundary)
+        final_decision = (
+            FinalDecision.REJECT
+            if isfinite(final.primary.z) and final.primary.z >= final_boundary
+            else FinalDecision.DO_NOT_REJECT
+        )
+        return TrialDecisionResult(
+            design=design,
+            interim_decision=InterimDecision.CONTINUE,
+            final_decision=final_decision,
+            interim=interim,
+            final=final,
+        )
+
+    interim_boundaries = design.efficacy_boundaries_for_event_counts(
+        interim.observed_events
+    )
+    interim = replace(
+        interim, efficacy_boundary=interim_boundaries["interim_z"]
+    )
     interim_decision = classify_interim(
-        interim.primary, boundaries["interim_z"], design.futility_rule
+        interim.primary, interim.efficacy_boundary, design.futility_rule
     )
     if interim_decision is not InterimDecision.CONTINUE:
         return TrialDecisionResult(
@@ -203,7 +238,9 @@ def evaluate_event_driven_trial(data, design=REGAL_V2_EFFICACY_DESIGN):
             interim=interim,
         )
 
-    final = _analysis_at_event_count(data, design.final_events)
+    final = _analysis_at_event_count(
+        data, design.final_events, design.final_events
+    )
     if final is None:
         return TrialDecisionResult(
             design=design,
@@ -211,10 +248,14 @@ def evaluate_event_driven_trial(data, design=REGAL_V2_EFFICACY_DESIGN):
             final_decision=FinalDecision.NOT_REACHED,
             interim=interim,
         )
+    realized_boundaries = design.efficacy_boundaries_for_event_counts(
+        interim.observed_events, final.observed_events
+    )
+    final = replace(final, efficacy_boundary=realized_boundaries["final_z"])
     final_decision = (
         FinalDecision.REJECT
         if isfinite(final.primary.z)
-        and final.primary.z >= boundaries["final_z"]
+        and final.primary.z >= final.efficacy_boundary
         else FinalDecision.DO_NOT_REJECT
     )
     return TrialDecisionResult(
@@ -341,11 +382,6 @@ class BranchOperatingCharacteristics:
             ),
             "p_overall_success": self.p_overall_success,
         }
-
-
-# Retain the more specific name exposed by the initial WP4 implementation while
-# using the generic summary for both canonical and patient-level validation.
-CanonicalOperatingCharacteristics = BranchOperatingCharacteristics
 
 
 def _validate_simulation_inputs(nsim, final_z_mean):
@@ -612,7 +648,6 @@ def simulate_patient_level_exponential_null(
 __all__ = (
     "AnalysisSnapshot",
     "BranchOperatingCharacteristics",
-    "CanonicalOperatingCharacteristics",
     "EventDrivenTrialData",
     "FUTILITY_HR_SENSITIVITY_GRID",
     "REGAL_V2_EFFICACY_DESIGN",

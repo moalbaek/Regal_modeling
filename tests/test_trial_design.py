@@ -121,6 +121,22 @@ class V2LanDeMetsBoundaryTest(unittest.TestCase):
             lan_demets_obrien_fleming_spending(1.0, 0.025), 0.025, places=12
         )
 
+    def test_realized_final_overshoot_preserves_sequential_alpha(self):
+        boundary = lan_demets_obrien_fleming_two_look(
+            alpha=0.025,
+            interim_information=68 / 80,
+            final_information=86 / 80,
+        )
+        overall_crossing = 1.0 - trial_design._bivariate_normal_cdf(
+            boundary["interim_z"],
+            boundary["final_z"],
+            boundary["canonical_correlation"],
+        )
+        self.assertAlmostEqual(overall_crossing, 0.025, places=12)
+        self.assertAlmostEqual(boundary["final_information"], 86 / 80)
+        self.assertEqual(boundary["final_spending_information"], 1.0)
+        self.assertAlmostEqual(boundary["final_alpha_spent"], 0.025)
+
     def test_legacy_and_v2_boundary_families_remain_distinct(self):
         legacy = obrien_fleming_two_look(0.025, 0.75)
         protocol = lan_demets_obrien_fleming_two_look(0.025, 0.75)

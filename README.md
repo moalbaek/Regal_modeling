@@ -60,8 +60,9 @@ they have a validated excess-hazard decomposition. The v2 BAT tests separately p
 delivered-regimen, component-exposure, and single-outcome-profile marginals, including exact
 categorical boundaries, seeded marginal recovery, custom-library coverage, and combination regimens
 that count as one patient even when they create more than one component exposure.
-The v2 decision tests independently pin the 2.339711/2.011777 protocol-spending boundaries, tied-event
-stratified score calculations over multiple factor columns, all interim/final branches, event-calendar
+The v2 decision tests independently pin the planned 2.339711/2.011777 protocol-spending boundaries,
+tied-event stratified score calculations over multiple factor columns, realized-information boundary
+recalculation when all deaths tied at a cutoff are retained, all interim/final branches, event-calendar
 cutoffs, null type-I error, and paired sensitivity rows for the unpublished futility threshold. The
 canonical audit is backed by a separate exponential-null run through the complete patient-level
 calendar-trigger and stratified-analysis path. The legacy classical 2.327/2.015 audit boundary
