@@ -330,7 +330,7 @@ class FrailtyCaseMix:
 
     @staticmethod
     def randomize(frailty, rng, treatment_fraction=0.5):
-        """Randomize an eligible cohort after selection, with exact arm counts."""
+        """Randomize after selection, using unbiased rounding for arm counts."""
 
         risks = _positive_frailty(frailty)
         if risks.ndim != 1 or len(risks) < 1:
@@ -338,7 +338,11 @@ class FrailtyCaseMix:
         fraction = float(treatment_fraction)
         if not isfinite(fraction) or not 0.0 <= fraction <= 1.0:
             raise ValueError("treatment_fraction must be in [0, 1]")
-        treatment_count = int(np.floor(len(risks) * fraction + 0.5))
+        exact_treatment_count = len(risks) * fraction
+        treatment_count = int(np.floor(exact_treatment_count))
+        treatment_count += int(
+            rng.random() < exact_treatment_count - treatment_count
+        )
         treatment = np.zeros(len(risks), dtype=bool)
         treatment[rng.permutation(len(risks))[:treatment_count]] = True
         return RandomizedCohort(frailty=risks, treatment=treatment)

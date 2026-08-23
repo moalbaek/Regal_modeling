@@ -197,6 +197,27 @@ class FrailtyCaseMixTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             cohort.frailty[0] = 99.0
 
+    def test_odd_cohort_randomizes_the_extra_patient_without_arm_bias(self):
+        class ControlledRng:
+            def __init__(self, rounding_draw):
+                self.rounding_draw = rounding_draw
+
+            def random(self):
+                return self.rounding_draw
+
+            @staticmethod
+            def permutation(size):
+                return np.arange(size)
+
+        frailty = np.ones(11)
+        rounded_up = self.case_mix.randomize(frailty, ControlledRng(0.49))
+        rounded_down = self.case_mix.randomize(frailty, ControlledRng(0.51))
+        self.assertEqual(np.count_nonzero(rounded_up.treatment), 6)
+        self.assertEqual(np.count_nonzero(rounded_down.treatment), 5)
+
+        single_control = self.case_mix.randomize(np.ones(1), ControlledRng(0.75))
+        self.assertEqual(np.count_nonzero(single_control.treatment), 0)
+
     def test_randomized_cohort_uses_identity_equality_and_hashing(self):
         first = self.case_mix.sample_randomized(20, np.random.default_rng(120))
         second = self.case_mix.sample_randomized(20, np.random.default_rng(120))
