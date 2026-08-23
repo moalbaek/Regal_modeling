@@ -31,7 +31,7 @@ from trial_design import (
     InterimDecision,
     StratifiedLogRankResult,
     TrialDecisionDesign,
-    _binary_indicator,
+    binary_indicator,
     classify_interim,
     lan_demets_obrien_fleming_spending,
     stratified_logrank,
@@ -77,8 +77,8 @@ class EventDrivenTrialData:
         if np.any(np.isnan(followup)) or np.any(followup < 0.0):
             raise ValueError("followup_time must contain non-negative, non-NaN values")
 
-        event = _binary_indicator(self.event_observed, "event_observed")
-        treatment = _binary_indicator(self.treatment, "treatment")
+        event = binary_indicator(self.event_observed, "event_observed")
+        treatment = binary_indicator(self.treatment, "treatment")
         if len(event) != len(entry) or len(treatment) != len(entry):
             raise ValueError(
                 "event_observed and treatment must have one value per subject"

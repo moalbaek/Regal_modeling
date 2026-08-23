@@ -265,7 +265,9 @@ class StratifiedLogRankResult:
         return self.variance > 0.0
 
 
-def _binary_indicator(values, name):
+def binary_indicator(values, name):
+    """Validate a one-dimensional zero/one vector and return booleans."""
+
     try:
         array = np.asarray(values, dtype=float)
     except (TypeError, ValueError) as error:
@@ -328,8 +330,8 @@ def stratified_logrank(time, event, treatment, strata):
         raise ValueError("time must be a non-empty one-dimensional array")
     if np.any(~np.isfinite(times)) or np.any(times < 0.0):
         raise ValueError("time must contain finite, non-negative values")
-    events = _binary_indicator(event, "event")
-    treatments = _binary_indicator(treatment, "treatment")
+    events = binary_indicator(event, "event")
+    treatments = binary_indicator(treatment, "treatment")
     if len(events) != len(times) or len(treatments) != len(times):
         raise ValueError("time, event, and treatment must have the same length")
     groups = _stratum_groups(strata, len(times))
@@ -556,6 +558,7 @@ __all__ = (
     "InterimDecision",
     "StratifiedLogRankResult",
     "TrialDecisionDesign",
+    "binary_indicator",
     "classify_interim",
     "lan_demets_obrien_fleming_spending",
     "lan_demets_obrien_fleming_two_look",

@@ -127,10 +127,14 @@ class V2LanDeMetsBoundaryTest(unittest.TestCase):
             interim_information=68 / 80,
             final_information=86 / 80,
         )
+        expected_correlation = math.sqrt((68 / 80) / (86 / 80))
+        self.assertAlmostEqual(
+            boundary["canonical_correlation"], expected_correlation, places=12
+        )
         overall_crossing = 1.0 - trial_design._bivariate_normal_cdf(
             boundary["interim_z"],
             boundary["final_z"],
-            boundary["canonical_correlation"],
+            expected_correlation,
         )
         self.assertAlmostEqual(overall_crossing, 0.025, places=12)
         self.assertAlmostEqual(boundary["final_information"], 86 / 80)
