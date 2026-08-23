@@ -888,8 +888,14 @@ def enrollment_anchor_checks(history=None, model=None):
     return tuple(checks)
 
 
-def enrollment_log_likelihood(history, model):
-    """Joint fixed-N likelihood of non-projected enrollment disclosures."""
+def enrollment_log_likelihood(
+    history,
+    model,
+    *,
+    max_lag_combinations=4096,
+    max_states=DEFAULT_MAX_DP_STATES,
+):
+    """Joint fixed-N likelihood, mixed over enrollment reporting lags."""
 
     if not isinstance(history, PublicHistory):
         raise ValueError("history must be PublicHistory")
@@ -902,23 +908,31 @@ def enrollment_log_likelihood(history, model):
         for item in history.enrollment_observations
         if item.use_in_likelihood and not item.is_projection
     ]
-    constraints = [item.cutoff_choices()[0][0] for item in observations]
-    merged = _merge_constraints(constraints, history.target_enrollment)
-    if merged is None:
-        return float("-inf")
-    matrix = model.cumulative_probability_matrix(
-        tuple(item.cutoff_date for item in merged)
-    )
-    return joint_cumulative_count_log_probability(
-        matrix,
-        tuple(item.lower for item in merged),
-        tuple(item.upper for item in merged),
+    choice_sets = [item.cutoff_choices() for item in observations]
+    return _constraint_mixture_log_likelihood(
+        choice_sets,
+        lambda cutoff: np.full(
+            history.target_enrollment,
+            model.cumulative_probability(cutoff),
+            dtype=float,
+        ),
+        history.target_enrollment,
+        provider_label="enrollment probability provider",
+        max_lag_combinations=max_lag_combinations,
+        max_states=max_states,
     )
 
 
 @dataclass(frozen=True, eq=False)
 class CalendarEventProbabilityProvider:
-    """Convert entry dates and a survival callable to calendar event CDFs."""
+    """Convert entry dates and a survival callable to calendar event CDFs.
+
+    This adapter treats ``1 - S(t)`` as the probability of an observable death,
+    so it assumes complete follow-up apart from administrative censoring. It
+    does not add an independent loss-to-follow-up or withdrawal process.
+    Callers that need attrition should supply an adjusted calendar event-CDF
+    provider directly to ``PublicHistoryLikelihood.event_log_likelihood``.
+    """
 
     entry_dates: Tuple[date, ...]
     survival_probability: Callable[[np.ndarray], np.ndarray]
@@ -1024,6 +1038,68 @@ def _logsumexp(values):
     return maximum + log(sum(exp(value - maximum) for value in finite_values))
 
 
+def _constraint_mixture_log_likelihood(
+    choice_sets,
+    cumulative_probability,
+    patient_count,
+    *,
+    provider_label,
+    max_lag_combinations,
+    max_states,
+):
+    """Mix one joint integer-count likelihood over disclosure-lag choices."""
+
+    if not callable(cumulative_probability):
+        raise ValueError(f"{provider_label} must be callable")
+    patient_count = _integer(patient_count, "patient_count", minimum=1)
+    choice_sets = tuple(tuple(choices) for choices in choice_sets)
+    if not choice_sets:
+        return 0.0
+    if any(not choices for choices in choice_sets):
+        raise ValueError("reporting-lag choice sets must be non-empty")
+    combination_count = prod(len(choices) for choices in choice_sets)
+    max_lag_combinations = _integer(
+        max_lag_combinations, "max_lag_combinations", minimum=1
+    )
+    if combination_count > max_lag_combinations:
+        raise ValueError(
+            f"reporting-lag mixture has {combination_count:,} combinations, "
+            f"above the configured {max_lag_combinations:,} limit"
+        )
+
+    probability_cache = {}
+    mixture_terms = []
+    for choices in product(*choice_sets):
+        constraints = [choice[0] for choice in choices]
+        mixture_weight = prod(choice[1] for choice in choices)
+        if mixture_weight <= 0.0:
+            continue
+        merged = _merge_constraints(constraints, patient_count)
+        if merged is None:
+            continue
+        columns = []
+        for constraint in merged:
+            cutoff = constraint.cutoff_date
+            if cutoff not in probability_cache:
+                values = np.asarray(cumulative_probability(cutoff), dtype=float)
+                if values.ndim != 1 or len(values) != patient_count:
+                    raise ValueError(
+                        f"{provider_label} must return one value per randomized patient"
+                    )
+                probability_cache[cutoff] = values
+            columns.append(probability_cache[cutoff])
+        matrix = np.column_stack(columns)
+        component = joint_cumulative_count_log_probability(
+            matrix,
+            tuple(item.lower for item in merged),
+            tuple(item.upper for item in merged),
+            max_states=max_states,
+        )
+        if isfinite(component):
+            mixture_terms.append(log(mixture_weight) + component)
+    return _logsumexp(mixture_terms)
+
+
 @dataclass(frozen=True)
 class PublicHistoryLikelihood:
     """Correlated enrollment- and event-count likelihood components.
@@ -1051,8 +1127,18 @@ class PublicHistoryLikelihood:
             raise ValueError("enrollment model and history totals differ")
         object.__setattr__(self, "enrollment_model", model)
 
-    def enrollment_log_likelihood(self):
-        return enrollment_log_likelihood(self.history, self.enrollment_model)
+    def enrollment_log_likelihood(
+        self,
+        *,
+        max_lag_combinations=4096,
+        max_states=DEFAULT_MAX_DP_STATES,
+    ):
+        return enrollment_log_likelihood(
+            self.history,
+            self.enrollment_model,
+            max_lag_combinations=max_lag_combinations,
+            max_states=max_states,
+        )
 
     def event_log_likelihood(
         self,
@@ -1070,63 +1156,11 @@ class PublicHistoryLikelihood:
             for observation in self.history.event_observations
             if observation.use_in_likelihood and not observation.is_projection
         ]
-        if not choice_sets:
-            return 0.0
-        combination_count = prod(len(choices) for choices in choice_sets)
-        max_lag_combinations = _integer(
-            max_lag_combinations, "max_lag_combinations", minimum=1
+        return _constraint_mixture_log_likelihood(
+            choice_sets,
+            cumulative_event_probability,
+            self.history.target_enrollment,
+            provider_label="event probability provider",
+            max_lag_combinations=max_lag_combinations,
+            max_states=max_states,
         )
-        if combination_count > max_lag_combinations:
-            raise ValueError(
-                f"reporting-lag mixture has {combination_count:,} combinations, "
-                f"above the configured {max_lag_combinations:,} limit"
-            )
-        probability_cache = {}
-        patient_count = None
-        mixture_terms = []
-        for choices in product(*choice_sets):
-            constraints = [choice[0] for choice in choices]
-            mixture_weight = prod(choice[1] for choice in choices)
-            if mixture_weight <= 0.0:
-                continue
-            if patient_count is None:
-                first_date = min(item.cutoff_date for item in constraints)
-                first = np.asarray(
-                    cumulative_event_probability(first_date), dtype=float
-                )
-                if first.ndim != 1 or len(first) < 1:
-                    raise ValueError(
-                        "event probability provider must return a non-empty vector"
-                    )
-                probability_cache[first_date] = first
-                patient_count = len(first)
-                if patient_count != self.history.target_enrollment:
-                    raise ValueError(
-                        "event probability provider must return one value per randomized patient"
-                    )
-            merged = _merge_constraints(constraints, patient_count)
-            if merged is None:
-                continue
-            columns = []
-            for constraint in merged:
-                cutoff = constraint.cutoff_date
-                if cutoff not in probability_cache:
-                    values = np.asarray(
-                        cumulative_event_probability(cutoff), dtype=float
-                    )
-                    if values.ndim != 1 or len(values) != patient_count:
-                        raise ValueError(
-                            "event probability provider changed patient dimension"
-                        )
-                    probability_cache[cutoff] = values
-                columns.append(probability_cache[cutoff])
-            matrix = np.column_stack(columns)
-            component = joint_cumulative_count_log_probability(
-                matrix,
-                tuple(item.lower for item in merged),
-                tuple(item.upper for item in merged),
-                max_states=max_states,
-            )
-            if isfinite(component):
-                mixture_terms.append(log(mixture_weight) + component)
-        return _logsumexp(mixture_terms)

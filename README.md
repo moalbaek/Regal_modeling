@@ -72,7 +72,8 @@ calendar-trigger and stratified-analysis path. The legacy classical 2.327/2.015 
 remains unchanged. The v2 public-history tests brute-force the joint integer-count likelihood on
 small cohorts, prove that cumulative count marginals are not multiplied as independent, forbid
 pre-opening enrollment, pin all 20/104/126 accrual anchors, distinguish threshold and as-of evidence,
-and integrate the unannounced 80th event over explicit reporting-lag uncertainty. The 104-patient
+and integrate both the unknown event-60 threshold date and the unannounced 80th event over explicit
+reporting-lag uncertainty. The 104-patient
 planning projection centers the provisional reference path but is deliberately excluded from
 likelihood evidence; the reference path is not an independent Bayesian prior.
 

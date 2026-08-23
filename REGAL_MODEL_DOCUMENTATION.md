@@ -115,7 +115,7 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 
 | Date | Cumulative deaths | % of 126 | Type | Source |
 |------|-------------------|----------|------|--------|
-| 2024-12-10 | 60 | 47.6% | [S] threshold hit | SELLAS announced that the prespecified threshold had been reached that day [R9]; IDMC continuation was announced Jan 2025 [R4][R5]. |
+| Announced 2024-12-10 | 60 | 47.6% | [S] threshold hit | SELLAS announced that the prespecified threshold had been reached, but did not disclose the exact threshold date [R9]. WP5 integrates an explicit 0-14 day threshold-to-announcement lag assumption; IDMC continuation was announced Jan 2025 [R4][R5]. |
 | 2025-12-26 | 72 | 57.1% | [S] exact/as-of | CRO count as of 26 Dec, announced by SELLAS 29 Dec 2025 [R3]. |
 | 2026-05-11 | 78 | 61.9% | [S] | SEC 8-K exhibit 99.1 and Q1-2026 release, 12 May 2026 [R6]. |
 | 2026-08-11 | 80 not announced; last exact count remains 78 | — | [S]/right censor | SELLAS said REGAL was still approaching event 80 and would announce when it occurs [R8]. WP5 treats this as censoring of the announcement process with explicit 0-14 day lag uncertainty, not as an invented event count on 11 Aug. |
@@ -152,6 +152,11 @@ censor. These are the WP5 likelihood ingredients for `P(public history | fixed s
 quantity conditioned on the IDMC decision and not a posterior forecast. The marginal enrollment-anchor likelihood and event likelihood conditional on
 patient-level calendar CDFs remain separate; WP6 must integrate them over one consistent latent
 enrollment history rather than assume an unjustified factorization.
+
+The convenience calendar-CDF adapter assumes complete death ascertainment apart from administrative
+censoring; it does not add an independent loss-to-follow-up or withdrawal process. That assumption
+is explicit because any future attrition model must enter through an adjusted calendar event CDF
+rather than silently alter the observed event history.
 
 ### 2.4 Interim disclosures (Jan 2025, at 60 deaths)
 

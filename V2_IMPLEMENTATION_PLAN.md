@@ -186,7 +186,10 @@ It converts those CDFs to mutually exclusive calendar intervals and uses dynamic
 the Poisson-multinomial mass of every latent patient/event allocation compatible with the cumulative
 constraints. Thus 60/72/78 are evaluated jointly rather than as independent residuals, while
 heterogeneous enrollment dates and survival profiles remain available to the caller. The public data
-distinguish the 60-event threshold hit from the exact 72- and 78-event as-of counts. SELLAS's
+distinguish the 60-event threshold hit from the exact 72- and 78-event as-of counts. Because the
+60-event announcement did not disclose the exact threshold date, that occurrence date is integrated
+over the same explicit 0-14 day threshold-to-announcement lag sensitivity model used for event 80.
+SELLAS's
 2026-08-11 statement that the study was still approaching event 80 is encoded as announcement-process
 right censoring, integrated over an explicit 0-14 day reporting-lag sensitivity distribution. The
 lag prior is an assumption, not a company disclosure. WP5 deliberately exposes the marginal

@@ -9,7 +9,7 @@ a REGAL forecast.
 
 import argparse
 from dataclasses import replace
-from math import exp, isfinite, log
+from math import isfinite, log
 import os
 import sys
 
@@ -72,7 +72,12 @@ def run(median_months=28.0, seed=20260823):
         )
         if not check.reachable or not check.centered:
             raise SystemExit("default accrual model failed an anchor gate")
-    print(f"  joint enrollment log likelihood: {likelihood.enrollment_log_likelihood():.6f}")
+    print(
+        "  joint enrollment log likelihood "
+        "(self-consistency under the data-centered reference path; "
+        "not independent evidence): "
+        f"{likelihood.enrollment_log_likelihood():.6f}"
+    )
 
     dates = model.sample_enrollment_dates(np.random.default_rng(seed))
     if min(dates) < history.study_start:

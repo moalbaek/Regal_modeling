@@ -72,7 +72,7 @@
   "event_observations": [
     {
       "id": "interim_60_threshold",
-      "observation_date": "2024-12-10",
+      "observation_date": null,
       "announcement_date": "2024-12-10",
       "observation_type": "threshold_hit",
       "count": 60,
@@ -80,15 +80,16 @@
       "count_upper": 60,
       "use_in_likelihood": true,
       "reporting_lag": {
-        "distribution": "fixed",
-        "days": 0
+        "distribution": "discrete_uniform",
+        "min_days": 0,
+        "max_days": 14
       },
       "source": {
         "title": "SELLAS Life Sciences Triggers Interim Analysis in Phase 3 REGAL Trial of GPS in Acute Myeloid Leukemia",
         "url": "https://ir.sellaslifesciences.com/news/News-Details/2024/SELLAS-Life-Sciences-Triggers-Interim-Analysis-in-Phase-3-REGAL-Trial-of-GPS-in-Acute-Myeloid-Leukemia/",
         "published_date": "2024-12-10"
       },
-      "notes": "The disclosure says the prespecified 60-death threshold was reached and announced on this date. Threshold hitting is not treated as an ordinary noisy as-of count."
+      "notes": "The disclosure announced on December 10 that the prespecified 60-death threshold had been reached, but it did not disclose the exact threshold date. Threshold hitting is not treated as an ordinary noisy as-of count. The committed 0-14 day discrete-uniform threshold-to-announcement lag matches the event-80 sensitivity model and is an explicit assumption, not a disclosed fact."
     },
     {
       "id": "events_72_as_of",

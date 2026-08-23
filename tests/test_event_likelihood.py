@@ -77,7 +77,13 @@ class PublicHistoryDataTest(unittest.TestCase):
     def test_event_disclosures_preserve_distinct_observation_semantics(self):
         by_count = {item.count: item for item in self.history.event_observations}
         self.assertIs(by_count[60].observation_type, ObservationType.THRESHOLD_HIT)
-        self.assertEqual(by_count[60].observation_date, date(2024, 12, 10))
+        self.assertIsNone(by_count[60].observation_date)
+        self.assertEqual(by_count[60].announcement_date, date(2024, 12, 10))
+        self.assertEqual(by_count[60].reporting_lag.days, tuple(range(15)))
+        self.assertEqual(
+            [choice[0].cutoff_date for choice in by_count[60].cutoff_choices()],
+            [date(2024, 12, 10) - timedelta(days=lag) for lag in range(15)],
+        )
         self.assertIs(by_count[72].observation_type, ObservationType.EXACT_AS_OF)
         self.assertEqual(by_count[72].announcement_date, date(2025, 12, 29))
         self.assertEqual(by_count[72].reporting_lag.days, (3,))
@@ -263,6 +269,58 @@ class EnrollmentModelTest(unittest.TestCase):
         self.assertEqual(
             enrollment_log_likelihood(changed_history, self.model), baseline
         )
+
+    def test_enrollment_reporting_lag_is_mixed_outside_count_likelihood(self):
+        first = next(
+            item
+            for item in self.history.enrollment_observations
+            if item.observation_id == "first_20_before_protocol_v3"
+        )
+        announcement = date(2022, 5, 2)
+        threshold = replace(
+            first,
+            observation_date=None,
+            announcement_date=announcement,
+            observation_type=ObservationType.THRESHOLD_HIT,
+            count_upper=20,
+            reporting_lag=ReportingLag(
+                "discrete_pmf", (0, 2), (0.25, 0.75)
+            ),
+            notes="Synthetic enrollment threshold with uncertain reporting lag.",
+            accrual_anchor=False,
+        )
+        observations = tuple(
+            threshold if item is first else item
+            for item in self.history.enrollment_observations
+        )
+        changed_history = replace(
+            self.history, enrollment_observations=observations
+        )
+        completion = next(
+            item
+            for item in observations
+            if item.observation_id == "enrollment_complete"
+        )
+
+        expected = 0.0
+        for constraint, weight in threshold.cutoff_choices():
+            matrix = self.model.cumulative_probability_matrix(
+                (constraint.cutoff_date, completion.observation_date)
+            )
+            expected += weight * joint_cumulative_count_probability(
+                matrix,
+                (20, 126),
+                (20, 126),
+            )
+
+        actual = enrollment_log_likelihood(changed_history, self.model)
+        self.assertAlmostEqual(exp(actual), expected, places=14)
+        with self.assertRaisesRegex(ValueError, "lag mixture"):
+            enrollment_log_likelihood(
+                changed_history,
+                self.model,
+                max_lag_combinations=1,
+            )
 
     def test_enrollment_model_validates_probability_and_date_contracts(self):
         with self.assertRaisesRegex(ValueError, "strictly increasing"):
