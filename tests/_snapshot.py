@@ -3,7 +3,7 @@
 Both the generator (`gen_golden.py`) and the regression test (`test_golden.py`)
 import `compute_snapshot()` from here so they measure the engine identically.
 The snapshot pins the *deterministic* outputs (the fits, event accrual, and the
-no-GPS-cure verdict) plus the fixed-seed Monte-Carlo readouts across all five
+bounded-alternative fit status) plus the fixed-seed Monte-Carlo readouts across all five
 BAT-composition presets. Non-finite values (a "not reached" median -> inf, an
 undefined interim HR -> nan) are serialised as marker strings so they survive
 JSON round-trips.
@@ -18,21 +18,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import regal_explorer as R  # noqa: E402
 
 PRESETS = ["base", "low", "dom", "bear", "bull"]
-NSIM = 400   # fixed MC budget for reproducible P(success); mc() seeds deterministically
+NSIM = 400   # fixed MC budget for reproducible scenario rates; mc() seeds deterministically
 
 # The real presets only land in State C or — at the weak-BAT corners (bull, low) — State A,
 # and none reliably exercises State B. These synthetic configs — a base scenario with only
-# the blinded milestones swapped — deliberately drive the fit to each verdict, pinning the
+# the blinded milestones swapped — deliberately drive the fit to each status, pinning the
 # categorical A/B/C logic. Each sits well clear of its flip boundary:
-#   A_cure_required — milestones stall, so the no-cure Weibull runs to its median cap
-#                     AND the heavy tail edge (cure required, cureReq=True).
+#   A_upper_boundary — milestones stall, so the bounded Weibull runs to its median cap
+#                      and heavy-tail edge (legacy cureReq=True subtype).
 #   A_light_edge    — bunched milestones want an ever-lighter (increasing-hazard) tail,
 #                     so sG pins at the light edge (non-identified, cureReq=False).
 #   B_inconsistent  — a burst to the 2nd milestone then a hard late stall no single Weibull
 #                     tail can hit: the best fit stays interior (sG~0.8) yet the residual
 #                     clears the tolerance (inconsistent).
 VERDICT_FIXTURES = {
-    "A_cure_required": {"ev_counts": [70, 72, 73]},
+    "A_upper_boundary": {"ev_counts": [70, 72, 73]},
     "A_light_edge": {"ev_dates": [(2024, 12, 10), (2025, 3, 26), (2025, 5, 11)]},
     "B_inconsistent": {"ev_counts": [52, 74, 75]},
 }
@@ -90,7 +90,7 @@ def _fixture_cfg(spec):
 
 
 def _verdict_row(cfg):
-    """The no-GPS-cure verdict fields only — what a State A/B/C fixture pins."""
+    """The bounded-alternative fit fields only — what a State A/B/C fixture pins."""
     Ml = R.build_no_gps_cure(cfg)
     return {
         "state": Ml["state"], "cureReq": bool(Ml["cureReq"]),

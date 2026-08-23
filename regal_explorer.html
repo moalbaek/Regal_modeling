@@ -104,12 +104,12 @@
 <header>
   <div class="htxt">
   <h1>REGAL Scenario Explorer</h1>
-  <p>The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is always re-calibrated and only the
-     <b>split between arms</b> moves. The headline is the <b>plateau (GPS-cure)</b> probability of success. The second panel
-     is a <b>null test</b>, not a co-equal probability: it holds the <b>BAT arm bit-for-bit identical</b> and swaps only the
-     GPS <b>responder</b> component — durable cure versus a fitted heavy-tailed Weibull with <b>no cure</b> — to ask whether
-     the milestone plateau <i>requires</i> a GPS-specific durable benefit. It returns a three-state verdict: null <b>rejected</b>
-     (GPS cure required), rejected (inconsistent), or <b>not excluded</b> (a no-cure GPS heavy tail also fits, given this BAT).
+  <p><b>Legacy v1:</b> values shown here are fixed-scenario simulated rejection rates, not a posterior probability for the
+     ongoing REGAL trial. This version does not condition on the observed decision to continue after the 60-event interim.
+     The blinded milestones (60/72/78 deaths) stay fixed, so the pooled survival is always re-calibrated and only the
+     <b>split between arms</b> moves. The two panels compare a GPS cure-mixture scenario with a bounded no-GPS-cure
+     alternative using the same BAT arm. State A/B/C means boundary fit, residual misfit, or adequate interior fit;
+     these are model diagnostics, not formal hypothesis-test conclusions about cure.
      Research tool, not investment advice.</p>
   </div>
   <button type="button" id="themeToggle" aria-pressed="false">🌙 Dark</button>
@@ -147,7 +147,7 @@
     </div>
 
     <div class="card">
-      <h2>No-GPS-cure test — GPS tail shape</h2>
+      <h2>Bounded no-GPS-cure alternative</h2>
       <div class="shape row">
         <label for="shape"><span>GPS responder tail shape&nbsp;s<sub>G</sub> (Weibull)</span> <span class="val" id="bL">fitted</span></label>
         <input type="range" id="shape" min="0.15" max="1.5" step="0.05" value="0.6">
@@ -155,11 +155,11 @@
       <label class="sub" style="display:flex;align-items:center;gap:7px;margin-top:6px;cursor:pointer">
         <input type="checkbox" id="shapeOverride" style="width:auto"> <span>Override s<sub>G</sub> manually (explore); otherwise it is <b>fitted</b> to the milestones</span>
       </label>
-      <div class="sub" style="margin-top:6px">In <b>auto</b> mode the GPS responder tail shape s<sub>G</sub> is a <b>fitted parameter</b> of the no-GPS-cure
-        null (alongside the GPS responder median m<sub>G</sub>) — the slider just displays the fitted value. Tick <i>override</i> to
+      <div class="sub" style="margin-top:6px">In <b>auto</b> mode the GPS responder tail shape s<sub>G</sub> is a <b>fitted parameter</b> of the bounded no-GPS-cure
+        alternative (alongside the GPS responder median m<sub>G</sub>) — the slider just displays the fitted value. Tick <i>override</i> to
         pin it and explore: <b>s<sub>G</sub> &lt; 1 = heavier tail</b>; s<sub>G</sub> → 1 is exponential. s<sub>G</sub> is free to go
-        genuinely heavy — that is what lets a no-cure Weibull <i>try</i> to mimic a plateau. If the fit lands on a boundary
-        (m<sub>G</sub> at its cap, or s<sub>G</sub> pinned at an edge) the null is <b>rejected — GPS-specific cure required</b>.</div>
+        genuinely heavy — that is what lets a no-cure Weibull <i>try</i> to mimic a plateau. If the fit lands on a parameter
+        boundary, the panel reports a non-identified fit and withholds its rejection-rate estimate.</div>
       <div class="sub" style="margin-top:12px">Note (plateau panel): BAT longevity comes from the component medians and the
         enrollment-selection slider — the milestone deceleration is explained by a healthier enrolled cohort. The fit's
         one free parameter is the GPS responder cure.</div>
@@ -195,9 +195,9 @@
       <table id="evTable" style="margin-top:8px"><thead><tr><th scope="col">Milestone</th><th scope="col">Date</th><th scope="col">Deaths</th></tr></thead><tbody></tbody></table>
       <table style="margin-top:12px"><tbody>
         <tr><th scope="row">Enrolled (N)</th><td></td><td><input id="N" type="number" value="126" aria-label="Enrolled sample size N"></td></tr>
-        <tr><th scope="row">Final-analysis events</th><td></td><td><input id="FINAL" type="number" value="80" aria-label="Final-analysis event count"></td></tr>
+        <tr><th scope="row">Final-analysis events</th><td></td><td><input id="FINAL" type="number" min="2" value="80" aria-label="Final-analysis event count"></td></tr>
         <tr><th scope="row">Significance HR threshold</th><td></td><td><input id="HRC" type="number" step="0.001" value="0.636" aria-label="Significance hazard-ratio threshold"></td></tr>
-        <tr><th scope="row">Interim-analysis events</th><td></td><td><input id="IA" type="number" value="60" aria-label="Interim-analysis event count"></td></tr>
+        <tr><th scope="row">Interim-analysis events</th><td></td><td><input id="IA" type="number" min="1" value="60" aria-label="Interim-analysis event count"></td></tr>
         <tr><th scope="row">Interim futility HR</th><td></td><td><input id="futHR" type="number" step="0.05" value="1.0" aria-label="Interim futility hazard-ratio threshold"></td></tr>
       </tbody></table>
       <div class="sub">Interim futility HR: the trial cleared the IDMC futility look at the 60-event interim, so a scenario whose
@@ -211,13 +211,13 @@
 
   <section class="results">
     <div class="card">
-      <h2>Modeled probability of a positive readout</h2>
+      <h2>Legacy fixed-scenario rejection rates</h2>
       <div id="verdict" class="verdict" aria-live="polite"></div>
       <div class="psucc">
         <div class="pcol plateau"><div class="big" id="psucc">–</div>
-          <div class="sub">Plateau&nbsp;(GPS cure) — headline</div><div class="hr">HR <b id="hr">–</b></div></div>
+          <div class="sub">Plateau&nbsp;(GPS cure) scenario</div><div class="hr">HR <b id="hr">–</b></div></div>
         <div class="pcol noplat"><div class="big" id="psuccLL">–</div>
-          <div class="sub">No-GPS-cure null&nbsp;<span id="bsh"></span></div><div class="hr">HR <b id="hrLL">–</b></div></div>
+          <div class="sub">Bounded no-GPS-cure alternative&nbsp;<span id="bsh"></span></div><div class="hr">HR <b id="hrLL">–</b></div></div>
       </div>
       <div class="spread" id="spread"></div>
       <div class="sub" style="margin-top:8px">Both conditional on the 80th event occurring · threshold HR ≤ <span id="hrc2">0.636</span> (one-sided 0.025).</div>
@@ -226,7 +226,7 @@
     <div class="card">
       <h2>Survival curves
         <span class="toggle" id="modeTog" role="group" aria-label="Detail panel mode" style="float:right;margin-top:-4px">
-          <button type="button" data-mode="plateau" class="on" aria-pressed="true">Plateau (GPS cure)</button><button type="button" data-mode="nogpscure" aria-pressed="false">No-GPS-cure test</button></span>
+          <button type="button" data-mode="plateau" class="on" aria-pressed="true">Plateau (GPS cure)</button><button type="button" data-mode="nogpscure" aria-pressed="false">No-GPS-cure alternative</button></span>
       </h2>
       <div id="chart" class="chartbox" role="img" aria-label="Survival curves: BAT, GPS, and pooled survival probability over time"></div>
       <div class="legend">
@@ -253,7 +253,7 @@
       </div>
       </div>
       <div class="chartgroup">
-      <div class="subhead">Distribution of simulated final hazard ratios <span class="note">each trial is one draw; P(success) is the mass left of the threshold</span></div>
+      <div class="subhead">Distribution of simulated final hazard ratios <span class="note">each trial is one draw; the scenario rejection rate is the mass left of the threshold</span></div>
       <div id="chartHist" class="chartbox" role="img" aria-label="Histogram of simulated final hazard ratios for the plateau and no-GPS-cure models"></div>
       <div class="legend">
         <span><i style="background:var(--navy)"></i>Plateau</span>
@@ -280,8 +280,8 @@
       </div>
       </div>
       <div class="chartgroup">
-      <div class="subhead">P(success) vs treatment effect <span class="note">how P(success) moves with the true GPS-vs-BAT effect; the shaded band is the effect the blinded data allow, ★ the current fit</span></div>
-      <div id="chartPower" class="chartbox" role="img" aria-label="P(success) as a function of the implied treatment hazard ratio"></div>
+      <div class="subhead">Scenario rejection rate vs treatment effect <span class="note">how the fixed-scenario rate moves with the GPS-vs-BAT effect; the shaded band is the effect the blinded data allow, ★ the current fit</span></div>
+      <div id="chartPower" class="chartbox" role="img" aria-label="Scenario rejection rate as a function of the implied treatment hazard ratio"></div>
       <div class="legend">
         <span><i style="background:var(--navy)"></i>Plateau</span>
         <span><i style="background:var(--orange)"></i>No-GPS-cure</span>
@@ -304,13 +304,10 @@
 </div>
 
 <footer>
-  The blinded data only pin the <i>pooled</i> curve; the arm split is your assumption. The headline is the plateau
-  (GPS-cure) P(success). The second panel is <i>not</i> a co-equal probability — it holds BAT identical and varies only
-  whether GPS responders are cured, testing whether the milestone plateau <i>requires</i> a GPS-specific durable benefit.
-  It returns a verdict (null rejected → GPS cure required; or not excluded → a no-cure GPS heavy tail also fits, given
-  this BAT), and only shows a second P(success) in the "not excluded" case. That State-C result is <i>conditional on
-  crediting BAT</i> at these medians/cures — the bear/bull corner presets and selection slider stress that structure. P(success) is
-  conditional on the 80th event occurring. Built from public disclosures; not investment advice.
+  The blinded data constrain but do not identify the pooled curve, and the arm split is assumed. Percentages are
+  fixed-scenario rejection rates conditional on reaching the 80th event, not posterior probabilities for REGAL.
+  The bounded no-GPS-cure panel's A/B/C status is a fit diagnostic and cannot establish a biological mechanism.
+  Built from public disclosures; not investment advice.
   &nbsp;·&nbsp; <a href="docs.html" style="color:var(--teal)">Full methodology &amp; documentation →</a>
   &nbsp;·&nbsp; <a href="https://github.com/moalbaek/Regal_modeling" style="color:var(--teal)">Source on GitHub</a>
 </footer>
@@ -324,7 +321,7 @@ const Acoef=cure=>-Math.log((0.5-cure)/(1-cure));
 const lam=(med,cure,k)=>med/Math.pow(Acoef(cure),1/k);
 const Sc=(t,med,cure,k)=>cure+(1-cure)*Math.exp(-Math.pow(Math.max(t,0)/lam(med,cure,k),k));
 const sampNC=(med,cure,k,u)=>lam(med,cure,k)*Math.pow(-Math.log(u),1/k);
-// GPS-responder family for the no-GPS-cure null: a Weibull (shape<1 = heavier tail, monotone
+// GPS-responder family for the bounded no-GPS-cure alternative: a Weibull (shape<1 = heavier tail, monotone
 // non-increasing hazard) with NO cure term. The plateau panel gives GPS responders a cured
 // fraction instead; this is the single biological lever between the two panels. wscale maps a
 // target median to the Weibull scale (S(median)=0.5).
@@ -405,11 +402,11 @@ function buildPlateau(cfg){
     Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),gpsMed:median(Sg),poolMed:median(Sp),
     poolCure:0.5*(pibat+pgps),ed:t=>ed(t,presp)};
 }
-// ---------- no-GPS-cure NULL test: shared BAT + a NO-CURE Weibull GPS responder ----------
+// ---------- bounded no-GPS-cure alternative: shared BAT + a NO-CURE Weibull GPS responder ----------
 // Identical BAT to the plateau panel; GPS responders swap the cure-mixture for a fitted no-cure
 // Weibull (median mG, tail shape sG); GPS non-responders (fnr) still track Observation in BOTH
-// panels. Tests the null "the milestone plateau does not require a GPS-specific durable benefit —
-// BAT's plateau plus a GPS heavy tail can explain it." Emits a three-state verdict, not a PoS.
+// panels. This is a bounded alternative fit, not a hypothesis test. It reports a three-state fit
+// status; boundary and residual-misfit states withhold the alternative's scenario rejection rate.
 function buildNoGPSCure(cfg){
   const B=batArm(cfg); const {w,cm,coh,MT,MOBS,WT,h,hd,F,Ssel,pibat,obs,Sbat}=B; const {fnr}=cfg;
   const batMed=median(t=>Sbat(t)*Snat(t,h));
@@ -423,8 +420,8 @@ function buildNoGPSCure(cfg){
   const ed=(T,mG,sG)=>{const Sf=t=>Spool(t,mG,sG)*Snat(t,h);return coh.reduce((a,c)=>a+(c[0]<=T?c[1]*obsFrac(Sf,T-c[0],hd):0),0);};
   const resid=(mG,sG)=>{let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],mG,sG)-MOBS[j];e+=WT[j]*d*d;}return e;};
   // §2/§3: fit the GPS responder median mG and (auto) tail shape sG to the 3 milestones. §3: BAT is
-  // FIXED on purpose here — this null controls the BAT confound and varies only the GPS thesis
-  // parameter; the "tail free to go heavy" guardrail is RETAINED (sG can reach a genuinely heavy tail).
+  // FIXED on purpose here so the comparison holds the BAT assumptions constant while varying the
+  // GPS responder family; the tail-shape range still permits genuinely heavy tails.
   const sgN=fitShape?18:0;
   let best=[Math.min(MGHI,(batMed||12)*2), fitShape?0.6:cfg.shape], bs=1e18;
   for(let mi=0;mi<=30;mi++){const mG=MGLO+(MGHI-MGLO)*mi/30;
@@ -445,27 +442,25 @@ function buildNoGPSCure(cfg){
   // boundary-tracking diagnostic: raise the mG cap; if the fit tracks it, mG is unidentified.
   let mgTrack=false;
   if(mgCap){const MGHI2=MGHI*1.6;let m2=mG,b2=1e18;for(let mi=0;mi<=20;mi++){const mm=MGLO+(MGHI2-MGLO)*mi/20;const e=resid(mm,sG);if(e<b2){b2=e;m2=mm;}}mgTrack=m2>MGHI+1;}
-  // §5 verdict. All non-interior fits are non-identified (State A) and show no PoS, but only the
-  // "cure-side" boundaries imply a GPS-specific cure: mG at its cap (or tracking a raised cap), or sG
-  // at the HEAVY edge (a near-degenerate tail faking the plateau). The LIGHT edge (sG→1.5) is the
-  // opposite — an increasing-hazard tail, NOT a plateau/cure signal — so it is flagged as
-  // non-identified/ambiguous (cureReq=false), not as "cure required". Verdict tolerance is RMS-based
+  // §5 fit status. All non-interior fits are non-identified (State A) and show no scenario rate.
+  // The legacy cureReq flag only distinguishes upper/heavy boundaries from the light-edge boundary;
+  // neither subtype is a formal test of a biological mechanism. Fit-status tolerance is RMS-based
   // (the weighted fit deliberately trades the middle milestone for the most-recent one, so a
   // single-milestone miss must not by itself trip State B).
   const RMS_TOL=2.0, OFF_TOL=3;
-  const cureBound=mgCap||mgTrack||sgHeavy;                 // boundaries that imply a de-facto GPS cure
+  const cureBound=mgCap||mgTrack||sgHeavy;                 // legacy upper/heavy-boundary subtype
   let state, reason, cureReq=false;
   if(cureBound){ state="A"; cureReq=true;
-    reason = (mgCap||mgTrack) ? ("GPS median runs to its "+MGHI+"mo cap"+(mgTrack?" and tracks a raised cap":"")+" — a de-facto cure")
-      : ("tail shape pinned at the heavy edge ("+SGMIN+") — a near-degenerate tail faking the plateau"); }
+    reason = (mgCap||mgTrack) ? ("GPS median runs to its "+MGHI+"mo cap"+(mgTrack?" and tracks a raised cap":"")+" — the bounded fit is non-identified")
+      : ("tail shape pinned at the heavy edge ("+SGMIN+") — the fit is non-identified at its lower shape bound"); }
   else if(sgLight){ state="A"; cureReq=false;
-    reason = "GPS tail pinned at the light edge ("+SGMAX+"): the milestones want an even lighter (sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This is not a plateau/cure signal — it neither requires nor excludes a GPS-specific cure"; }
+    reason = "GPS tail pinned at the light edge ("+SGMAX+"): the milestones want an even lighter (sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This boundary does not identify whether a GPS-specific cure exists"; }
   else if(rmsResid>RMS_TOL||maxOff>OFF_TOL){ state="B";
     reason = "residual RMS "+rmsResid.toFixed(1)+" (modeled "+edv.map(x=>x.toFixed(0)).join("/")+" vs "+MOBS.join("/")+")"; }
   else { state="C";
     reason = mgFloor ? ("GPS ≈ BAT — essentially no GPS separation needed (median "+mG.toFixed(0)+"mo)")
       : ("interior fit (median "+mG.toFixed(0)+"mo, tail shape "+sG.toFixed(2)+")"); }
-  const degenerate=(state==="A"||state==="B");            // A/B render a verdict, not a PoS
+  const degenerate=(state==="A"||state==="B");            // A/B render fit status, not a scenario rate
   const Sb=t=>Sbat(t)*Snat(t,h), Sg=t=>Sgps(t,mG,sG)*Snat(t,h), Sp=t=>Spool(t,mG,sG)*Snat(t,h);
   return {kind:"nogpscure",cfg,w,cm,coh,MT,MOBS,h,pibat,obs,fnr,mG,sG,fitShape,
     batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,state,reason,cureReq,
@@ -473,8 +468,8 @@ function buildNoGPSCure(cfg){
 }
 // ---------- shared Monte-Carlo ----------
 function mc(M,nsim){
-  const {N,FINAL,HRC,fnr}=M.cfg, ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
-  const IA=Math.min(Math.round(M.cfg.IA||60),FINAL-1);   // interim-analysis event count
+  const {N,HRC,fnr}=M.cfg, FINAL=Math.max(2,Math.round(M.cfg.FINAL||2)), ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
+  const IA=Math.max(1,Math.min(Math.round(M.cfg.IA||60),FINAL-1)); // interim-analysis event count
   const futHR=M.cfg.futHR||1.0;                          // interim futility HR threshold
   const h=natH(M.cfg.ndr||0);     // background mortality competing risk (an event)
   const hdrop=natH(M.cfg.drop||0);// loss-to-follow-up (censoring, not an event)
@@ -759,8 +754,8 @@ function chartEnroll(M,cfg){
     {get:cumAt,Y,color:"var(--teal)",label:"Enrolled",fmt:v=>v.toFixed(0)},
   ]});
 }
-// ---------- (h) P(success) vs treatment effect (power curve) ----------
-// sweep one effect knob (presp for plateau, GPS median mG for the no-GPS-cure null) -> implied HR, P(success), milestone misfit
+// ---------- (h) fixed-scenario rejection rate vs treatment effect ----------
+// sweep one effect knob -> implied HR, scenario rejection rate, and milestone misfit
 function powerSweep(M,key,vals,fixed,nsimH){
   const WT=M.cfg.unweighted?[1,1,1]:[1,2,4]; const pts=[];
   for(const v of vals){ const Mg=Object.assign({},M); Mg[key]=v; const r=mc(Mg,nsimH);
@@ -788,7 +783,7 @@ function chartPower(Mc,Ml,rc,rl,cfg){
   const line=(pts,col,dash)=>pts.length?`<path d="${pts.map((p,i)=>(i===0?"M":"L")+X(p.hr).toFixed(1)+" "+Y(p.ps).toFixed(1)).join(" ")}" fill="none" stroke="${col}" stroke-width="2.3" ${dash?`stroke-dasharray="${dash}"`:''}/>`:"";
   const star=(hr,ps,col)=>isFinite(hr)?`<path d="${starPath(X(hr),Y(ps),7)}" fill="${col}" stroke="var(--ring)" stroke-width="1"/>`:"";
   const svg=`${g}${refs}${line(P,"var(--navy)","")}${line(L,"var(--orange)","6 3")}${star(rc.medHR,100*rc.ps,"var(--navy)")}${star(rl.medHR,100*rl.ps,"var(--orange)")}`+
-    `<text x="${pl-30}" y="${pt-2}" font-size="11.5" fill="var(--axis)">P(success) %</text><text x="${W-pr}" y="${H-2}" text-anchor="end" font-size="11.5" fill="var(--axis)">implied trial HR (GPS / BAT)</text>`;
+    `<text x="${pl-30}" y="${pt-2}" font-size="11.5" fill="var(--axis)">scenario rejection %</text><text x="${W-pr}" y="${H-2}" text-anchor="end" font-size="11.5" fill="var(--axis)">implied trial HR (GPS / BAT)</text>`;
   document.getElementById("chartPower").innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;height:${H}px;display:block;margin:0 auto" aria-hidden="true">${svg}</svg>`;
   const interp=(pts,xv)=>{
     if(!pts.length) return NaN;
@@ -835,7 +830,7 @@ function chartSelect(cfg){
 
 // ---------- render ----------
 const $=id=>document.getElementById(id);
-const cfgFromUI=()=>({N:+$("N").value||126,FINAL:+$("FINAL").value||80,HRC:+$("HRC").value||0.636,
+const cfgFromUI=()=>({N:+$("N").value||126,FINAL:Math.max(2,+$("FINAL").value||2),HRC:+$("HRC").value||0.636,
   fnr:(+$("nr").value)/100,bl:+$("bl").value,shape:+$("shape").value,shapeOverride:$("shapeOverride").checked,
   ndr:(+$("ndr").value)/100,IA:+$("IA").value||60,futHR:+$("futHR").value||1.0,
   drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,unweighted:$("unweighted").checked});
@@ -850,41 +845,38 @@ function fitCI(cfg,builder){
 }
 function render(){
   const cfg=cfgFromUI();
-  const Mc=buildPlateau(cfg), Ml=buildNoGPSCure(cfg);   // plateau (GPS-cure) headline + no-GPS-cure null test
+  const Mc=buildPlateau(cfg), Ml=buildNoGPSCure(cfg);   // two legacy fixed-scenario model families
   const rc=mc(Mc,600), rl=mc(Ml,600);
-  const state=Ml.state, nullDeg=Ml.degenerate;   // State A/B = verdict only (no PoS); State C = fit + PoS
+  const state=Ml.state;   // A/B = diagnostic only; C = adequate fit with a scenario rate
   const pc=Math.round(rc.ps*100), pn=Math.round(rl.ps*100);
-  // headline: plateau (GPS-cure) PoS/HR is the PRIMARY result; the null panel is a verdict annotation.
   $("psucc").textContent=pc+"%";
   $("hr").textContent=isNaN(rc.medHR)?"–":rc.medHR.toFixed(2);
-  const cureReq=Ml.cureReq;                        // State A boundary that implies a de-facto GPS cure
-  const aWord = state==="A" ? (cureReq?"rejected":"ambiguous") : "inconsistent";  // A(cure)/A(light)/B
+  const cureReq=Ml.cureReq;                        // legacy upper/heavy-boundary subtype flag
+  const aWord = state==="A" ? "boundary" : "misfit";
   $("psuccLL").textContent = (state==="C") ? pn+"%" : aWord;
   $("psuccLL").style.fontSize = (state==="C") ? "" : "18px";
   $("hrLL").textContent = (state==="C") ? (isNaN(rl.medHR)?"–":rl.medHR.toFixed(2)) : "—";
-  // second-column sub-label reflects the null verdict / the fitted GPS knobs in State C
-  $("bsh").textContent = (state==="C") ? `median ${Ml.mG.toFixed(0)}mo, shape ${Ml.sG.toFixed(2)}` : "null "+(state==="A"?(cureReq?"rejected":"non-identified"):"inconsistent");
+  $("bsh").textContent = (state==="C") ? `median ${Ml.mG.toFixed(0)}mo, shape ${Ml.sG.toFixed(2)}` : (state==="A"?"fit status A · boundary":"fit status B · residual misfit");
   $("hrc2").textContent=cfg.HRC.toFixed(3);
   // sync the shape slider to the fitted sG in auto mode (the slider is display-only unless override)
   if(Ml.fitShape){ $("shape").value=Ml.sG.toFixed(2); $("bL").textContent=Ml.sG.toFixed(2)+" (fit)"; }
-  // §6 verdict pill: driven by the PLATEAU PoS alone (the null panel may not yield a PoS), then annotated.
+  // Descriptive scenario-rate band plus the bounded alternative's fit status.
   const vb=$("verdict");
   let pcls;
-  if(pc>=70){pcls="Robustly positive";vb.style.background="var(--ok-bg)";vb.style.color="var(--ok-fg)";}
-  else if(pc<50){pcls="Weak";vb.style.background="var(--warn-bg)";vb.style.color="var(--warn-fg)";}
-  else{pcls="Moderate";vb.style.background="var(--mod-bg)";vb.style.color="var(--mod-fg)";}
+  if(pc>=70){pcls="High scenario rejection rate";vb.style.background="var(--ok-bg)";vb.style.color="var(--ok-fg)";}
+  else if(pc<50){pcls="Low scenario rejection rate";vb.style.background="var(--warn-bg)";vb.style.color="var(--warn-fg)";}
+  else{pcls="Intermediate scenario rejection rate";vb.style.background="var(--mod-bg)";vb.style.color="var(--mod-fg)";}
   vb.textContent = pcls + (state==="C"
-    ? " · GPS cure not required to fit (null not excluded)"
-    : state==="B" ? " · null rejected (inconsistent)"
-    : cureReq ? " · GPS-cure required (null rejected)"
-    : " · null non-identified (ambiguous)");
-  // §6 #spread: state-based null-test narrative
+    ? " · alternative fit C: adequate"
+    : state==="B" ? " · alternative fit B: residual misfit"
+    : " · alternative fit A: boundary / non-identified");
+  // State-based bounded-alternative narrative. None of these labels is a hypothesis test.
   const mgS=Ml.mG.toFixed(0), sgS=Ml.sG.toFixed(2);
   $("spread").innerHTML = (state==="C")
-    ? `GPS-cure result: <b>${pc}%</b>. But a <b>no-GPS-cure</b> fit also matches (BAT's plateau plus a GPS heavy tail, median <b>${mgS}mo</b>, shape <b>${sgS}</b>, implied HR ${isNaN(rl.medHR)?"–":rl.medHR.toFixed(2)}, PoS ${pn}%) — the blinded milestones cannot prove the plateau is <i>GPS-specific</i>${pn<pc?`, so <b>${pc}%</b> is the optimistic bracket`:``}. State C is conditional on crediting BAT at these medians/cures.`
-    : (state==="A" && !cureReq)
-    ? `GPS-cure result: <b>${pc}%</b>. The no-GPS-cure fit is <b>non-identified</b> (${Ml.reason}) — a boundary solution, so no PoS is shown. This is neither thesis-supporting nor thesis-refuting; it typically appears only at near-zero selection where the plateau panel itself misfits.`
-    : `GPS-cure result: <b>${pc}%</b>. The <b>no-GPS-cure null is rejected</b> (${Ml.reason}), so the milestone plateau is <i>not</i> explained by BAT alone — a GPS-specific durable benefit is required to fit the milestones (modeled ${Ml.edv.map(x=>x.toFixed(0)).join("/")} vs observed ${Ml.MOBS.join("/")}).`;
+    ? `Plateau-scenario rejection rate: <b>${pc}%</b>. The bounded no-GPS-cure alternative also matches the milestones (median <b>${mgS}mo</b>, shape <b>${sgS}</b>, implied HR ${isNaN(rl.medHR)?"–":rl.medHR.toFixed(2)}, scenario rejection rate ${pn}%). Both values depend on the assumed BAT structure and are not posterior brackets.`
+    : state==="A"
+    ? `Plateau-scenario rejection rate: <b>${pc}%</b>. The bounded no-GPS-cure fit is <b>non-identified at a parameter boundary</b> (${Ml.reason}), so its rejection rate is withheld. This diagnostic does not establish whether cure exists.`
+    : `Plateau-scenario rejection rate: <b>${pc}%</b>. The bounded no-GPS-cure alternative has a <b>residual misfit</b> (${Ml.reason}; modeled ${Ml.edv.map(x=>x.toFixed(0)).join("/")} vs observed ${Ml.MOBS.join("/")}), so its rejection rate is withheld. This is a model-fit diagnostic, not a biological conclusion.`;
   // detail panel follows the toggle
   const M = mode==="plateau"?Mc:Ml, r = mode==="plateau"?rc:rl;
   let mhtml="";
@@ -903,15 +895,15 @@ function render(){
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",iaVal)
       +metric("Alive @ 80th (GPS / BAT)",aliveVal);
   } else {
-    // §7 null-panel cards: greyed with the boundary reason in States A/B; normal in C. BAT median,
+    // Bounded-alternative cards: greyed with the diagnostic reason in States A/B; normal in C. BAT median,
     // milestone residual and "80th event reached" are always-real (BAT is shared with the plateau panel).
     const deg=M.degenerate, g=v=>deg?`<span class="warn">${v}</span>`:v;
-    const stateLbl=M.state==="A"?`<span class="warn">A · REJECTED</span>`:M.state==="B"?`<span class="warn">B · inconsistent</span>`:"C · not excluded";
+    const stateLbl=M.state==="A"?`<span class="warn">A · boundary</span>`:M.state==="B"?`<span class="warn">B · residual misfit</span>`:"C · adequate fit";
     mhtml=metric("BAT median <small>(shared)</small>",fmtMed(M.batMed))
       +metric("GPS median <small>(fitted)</small>",g(M.mG.toFixed(0)+"mo"))
       +metric("GPS tail shape <small>(fitted)</small>",g(M.sG.toFixed(2)+(M.fitShape?"":" ovr")))
       +metric("Median ratio <small>(derived)</small>",g((isFinite(M.ratio)?M.ratio.toFixed(1):"–")+"×"))
-      +metric("No-GPS-cure verdict",stateLbl)
+      +metric("No-GPS-cure fit status",stateLbl)
       +metric("Milestone residual",g("RMS "+M.rmsResid.toFixed(1)))
       +metric("80th event reached",Math.round(r.reach*100)+"%")
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",g(iaVal))
@@ -929,13 +921,13 @@ function render(){
     const rch=Math.round(r.reach*100);
     note += rch<70 ? `<span class="warn">⚠ 80th event reached in only ${rch}% of sims — survival so high the trigger may stall.</span> ` : "";
     if(M.state==="A" && M.cureReq){
-      note += `<span class="warn">⚠ No-GPS-cure null REJECTED — non-identified (${M.reason}).</span> Even crediting BAT fully, the milestones cannot be fit without a boundary GPS solution, so a GPS-specific durable benefit is <b>required</b>. No PoS is shown. `;
+      note += `<span class="warn">⚠ Bounded no-GPS-cure fit is non-identified (${M.reason}).</span> The optimizer reached an upper/heavy parameter boundary, so the alternative's scenario rejection rate is withheld. A boundary fit does not establish a biological mechanism. `;
     } else if(M.state==="A"){
-      note += `<span class="warn">⚠ No-GPS-cure fit non-identified — ${M.reason}.</span> The fit ran to the light-tail edge (an increasing-hazard, non-plateau tail), so it is a boundary solution with no valid PoS — but this is <i>not</i> a "GPS cure required" signal; it neither supports nor refutes the thesis. It appears only near zero selection, where the plateau panel also misfits. `;
+      note += `<span class="warn">⚠ Bounded no-GPS-cure fit is non-identified (${M.reason}).</span> The optimizer reached the light-tail edge, so the alternative's scenario rejection rate is withheld. `;
     } else if(M.state==="B"){
-      note += `<span class="warn">⚠ No-GPS-cure null REJECTED — inconsistent (${M.reason}).</span> A no-cure GPS responder cannot reproduce the milestones given this BAT. No PoS is shown. `;
+      note += `<span class="warn">⚠ Bounded no-GPS-cure alternative has a residual misfit (${M.reason}).</span> Its scenario rejection rate is withheld. `;
     } else {
-      note += `No-GPS-cure null <b>not excluded</b>: a no-cure GPS responder (median <b>${M.mG.toFixed(0)}mo</b>, Weibull tail <b>${M.sG.toFixed(2)}</b>${M.fitShape?" — fitted":" — manual override"}) plus BAT's plateau also fits. The plateau is not provably GPS-specific; State C is conditional on this BAT structure. `;
+      note += `Bounded no-GPS-cure alternative has an <b>adequate interior fit</b>: responder median <b>${M.mG.toFixed(0)}mo</b>, Weibull shape <b>${M.sG.toFixed(2)}</b>${M.fitShape?" — fitted":" — manual override"}. This status is conditional on the assumed BAT structure. `;
     }
   }
   const showFit = mode==="plateau" || M.state==="C";   // interim HR / CI only meaningful for a valid (non-boundary) fit
@@ -954,7 +946,7 @@ function render(){
   chartDiverge(Mc,Ml,cfg);   // (f) GPS-cure vs no-GPS-cure pooled divergence band
   chartEnroll(Mc,cfg);       // (g) enrollment validation
   chartSelect(cfg);          // (i) BAT median & cure vs enrollment selection q
-  schedulePower(Mc,Ml,rc,rl,cfg);  // (h) P(success) vs treatment effect (debounced; both shapes)
+  schedulePower(Mc,Ml,rc,rl,cfg);  // (h) scenario rejection rate vs treatment effect
 }
 const metric=(k,v)=>`<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
@@ -988,7 +980,7 @@ $("unweighted").addEventListener("change",schedule);
 ["N","FINAL","HRC","IA","futHR"].forEach(id=>$(id).addEventListener("input",()=>{updBl();schedule();}));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-pressed",String(x===b));});render();}));
-$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="keep 75% · drop 25%";$("unweighted").checked=false;$("vcure").value=22;$("vcL").textContent="22%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="keep 75% · drop 25%";$("unweighted").checked=false;$("vcure").value=15;$("vcL").textContent="15%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
 // Charts render at a fixed pixel width read from the container, so a resize must re-render to

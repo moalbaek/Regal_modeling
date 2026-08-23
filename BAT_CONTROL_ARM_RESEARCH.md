@@ -230,10 +230,11 @@ Observation + hydroxyurea (35% combined) implement the review's ~35% observation
 is the one published shape. This yields a pre-selection blended cure ≈ 9% and median ≈ 8 mo (≈ 12% / ≈ 12
 mo after the default selection filter), squarely inside the review's ~8–15% / ~9–13-month base case.
 
-The four stress presets map to the review's scenario corners: **low-venetoclax** (access-constrained /
-observation-heavy), **venetoclax-dominant** (US-heavy uptake), **bear** (strongest defensible BAT: 70%
-venetoclax at a 25% cure — the top of the frontline range), and **bull** (observation-heavy weak-BAT
-corner).
+The four legacy stress presets map to scenario corners: **low-venetoclax** (access-constrained /
+observation-heavy), **venetoclax-dominant** (US-heavy delivered-regimen stress), **bear** (70%
+venetoclax at a 25% cure — an intentionally strong-BAT allocation stress), and **bull**
+(observation-heavy weak-BAT corner). They are sensitivities, not reconstructions of the protocol's
+planned stratum balance.
 
 ## 7. Recommendations
 
@@ -243,9 +244,11 @@ corner).
 2. **The venetoclax weight is the dominant swing factor.** Vary it 25%→45% and its mOS 9→15 months — this
    single-handedly determines whether the blended arm clears ~12 months. Monitor it as the key
    sensitivity because it directly threatens the trial's assumed hazard ratio.
-3. **Weight by enrollment geography, not equally.** With ~75% of REGAL from the US/EU and the US the top
-   enroller, apply a US-heavy blend (more venetoclax, more active therapy); treat China as immaterial to
-   the primary analysis (enrollment reached ex-mainland China).
+3. **Keep planned stratum and delivered regimen separate.** The publication describes approximately
+   balanced randomization strata, while its "and/or" wording permits combination regimens. Use an
+   equal-planned-strata sensitivity and a geography-informed delivered-regimen sensitivity; do not
+   treat either as known patient-level composition. With ~75% of REGAL from the US/EU, a US-heavy
+   venetoclax blend remains useful as a stress test rather than the sole primary weighting.
 4. **Vary the CR2 discount** applied to CR1/frontline cure fractions (test 0.5×–0.8× of frontline π), and
    test k = 1.0 (exponential) as an alternative to 0.78 for venetoclax.
 5. **Flag oral azacitidine carefully** — do not weight Onureg as a labeled maintenance component in CR2;
