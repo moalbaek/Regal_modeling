@@ -31,7 +31,7 @@ from datetime import date, datetime
 from itertools import product
 from math import exp, isfinite, log, sqrt
 from numbers import Integral
-from typing import Protocol, Tuple
+from typing import Optional, Protocol, Tuple
 
 import numpy as np
 
@@ -68,8 +68,14 @@ DEFAULT_MAX_COUNT_VECTORS = 4096
 TARGET_CATEGORY_MARGIN = 0.25
 
 
-class _TiltProposalError(RuntimeError):
-    """A draw-specific tilt failure for which the base proposal remains valid."""
+class TiltProposalError(RuntimeError):
+    """A draw-specific tilt failure for which the base proposal remains valid.
+
+    Direct callers of :func:`exponential_tilt_event_intervals` may catch this
+    error.  The high-level conditioning functions catch it per component,
+    retain the exact base proposal, and expose the fallback in their returned
+    diagnostics.
+    """
 
 
 def _positive_integer(value, name):
@@ -428,13 +434,13 @@ def _target_cumulative_counts(
                 max(float(expected[index]), interior_lower), interior_upper
             )
     if np.any(np.diff(target) < -PROBABILITY_TOLERANCE):
-        raise _TiltProposalError(
+        raise TiltProposalError(
             "could not construct monotone proposal count targets"
         )
     lower = np.asarray([item.lower for item in constraints], dtype=float)
     upper = np.asarray([item.upper for item in constraints], dtype=float)
     if np.any(target < lower) or np.any(target > upper):
-        raise _TiltProposalError(
+        raise TiltProposalError(
             "proposal count targets fall outside public constraints"
         )
 
@@ -481,7 +487,7 @@ def _target_cumulative_counts(
             continue
         reference_value = float(reference_categories[category])
         if reference_value <= current:
-            raise _TiltProposalError(
+            raise TiltProposalError(
                 "could not preserve proposal support for every count interval"
             )
         blend = max(blend, (desired - current) / (reference_value - current))
@@ -492,11 +498,11 @@ def _target_cumulative_counts(
         np.concatenate(([0.0], target, [float(patient_count)]))
     )
     if np.any(final_categories[possible_positive] <= PROBABILITY_TOLERANCE):
-        raise _TiltProposalError(
+        raise TiltProposalError(
             "proposal count targets do not preserve compatible support"
         )
     if np.any(np.abs(final_categories[~possible_positive]) > PROBABILITY_TOLERANCE):
-        raise _TiltProposalError(
+        raise TiltProposalError(
             "proposal count targets assign mass to an impossible interval"
         )
     return target
@@ -565,7 +571,7 @@ def _feature_tensor(
         (interval_targets, [patient_count - target_cumulative[-1]])
     )
     if np.any(category_targets < -PROBABILITY_TOLERANCE):
-        raise _TiltProposalError("proposal count targets are not monotone")
+        raise TiltProposalError("proposal count targets are not monotone")
     category_targets = np.maximum(category_targets, 0.0)
     positive_categories = np.flatnonzero(category_targets > 0.0)
     zero_categories = np.flatnonzero(category_targets == 0.0)
@@ -578,22 +584,22 @@ def _feature_tensor(
                 # vector forces this increment to zero. Structural zero
                 # probabilities are safe regardless.
                 if not forced_zero:
-                    raise _TiltProposalError(
+                    raise TiltProposalError(
                         "zero proposal target would remove compatible support"
                     )
             elif constraints[-1].lower < patient_count:
-                raise _TiltProposalError(
+                raise TiltProposalError(
                     "zero survivor target would remove compatible support"
                 )
     if not len(positive_categories):
-        raise _TiltProposalError(
+        raise TiltProposalError(
             "importance proposal has no positive category target"
         )
     if np.any(
         np.sum(interval_probabilities[:, positive_categories], axis=1)
         <= 0.0
     ):
-        raise _TiltProposalError(
+        raise TiltProposalError(
             "public count constraints are impossible for at least one patient"
         )
 
@@ -648,7 +654,7 @@ def _probabilities_from_parameters(base, features, parameters, positive_categori
         logits += np.tensordot(features, parameters, axes=([2], [0]))
     row_max = np.max(logits, axis=1)
     if np.any(~np.isfinite(row_max)):
-        raise _TiltProposalError(
+        raise TiltProposalError(
             "importance tilt has a patient with no supported category"
         )
     unnormalized = np.exp(logits - row_max[:, None])
@@ -752,11 +758,11 @@ def exponential_tilt_event_intervals(
             try:
                 step = np.linalg.lstsq(covariance, residual, rcond=None)[0]
             except np.linalg.LinAlgError as error:
-                raise _TiltProposalError(
+                raise TiltProposalError(
                     "importance-tilt linear solve did not converge"
                 ) from error
         if np.any(~np.isfinite(step)):
-            raise _TiltProposalError(
+            raise TiltProposalError(
                 "importance-tilt Newton step is not finite"
             )
         baseline_norm = float(np.linalg.norm(residual))
@@ -777,7 +783,7 @@ def exponential_tilt_event_intervals(
             step_scale *= 0.5
         if not accepted:
             break
-    raise _TiltProposalError(
+    raise TiltProposalError(
         "importance tilt did not converge: maximum moment error "
         f"{maximum_error:.6g} after {max_iterations} iterations"
     )
@@ -1226,7 +1232,7 @@ def draw_history_importance_sample(
                 max_iterations=max_tilt_iterations,
                 max_count_vectors=max_count_vectors,
             )
-        except _TiltProposalError:
+        except TiltProposalError:
             # The base component always remains a valid proposal for a
             # structurally feasible draw.  Omitting only the failed component
             # and evaluating the realized mixture density below leaves the
@@ -1281,18 +1287,29 @@ def draw_history_importance_sample(
                     max_states=max_quota_states,
                 )
             )
-    if any(not isfinite(value) for value in vector_log_probabilities):
-        raise ValueError("a proposal component assigns zero mass to selected counts")
-    proposal_terms = [
-        -log(mixture_count)
-        - log(len(structurally_possible))
-        + _log_assignment_probability(probabilities, categories)
-        - vector_log_probability
-        for probabilities, vector_log_probability in zip(
-            proposal_probabilities,
-            vector_log_probabilities,
+    if not isfinite(vector_log_probabilities[proposal_component]):
+        raise RuntimeError(
+            "selected proposal component assigns zero mass to selected counts"
         )
-    ]
+    proposal_terms = []
+    for probabilities, vector_log_probability in zip(
+        proposal_probabilities,
+        vector_log_probabilities,
+    ):
+        if not isfinite(vector_log_probability):
+            # This component cannot generate the selected count vector and
+            # therefore contributes zero density to the realized mixture.  A
+            # zero mass for the selected component remains an invariant error
+            # above because its conditional assignment could not have been
+            # sampled consistently.
+            proposal_terms.append(float("-inf"))
+            continue
+        proposal_terms.append(
+            -log(mixture_count)
+            - log(len(structurally_possible))
+            + _log_assignment_probability(probabilities, categories)
+            - vector_log_probability
+        )
     proposal_log_probability = _logsumexp(proposal_terms)
     if not isfinite(target_log_probability) or not isfinite(
         proposal_log_probability
@@ -1414,8 +1431,8 @@ class ConditioningResult:
     tilt_attempts: int
     tilt_fallbacks: int
     draws_with_tilt_fallback: int
-    mean_tilt_iterations: float
-    maximum_tilt_error: float
+    mean_tilt_iterations: Optional[float]
+    maximum_tilt_error: Optional[float]
 
     @property
     def p_public_history(self):
@@ -1619,7 +1636,7 @@ def _condition_designs_on_public_history(
     tilt_attempts = 0
     tilt_fallbacks = 0
     draws_with_tilt_fallback = 0
-    maximum_tilt_error = 0.0
+    maximum_tilt_error = None
     for _ in range(nsim):
         draw = draw_history_importance_sample(
             history,
@@ -1638,10 +1655,15 @@ def _condition_designs_on_public_history(
         tilt_attempts += draw.tilt_attempts
         tilt_fallbacks += draw.tilt_fallbacks
         draws_with_tilt_fallback += int(draw.tilt_fallbacks > 0)
-        maximum_tilt_error = max(maximum_tilt_error, draw.maximum_tilt_error)
+        if draw.tilt_iterations:
+            maximum_tilt_error = (
+                draw.maximum_tilt_error
+                if maximum_tilt_error is None
+                else max(maximum_tilt_error, draw.maximum_tilt_error)
+            )
         for accumulator in accumulators:
             accumulator.update(draw)
-    mean_iterations = iteration_sum / iteration_count if iteration_count else 0.0
+    mean_iterations = iteration_sum / iteration_count if iteration_count else None
     return tuple(
         accumulator.result(
             scenario_name.strip(),
@@ -1767,6 +1789,7 @@ __all__ = (
     "PatientEventTimeModel",
     "ScenarioPatients",
     "ScenarioSampler",
+    "TiltProposalError",
     "WeibullEventTimeModel",
     "condition_futility_sensitivity_grid",
     "condition_on_public_history",

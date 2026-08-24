@@ -26,6 +26,7 @@ from event_likelihood import (  # noqa: E402
 )
 from posterior import (  # noqa: E402
     ScenarioPatients,
+    TiltProposalError,
     WeibullEventTimeModel,
     condition_futility_sensitivity_grid,
     condition_on_public_history,
@@ -331,6 +332,34 @@ class ProposalRobustnessTest(unittest.TestCase):
                 function(probabilities, quotas, max_states=7)
             function(probabilities, quotas, max_states=8)
 
+    def test_real_newton_non_convergence_raises_public_tilt_error(self):
+        history = small_history()
+        constraints = public_history_constraint_branches(history)[0].event_constraints
+        cumulative = np.array(
+            [
+                [0.10, 0.30, 0.45],
+                [0.15, 0.35, 0.50],
+                [0.20, 0.40, 0.55],
+                [0.25, 0.45, 0.60],
+                [0.12, 0.32, 0.47],
+                [0.18, 0.38, 0.53],
+                [0.22, 0.42, 0.57],
+                [0.28, 0.48, 0.63],
+            ]
+        )
+        treatment = np.asarray([0, 0, 0, 0, 1, 1, 1, 1], dtype=bool)
+        with self.assertRaisesRegex(TiltProposalError, "did not converge"):
+            exponential_tilt_event_intervals(
+                cumulative,
+                constraints,
+                treatment,
+                history=history,
+                target_interim_z=0.0,
+                tolerance=1e-14,
+                max_iterations=1,
+            )
+        self.assertIn("TiltProposalError", posterior_module.__all__)
+
 
 class LatentHistoryConditioningTest(unittest.TestCase):
     def test_exact_quota_draws_always_satisfy_event_history_and_right_censor(self):
@@ -451,7 +480,7 @@ class LatentHistoryConditioningTest(unittest.TestCase):
         with patch.object(
             posterior_module,
             "exponential_tilt_event_intervals",
-            side_effect=posterior_module._TiltProposalError(
+            side_effect=TiltProposalError(
                 "forced non-convergence"
             ),
         ):
@@ -464,11 +493,108 @@ class LatentHistoryConditioningTest(unittest.TestCase):
         self.assertEqual(fallback.tilt_fallbacks, 20)
         self.assertEqual(fallback.draws_with_tilt_fallback, 20)
         self.assertEqual(fallback.tilt_fallback_rate, 1.0)
+        self.assertIsNone(fallback.mean_tilt_iterations)
+        self.assertIsNone(fallback.maximum_tilt_error)
         self.assertEqual(
             fallback.history_compatible_draws,
             base.history_compatible_draws,
         )
         self.assertEqual(fallback.log_p_public_history, base.log_p_public_history)
+
+    def test_partial_tilt_fallback_renormalizes_the_realized_mixture(self):
+        history = small_history()
+        arguments = dict(
+            scenario_name="partial tilt fallback",
+            history=history,
+            enrollment_model=small_enrollment_model(history),
+            design=TrialDecisionDesign(interim_events=2, final_events=4),
+            nsim=20,
+            seed=19,
+        )
+        retained_only = condition_on_public_history(
+            small_scenario_sampler,
+            proposal_interim_z_targets=(-0.5,),
+            **arguments,
+        )
+        real_tilt = posterior_module.exponential_tilt_event_intervals
+
+        def fail_second_target(*args, **kwargs):
+            if kwargs["target_interim_z"] == 0.75:
+                raise TiltProposalError("forced partial fallback")
+            return real_tilt(*args, **kwargs)
+
+        with patch.object(
+            posterior_module,
+            "exponential_tilt_event_intervals",
+            side_effect=fail_second_target,
+        ):
+            partial = condition_on_public_history(
+                small_scenario_sampler,
+                proposal_interim_z_targets=(-0.5, 0.75),
+                **arguments,
+            )
+        self.assertEqual(partial.tilt_attempts, 40)
+        self.assertEqual(partial.tilt_fallbacks, 20)
+        self.assertEqual(partial.draws_with_tilt_fallback, 20)
+        self.assertEqual(
+            partial.log_p_public_history,
+            retained_only.log_p_public_history,
+        )
+        self.assertEqual(
+            partial.history_effective_sample_size,
+            retained_only.history_effective_sample_size,
+        )
+
+    def test_real_newton_non_convergence_falls_back_without_aborting_run(self):
+        history = small_history()
+        arguments = dict(
+            scenario_name="real Newton fallback",
+            history=history,
+            enrollment_model=small_enrollment_model(history),
+            design=TrialDecisionDesign(interim_events=2, final_events=4),
+            nsim=10,
+            seed=23,
+        )
+        base = condition_on_public_history(
+            small_scenario_sampler,
+            proposal_interim_z_targets=(),
+            **arguments,
+        )
+        fallback = condition_on_public_history(
+            small_scenario_sampler,
+            proposal_interim_z_targets=(0.0,),
+            tilt_tolerance=1e-14,
+            max_tilt_iterations=1,
+            **arguments,
+        )
+        self.assertEqual(fallback.tilt_attempts, 10)
+        self.assertEqual(fallback.tilt_fallbacks, 10)
+        self.assertIsNone(fallback.mean_tilt_iterations)
+        self.assertIsNone(fallback.maximum_tilt_error)
+        self.assertEqual(fallback.log_p_public_history, base.log_p_public_history)
+        self.assertEqual(
+            fallback.history_effective_sample_size,
+            base.history_effective_sample_size,
+        )
+
+    def test_zero_mass_nonselected_component_contributes_zero_density(self):
+        history = small_history()
+        with patch.object(
+            posterior_module,
+            "_quota_log_probability",
+            return_value=float("-inf"),
+        ) as quota_probability:
+            draw = draw_history_importance_sample(
+                history,
+                small_enrollment_model(history),
+                small_scenario_sampler,
+                public_history_constraint_branches(history),
+                (0.0,),
+                np.random.default_rng(7),
+            )
+        self.assertEqual(quota_probability.call_count, 1)
+        self.assertEqual(draw.tilt_fallbacks, 0)
+        self.assertTrue(np.isfinite(draw.log_importance_weight))
 
     def test_conditional_projection_conserves_every_weighted_branch(self):
         history = small_history()
