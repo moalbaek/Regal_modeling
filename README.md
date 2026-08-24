@@ -82,9 +82,10 @@ The WP6 conditioning tests then keep enrollment evidence, event-count compatibil
 decision, and the final projection on one latent patient history. They pin the exact WP5 likelihood
 ratio in a small fixture, require every proposed trajectory to satisfy the event-80 right censor,
 verify continuation/final branch conservation, exercise pre-outcome censoring, and reuse identical
-importance draws across assumed futility thresholds. Reported effective sample size and maximum
-weight share expose a poorly supported fixed-scenario projection rather than hiding it behind a
-raw draw count.
+importance draws across assumed futility thresholds. They also pin support-preserving range targets,
+consistent quota-DP cell budgets, and unbiased base-proposal fallback when a continuation tilt cannot
+be fitted for one draw. Reported effective sample size, maximum weight share, and tilt-fallback counts
+expose a poorly supported fixed-scenario projection rather than hiding it behind a raw draw count.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test

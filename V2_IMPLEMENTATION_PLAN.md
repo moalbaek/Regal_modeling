@@ -242,13 +242,19 @@ The proposal is a known mixture, and the exact target/proposal category-density 
 the count conditioning and the continuation tilt. Within-interval event times are then drawn from
 the target conditional quantiles. Deaths after the last public cutoff remain unresolved rather than
 being discarded, and are projected forward to the actual 80th-event analysis. Censoring is sampled
-before outcomes and caps each patient's observable-event CDF and risk time.
+before outcomes and caps each patient's observable-event CDF and risk time. Range-valued count
+targets are projected into a support-preserving monotone interior so no allowed event interval is
+accidentally removed. If a continuation tilt cannot be fitted for one latent draw, that component is
+omitted and the exact base proposal remains in force; attempts, fallbacks, and affected draws are
+reported. `max_quota_states` consistently limits logical patient-by-state DP cells in both the quota
+probability and conditional-sampling paths.
 
 `ConditioningResult` keeps `P(public history | fixed scenario)`,
 `P(continue | public history, scenario)`, and
 `P(final rejection | public history, continue, scenario)` separate. It also reports history and
 continuation effective sample sizes and the maximum normalized history weight. The public futility
-rule remains unknown: `condition_futility_sensitivity_grid()` reuses identical importance draws for
+rule remains unknown. It additionally reports tilt attempts, fallback components, affected draws,
+and the fallback rate. `condition_futility_sensitivity_grid()` reuses identical importance draws for
 no futility and explicit one-step-HR thresholds rather than selecting one as the protocol truth.
 
 `audit/v2_interim_conditioning_validation.py` deliberately uses an uncalibrated strong-effect

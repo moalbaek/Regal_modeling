@@ -107,6 +107,11 @@ def validate(nsim=300, seed=20260824):
         f"{mixture.continuation_effective_sample_size:.2f}"
     )
     print(
+        "  centered tilt fallbacks / attempts (affected draws): "
+        f"{mixture.tilt_fallbacks} / {mixture.tilt_attempts} "
+        f"({mixture.draws_with_tilt_fallback})"
+    )
+    print(
         "  log P(public history | illustrative scenario): "
         f"base {base.log_p_public_history:.4f}, "
         f"centered {mixture.log_p_public_history:.4f}"

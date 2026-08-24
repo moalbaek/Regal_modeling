@@ -4,6 +4,7 @@ from datetime import date
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -11,7 +12,9 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+import posterior as posterior_module  # noqa: E402
 from event_likelihood import (  # noqa: E402
+    CountConstraint,
     CountObservation,
     ObservationType,
     PiecewiseEnrollmentModel,
@@ -272,6 +275,63 @@ class HistoryBranchTest(unittest.TestCase):
         self.assertLess(favorable_treated_early, neutral_treated_early)
 
 
+class ProposalRobustnessTest(unittest.TestCase):
+    def test_tilt_support_uses_exact_positivity_not_numeric_tolerance(self):
+        history = small_history()
+        constraints = public_history_constraint_branches(history)[0].event_constraints
+        intervals = np.tile(np.array([0.25, 0.125, 0.0, 0.625]), (8, 1))
+        tiny = 1e-14
+        intervals[0] = [tiny, tiny, 1.0 - 3.0 * tiny, tiny]
+        _, _, positive_categories, _ = posterior_module._feature_tensor(
+            intervals,
+            np.array([2.0, 3.0, 3.0]),
+            constraints,
+            np.asarray([0, 0, 0, 0, 1, 1, 1, 1], dtype=bool),
+            0,
+            0.0,
+        )
+        self.assertEqual(tuple(positive_categories), (0, 1, 3))
+        self.assertGreater(intervals[0, positive_categories].sum(), 0.0)
+        self.assertLess(
+            intervals[0, positive_categories].sum(),
+            posterior_module.PROBABILITY_TOLERANCE,
+        )
+
+    def test_range_targets_preserve_every_possible_positive_increment(self):
+        constraints = (
+            CountConstraint(date(2021, 1, 1), 4, 6, "first range"),
+            CountConstraint(date(2021, 1, 2), 5, 6, "second range"),
+        )
+        cumulative = np.tile(np.array([0.60, 0.62]), (10, 1))
+        target = posterior_module._target_cumulative_counts(
+            cumulative, constraints
+        )
+        increments = np.diff(np.concatenate(([0.0], target, [10.0])))
+        self.assertTrue(4.0 <= target[0] <= 6.0)
+        self.assertTrue(5.0 <= target[1] <= 6.0)
+        self.assertGreater(increments[1], 0.0)
+        self.assertGreaterEqual(
+            increments[1], posterior_module.TARGET_CATEGORY_MARGIN
+        )
+
+    def test_quota_dps_apply_one_logical_cell_budget(self):
+        probabilities = np.array(
+            [
+                [0.2, 0.8],
+                [0.5, 0.5],
+                [0.7, 0.3],
+            ]
+        )
+        quotas = np.array([1, 2])
+        for function in (
+            posterior_module._quota_log_probability,
+            posterior_module._quota_suffix_table,
+        ):
+            with self.assertRaisesRegex(ValueError, "8 logical DP cells"):
+                function(probabilities, quotas, max_states=7)
+            function(probabilities, quotas, max_states=8)
+
+
 class LatentHistoryConditioningTest(unittest.TestCase):
     def test_exact_quota_draws_always_satisfy_event_history_and_right_censor(self):
         history = small_history()
@@ -372,6 +432,43 @@ class LatentHistoryConditioningTest(unittest.TestCase):
         self.assertEqual(draw.log_importance_weight, float("-inf"))
         self.assertFalse(draw.event_compatible)
         self.assertFalse(draw.public_history_compatible)
+
+    def test_failed_tilt_falls_back_to_exact_base_proposal_and_is_reported(self):
+        history = small_history()
+        arguments = dict(
+            scenario_name="forced tilt fallback",
+            history=history,
+            enrollment_model=small_enrollment_model(history),
+            design=TrialDecisionDesign(interim_events=2, final_events=4),
+            nsim=20,
+            seed=19,
+        )
+        base = condition_on_public_history(
+            small_scenario_sampler,
+            proposal_interim_z_targets=(),
+            **arguments,
+        )
+        with patch.object(
+            posterior_module,
+            "exponential_tilt_event_intervals",
+            side_effect=posterior_module._TiltProposalError(
+                "forced non-convergence"
+            ),
+        ):
+            fallback = condition_on_public_history(
+                small_scenario_sampler,
+                proposal_interim_z_targets=(0.0,),
+                **arguments,
+            )
+        self.assertEqual(fallback.tilt_attempts, 20)
+        self.assertEqual(fallback.tilt_fallbacks, 20)
+        self.assertEqual(fallback.draws_with_tilt_fallback, 20)
+        self.assertEqual(fallback.tilt_fallback_rate, 1.0)
+        self.assertEqual(
+            fallback.history_compatible_draws,
+            base.history_compatible_draws,
+        )
+        self.assertEqual(fallback.log_p_public_history, base.log_p_public_history)
 
     def test_conditional_projection_conserves_every_weighted_branch(self):
         history = small_history()

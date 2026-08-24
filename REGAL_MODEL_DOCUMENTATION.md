@@ -64,7 +64,7 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 | `data/regal_public_history.json` | Versioned WP5 public evidence, current through 11 Aug 2026. | typed enrollment/event counts, observation and announcement dates, source notes, reporting-lag distributions |
 | `event_likelihood.py` | Isolated v2 public-history likelihood; not consumed by the legacy explorer. | registry-anchored fixed-N accrual, correlated Poisson-multinomial event increments, event-80 announcement right censor |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 data/likelihood audit. | anchor reachability, integer-count correlation, reporting-lag sensitivity |
-| `posterior.py` | Isolated WP6 fixed-scenario conditioning engine; not consumed by the legacy explorer. | consistent latent histories, exact public-count conditional draws, continuation importance weights, conditional final projection, ESS diagnostics |
+| `posterior.py` | Isolated WP6 fixed-scenario conditioning engine; not consumed by the legacy explorer. | consistent latent histories, exact public-count conditional draws, continuation importance weights with reported base fallbacks, conditional final projection, ESS diagnostics |
 | `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 rare-continuation stress audit. | base-versus-centered proposal coverage and public-history compatibility agreement |
 
 The two legacy implementations share one enrollment reconstruction, one set of survival primitives,
@@ -690,9 +690,12 @@ audit-only fields are intentionally absent from the browser; automated full pari
    reproducibility-only approximation.
 2. **WP6 can now produce a conditional fixed-scenario projection.** Exact integer-count conditioning
    keeps 60/72/78, the event-80 right censor, the finite continuation-region interim statistic, and
-   the forward final outcome on one latent patient history. Compatibility and ESS diagnostics expose
-   scenarios for which the public history or continuation branch is poorly supported. This is not
-   yet the WP7 posterior model average.
+   the forward final outcome on one latent patient history. Range targets preserve every compatible
+   count interval, and a failed draw-specific continuation tilt falls back to the exact base proposal
+   without aborting the run. Compatibility, ESS, maximum-weight, and tilt-fallback diagnostics expose
+   scenarios for which the public history or continuation branch is poorly supported. The quota-DP
+   safety limit has one definition throughout: logical patient-by-state cells. This is not yet the
+   WP7 posterior model average.
 3. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 4. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a
