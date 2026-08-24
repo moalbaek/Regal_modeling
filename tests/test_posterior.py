@@ -1,0 +1,465 @@
+"""Tests for WP6 latent-history and interim-continuation conditioning."""
+
+from datetime import date
+import os
+import sys
+import unittest
+
+import numpy as np
+
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from event_likelihood import (  # noqa: E402
+    CountObservation,
+    ObservationType,
+    PiecewiseEnrollmentModel,
+    PublicHistory,
+    PublicHistoryLikelihood,
+    ReportingLag,
+    SourceRecord,
+    load_regal_public_history,
+)
+from posterior import (  # noqa: E402
+    ScenarioPatients,
+    WeibullEventTimeModel,
+    condition_futility_sensitivity_grid,
+    condition_on_public_history,
+    draw_history_importance_sample,
+    exponential_tilt_event_intervals,
+    public_history_constraint_branches,
+)
+from trial_design import TrialDecisionDesign  # noqa: E402
+
+
+SOURCE = SourceRecord(
+    "Synthetic WP6 fixture",
+    "https://example.com/wp6",
+    date(2026, 1, 1),
+)
+FIXED_LAG = ReportingLag("fixed", (0,), (1.0,))
+
+
+def count_observation(identifier, cutoff, kind, count, lower, upper):
+    return CountObservation(
+        observation_id=identifier,
+        observation_date=cutoff,
+        announcement_date=(
+            None
+            if kind is ObservationType.THRESHOLD_NOT_ANNOUNCED
+            else cutoff
+        ),
+        observation_type=kind,
+        count=count,
+        count_lower=lower,
+        count_upper=upper,
+        reporting_lag=FIXED_LAG,
+        source=SOURCE,
+        notes="Synthetic count used only to validate the conditioning engine.",
+        accrual_anchor=identifier.startswith("enrollment"),
+    )
+
+
+def small_history():
+    return PublicHistory(
+        schema_version=1,
+        registry_id="SYNTHETIC-WP6",
+        study_start=date(2021, 1, 1),
+        target_enrollment=8,
+        interim_event_threshold=2,
+        final_event_threshold=4,
+        enrollment_observations=(
+            count_observation(
+                "enrollment_first_2",
+                date(2021, 1, 2),
+                ObservationType.THRESHOLD_REACHED_BY,
+                2,
+                2,
+                8,
+            ),
+            count_observation(
+                "enrollment_complete",
+                date(2021, 1, 8),
+                ObservationType.EXACT_AS_OF,
+                8,
+                8,
+                8,
+            ),
+        ),
+        event_observations=(
+            count_observation(
+                "interim_2",
+                date(2021, 1, 20),
+                ObservationType.THRESHOLD_HIT,
+                2,
+                2,
+                2,
+            ),
+            count_observation(
+                "events_3",
+                date(2021, 1, 30),
+                ObservationType.EXACT_AS_OF,
+                3,
+                3,
+                3,
+            ),
+            count_observation(
+                "event_4_not_announced",
+                date(2021, 2, 5),
+                ObservationType.THRESHOLD_NOT_ANNOUNCED,
+                4,
+                0,
+                3,
+            ),
+        ),
+    )
+
+
+def small_enrollment_model(history=None):
+    history = small_history() if history is None else history
+    return PiecewiseEnrollmentModel(
+        total_enrollment=history.target_enrollment,
+        study_start=history.study_start,
+        phase_end_dates=(date(2021, 1, 2), date(2021, 1, 8)),
+        phase_probabilities=(0.25, 0.75),
+    )
+
+
+def small_scenario_sampler(entry_dates, rng):
+    treatment = np.zeros(8, dtype=bool)
+    strata = np.repeat(np.arange(2), 4)
+    for stratum in range(2):
+        indices = np.flatnonzero(strata == stratum)
+        treatment[rng.permutation(indices)[:2]] = True
+    scale = np.where(treatment, 32.0, 25.0)
+    censoring = np.full(8, np.inf)
+    censoring[0] = 60.0
+    return ScenarioPatients(
+        treatment=treatment,
+        strata=strata,
+        censoring_time=censoring,
+        event_time_model=WeibullEventTimeModel(
+            scale,
+            np.ones(8),
+            np.ones(8),
+        ),
+    )
+
+
+class FixedEnrollmentModel(PiecewiseEnrollmentModel):
+    fixed_dates = ()
+
+    def sample_enrollment_dates(self, rng):
+        return tuple(self.fixed_dates)
+
+
+def fixed_model(entry_dates, history=None):
+    history = small_history() if history is None else history
+    model = FixedEnrollmentModel(
+        history.target_enrollment,
+        history.study_start,
+        (date(2021, 1, 8),),
+        (1.0,),
+    )
+    object.__setattr__(model, "fixed_dates", tuple(entry_dates))
+    return model
+
+
+def fixed_scenario(entry_dates, rng):
+    treatment = np.asarray([0, 1, 0, 1, 0, 1, 0, 1], dtype=bool)
+    return ScenarioPatients(
+        treatment,
+        np.repeat(np.arange(2), 4),
+        np.full(8, np.inf),
+        WeibullEventTimeModel(
+            np.where(treatment, 32.0, 25.0),
+            np.ones(8),
+            np.ones(8),
+        ),
+    )
+
+
+class EventTimeContractTest(unittest.TestCase):
+    def test_weibull_cdf_ppf_round_trip_and_defective_mass(self):
+        model = WeibullEventTimeModel(
+            [10.0, 20.0, 30.0],
+            [1.0, 1.5, 0.8],
+            [1.0, 0.8, 0.0],
+        )
+        probabilities = np.array([0.25, 0.40, 0.10])
+        times = model.ppf(probabilities)
+        self.assertTrue(np.isfinite(times[0]))
+        self.assertTrue(np.isfinite(times[1]))
+        self.assertTrue(np.isinf(times[2]))
+        np.testing.assert_allclose(
+            model.cdf(times)[:2], probabilities[:2], rtol=0.0, atol=1e-14
+        )
+        with self.assertRaises(ValueError):
+            model.scale_time[0] = 4.0
+
+    def test_scenario_contract_keeps_censoring_separate_and_immutable(self):
+        patients = fixed_scenario((), np.random.default_rng(1))
+        self.assertEqual(patients.patient_count, 8)
+        self.assertTrue(np.all(np.isinf(patients.censoring_time)))
+        with self.assertRaises(ValueError):
+            patients.treatment[0] = False
+        with self.assertRaisesRegex(ValueError, "one distribution per patient"):
+            ScenarioPatients(
+                np.zeros(8),
+                np.zeros(8),
+                np.full(8, np.inf),
+                WeibullEventTimeModel(
+                    np.ones(7), np.ones(7), np.ones(7)
+                ),
+            )
+
+
+class HistoryBranchTest(unittest.TestCase):
+    def test_actual_regal_history_has_nine_explicit_lag_branches(self):
+        history = load_regal_public_history()
+        branches = public_history_constraint_branches(history)
+        self.assertEqual(len(branches), 9)
+        self.assertAlmostEqual(sum(item.probability for item in branches), 1.0)
+        for branch in branches:
+            self.assertEqual(
+                [(item.lower, item.upper) for item in branch.event_constraints],
+                [(60, 60), (72, 72), (78, 78), (78, 79)],
+            )
+
+    def test_tilt_hits_count_and_continuation_proxy_moments(self):
+        history = small_history()
+        constraints = public_history_constraint_branches(history)[0].event_constraints
+        cumulative = np.array(
+            [
+                [0.10, 0.30, 0.45],
+                [0.15, 0.35, 0.50],
+                [0.20, 0.40, 0.55],
+                [0.25, 0.45, 0.60],
+                [0.12, 0.32, 0.47],
+                [0.18, 0.38, 0.53],
+                [0.22, 0.42, 0.57],
+                [0.28, 0.48, 0.63],
+            ]
+        )
+        treatment = np.asarray([0, 0, 0, 0, 1, 1, 1, 1], dtype=bool)
+        neutral = exponential_tilt_event_intervals(
+            cumulative,
+            constraints,
+            treatment,
+            history=history,
+            target_interim_z=0.0,
+        )
+        favorable = exponential_tilt_event_intervals(
+            cumulative,
+            constraints,
+            treatment,
+            history=history,
+            target_interim_z=1.0,
+        )
+        category_means = neutral.probabilities.sum(axis=0)
+        np.testing.assert_allclose(
+            np.cumsum(category_means[:-1]),
+            neutral.target_cumulative_counts,
+            rtol=0.0,
+            atol=1e-8,
+        )
+        # The exact 3 -> 3 right-censor interval is forced to zero.
+        np.testing.assert_array_equal(neutral.probabilities[:, 2], 0.0)
+        neutral_treated_early = neutral.probabilities[treatment, :1].sum()
+        favorable_treated_early = favorable.probabilities[treatment, :1].sum()
+        self.assertAlmostEqual(neutral_treated_early, 1.0, places=8)
+        self.assertLess(favorable_treated_early, neutral_treated_early)
+
+
+class LatentHistoryConditioningTest(unittest.TestCase):
+    def test_exact_quota_draws_always_satisfy_event_history_and_right_censor(self):
+        history = small_history()
+        model = small_enrollment_model(history)
+        branches = public_history_constraint_branches(history)
+        rng = np.random.default_rng(7)
+        for _ in range(30):
+            draw = draw_history_importance_sample(
+                history,
+                model,
+                small_scenario_sampler,
+                branches,
+                (0.0,),
+                rng,
+            )
+            self.assertTrue(draw.event_compatible)
+            self.assertEqual(draw.event_counts, (2, 3, 3))
+            self.assertTrue(np.isfinite(draw.log_importance_weight))
+
+    def test_base_proposal_weight_matches_wp5_exact_event_likelihood(self):
+        history = small_history()
+        entry_dates = (
+            date(2021, 1, 1),
+            date(2021, 1, 2),
+            date(2021, 1, 3),
+            date(2021, 1, 4),
+            date(2021, 1, 5),
+            date(2021, 1, 6),
+            date(2021, 1, 7),
+            date(2021, 1, 8),
+        )
+        model = fixed_model(entry_dates, history)
+        patients = fixed_scenario(entry_dates, np.random.default_rng(1))
+        origin = history.study_start
+        entry_time = np.asarray([(value - origin).days for value in entry_dates])
+
+        def provider(cutoff):
+            available = (cutoff - origin).days - entry_time
+            active = available >= 0.0
+            followup = np.maximum(available, 0.0)
+            values = patients.event_time_model.cdf(followup)
+            return np.where(active, values, 0.0)
+
+        expected = PublicHistoryLikelihood(
+            history, small_enrollment_model(history)
+        ).event_log_likelihood(provider)
+        draw = draw_history_importance_sample(
+            history,
+            model,
+            fixed_scenario,
+            public_history_constraint_branches(history),
+            (),
+            np.random.default_rng(99),
+        )
+        self.assertTrue(draw.public_history_compatible)
+        # This fixture has one allowed event-count vector and one lag branch, so
+        # the target/base-conditional importance ratio is its exact WP5 mass.
+        self.assertAlmostEqual(draw.log_importance_weight, expected, places=11)
+
+    def test_enrollment_and_event_evidence_use_the_same_latent_history(self):
+        history = small_history()
+        late_entries = (date(2021, 1, 8),) * 8
+        draw = draw_history_importance_sample(
+            history,
+            fixed_model(late_entries, history),
+            fixed_scenario,
+            public_history_constraint_branches(history),
+            (),
+            np.random.default_rng(4),
+        )
+        self.assertFalse(draw.enrollment_compatible)
+        self.assertTrue(draw.event_compatible)
+        self.assertFalse(draw.public_history_compatible)
+
+    def test_impossible_lag_branch_contributes_zero_weight_not_selection_bias(self):
+        history = small_history()
+
+        def no_event_scenario(entry_dates, rng):
+            return ScenarioPatients(
+                np.asarray([0, 1, 0, 1, 0, 1, 0, 1]),
+                np.zeros(8),
+                np.full(8, np.inf),
+                WeibullEventTimeModel(
+                    np.ones(8),
+                    np.ones(8),
+                    np.zeros(8),
+                ),
+            )
+
+        draw = draw_history_importance_sample(
+            history,
+            small_enrollment_model(history),
+            no_event_scenario,
+            public_history_constraint_branches(history),
+            (0.0,),
+            np.random.default_rng(12),
+        )
+        self.assertEqual(draw.log_importance_weight, float("-inf"))
+        self.assertFalse(draw.event_compatible)
+        self.assertFalse(draw.public_history_compatible)
+
+    def test_conditional_projection_conserves_every_weighted_branch(self):
+        history = small_history()
+        design = TrialDecisionDesign(interim_events=2, final_events=4)
+        result = condition_on_public_history(
+            small_scenario_sampler,
+            scenario_name="synthetic fixed scenario",
+            history=history,
+            enrollment_model=small_enrollment_model(history),
+            design=design,
+            nsim=300,
+            seed=20260824,
+        )
+        self.assertGreater(result.p_public_history, 0.0)
+        self.assertLess(result.p_public_history, 1.0)
+        self.assertGreater(result.history_compatible_draws, 100)
+        self.assertEqual(
+            result.history_compatible_draws,
+            result.continuation_compatible_draws
+            + result.interim_efficacy_draws
+            + result.interim_futility_draws
+            + result.non_estimable_interim_draws,
+        )
+        self.assertEqual(
+            result.continuation_compatible_draws,
+            result.final_rejection_draws
+            + result.final_non_rejection_draws
+            + result.final_not_reached_draws,
+        )
+        self.assertGreater(result.history_effective_sample_size, 100.0)
+        self.assertLess(result.maximum_history_weight_share, 0.05)
+        self.assertTrue(0.0 <= result.p_continue_given_public_history <= 1.0)
+        self.assertTrue(
+            0.0
+            <= result.p_final_rejection_given_public_history_and_continuation
+            <= 1.0
+        )
+        self.assertFalse(result.is_posterior_forecast)
+
+    def test_futility_grid_reuses_identical_history_draws(self):
+        history = small_history()
+        rows = condition_futility_sensitivity_grid(
+            small_scenario_sampler,
+            thresholds=(None, 1.0, 0.8),
+            scenario_name="paired futility fixture",
+            base_design=TrialDecisionDesign(interim_events=2, final_events=4),
+            history=history,
+            enrollment_model=small_enrollment_model(history),
+            nsim=250,
+            seed=17,
+        )
+        self.assertEqual(
+            [row.assumed_futility_hr_threshold for row in rows],
+            [None, 1.0, 0.8],
+        )
+        self.assertEqual(len({row.log_p_public_history for row in rows}), 1)
+        self.assertEqual(len({row.history_compatible_draws for row in rows}), 1)
+        self.assertGreaterEqual(
+            rows[0].p_continue_given_public_history,
+            rows[1].p_continue_given_public_history,
+        )
+        self.assertGreaterEqual(
+            rows[1].p_continue_given_public_history,
+            rows[2].p_continue_given_public_history,
+        )
+
+    def test_conditioning_inputs_reject_mismatched_designs_and_duplicate_grid(self):
+        history = small_history()
+        with self.assertRaisesRegex(ValueError, "event thresholds differ"):
+            condition_on_public_history(
+                small_scenario_sampler,
+                scenario_name="bad design",
+                history=history,
+                enrollment_model=small_enrollment_model(history),
+                design=TrialDecisionDesign(interim_events=3, final_events=5),
+                nsim=1,
+            )
+        with self.assertRaisesRegex(ValueError, "duplicates"):
+            condition_futility_sensitivity_grid(
+                small_scenario_sampler,
+                thresholds=(None, None),
+                scenario_name="duplicate grid",
+                base_design=TrialDecisionDesign(interim_events=2, final_events=4),
+                history=history,
+                enrollment_model=small_enrollment_model(history),
+                nsim=1,
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

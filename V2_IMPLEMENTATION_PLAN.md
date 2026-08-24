@@ -195,8 +195,8 @@ SELLAS's 2026-08-11 statement that the study was still approaching event 80 is e
 announcement-process right censoring, integrated over that explicit reporting-lag sensitivity
 distribution. The lag prior is an assumption, not a company disclosure. WP5 deliberately exposes the marginal
 enrollment-anchor likelihood and the event likelihood conditional on patient-level calendar CDFs as
-separate components. WP6 must integrate or condition on the same latent enrollment history; it must
-not silently multiply mismatched marginal and conditional quantities.
+separate components. WP6 now integrates them with the same sampled enrollment history rather than
+silently multiplying mismatched marginal and conditional quantities.
 
 The likelihood retains independent safety guards for lag combinations and DP states. The default
 four-million-state cap clears the natural unconstrained three-cutoff REGAL boundary of
@@ -205,25 +205,59 @@ either guard for tighter runtime or memory budgets.
 
 `audit/v2_public_history_validation.py` pins the schema, accrual gates, a brute-force-verifiable
 small-cohort correlation example, and the right-censor lag path. This package evaluates
-the component likelihoods needed for `P(public history | fixed scenario)`; full integration over a
-consistent latent enrollment history remains part of WP6. It still does not condition on interim
-continuation, average over parameter/model uncertainty, or produce the headline REGAL forecast.
+the component likelihoods needed for `P(public history | fixed scenario)`; `posterior.py` performs
+the consistent latent-history integration and continuation conditioning. The WP5 component alone
+still does not condition on interim continuation, average over parameter/model uncertainty, or
+produce the headline REGAL forecast.
 
 ### 6. Condition on the observed interim continuation
 
-For each parameter/model draw:
+- [x] Generate one internally consistent latent enrollment, randomization-stratum, treatment,
+  survival, and censoring history per fixed-scenario draw.
+- [x] Condition patient event intervals on every allowed cumulative integer trajectory compatible
+  with the disclosed 60/72/78-event history and the event-80 announcement right censor.
+- [x] Calculate the stratified statistic at the realized 60-event look and retain only finite
+  statistics in the continuation branch between efficacy and any explicit assumed futility rule.
+- [x] Draw unresolved event times from their original conditional tails and apply the final
+  event-driven stratified analysis to that same patient history.
+- [x] Use exact count conditioning plus continuation-centered mixture importance sampling so a rare
+  continuation branch is sampled directly rather than reached only by rejection.
+- [x] Report fixed-scenario public-history compatibility, continuation and final conditional
+  probabilities, effective sample sizes, maximum weight share, and paired futility sensitivity.
 
-1. Generate latent enrollment, randomization strata, treatment assignments, survival, and censoring.
-2. Weight or retain datasets compatible with the disclosed 60/72/78-event history.
-3. Calculate the interim statistic at 60 events.
-4. Require the statistic to lie between the futility and efficacy boundaries.
-5. Apply the latest right-censoring constraint on the 80th event.
-6. Simulate unresolved patients forward and apply the final stratified analysis.
+`posterior.py` implements the isolated WP6 conditioning engine. For each draw it samples one fixed-N
+enrollment history from the supplied accrual model, calls a target-scenario generator for protocol
+strata, randomized arm, censoring, and patient death-time CDF/quantile functions, and selects one of
+the same nine disclosure-lag branches used by WP5. Enrollment evidence is checked against those
+actual entry dates. The corresponding entry dates also determine every patient calendar event CDF,
+so the engine never multiplies a marginal accrual likelihood by an event realization from a
+different enrollment history.
 
-Use importance sampling or sequential Monte Carlo so rare continuation-compatible draws can be
-handled efficiently. Report `P(public history | scenario)` or an equivalent compatibility measure;
-this prevents a scenario with a high unconditional early-efficacy probability from being presented
-as a high conditional forecast without penalty.
+The event proposal enumerates every allowed monotone cumulative integer-count vector. For natural
+REGAL branches these are exactly 60/72/78 followed by either 78 or 79 at the event-80 censor cutoff.
+A scaled backward dynamic program draws patient interval assignments exactly conditional on the
+selected vector. The base component is the target event model itself; optional exponential-tilt
+components also target treated-event shares corresponding to continuation-region interim scores.
+The proposal is a known mixture, and the exact target/proposal category-density ratio removes both
+the count conditioning and the continuation tilt. Within-interval event times are then drawn from
+the target conditional quantiles. Deaths after the last public cutoff remain unresolved rather than
+being discarded, and are projected forward to the actual 80th-event analysis. Censoring is sampled
+before outcomes and caps each patient's observable-event CDF and risk time.
+
+`ConditioningResult` keeps `P(public history | fixed scenario)`,
+`P(continue | public history, scenario)`, and
+`P(final rejection | public history, continue, scenario)` separate. It also reports history and
+continuation effective sample sizes and the maximum normalized history weight. The public futility
+rule remains unknown: `condition_futility_sensitivity_grid()` reuses identical importance draws for
+no futility and explicit one-step-HR thresholds rather than selecting one as the protocol truth.
+
+`audit/v2_interim_conditioning_validation.py` deliberately uses an uncalibrated strong-effect
+scenario where the exact-count base proposal produced no continuation draws in the pinned
+300-draw run. Adding the continuation-centered component produced 71 raw continuation draws
+(weighted ESS 3.89) while giving a consistent public-history compatibility estimate. This validates
+rare-branch access; none of those illustrative probabilities is a REGAL forecast. WP6 still operates
+under one fixed scenario at a time. Work package 7 must supply effect-family and parameter draws and
+average these conditional projections before the `v2-forecast` gate is complete.
 
 ### 7. Average across GPS effect structures
 

@@ -40,6 +40,8 @@ has been established.
 | `data/regal_public_history.json` | Versioned enrollment/event evidence with observation and announcement dates, typed counts, source notes, and explicit reporting-lag uncertainty; current through the 11 Aug 2026 event-80 right censor. |
 | `event_likelihood.py` | Isolated v2 public-history layer: registry-anchored fixed-N accrual and a joint Poisson-multinomial likelihood over correlated integer event increments and latent patient trajectories. |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 audit for schema integrity, reachable 20/104/126 accrual anchors, small-cohort likelihood correctness, and event-80 reporting-lag sensitivity. |
+| `posterior.py` | Isolated WP6 fixed-scenario conditioning layer: one consistent latent enrollment/outcome history, exact public-count conditional sampling, continuation-centered mixture importance weights, right-censor enforcement, and forward final projection. It does not yet average across model families or parameters. |
+| `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 stress audit showing that continuation-centered importance sampling reaches a rare continuation branch while preserving the public-history compatibility estimate. |
 
 ```bash
 pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)
@@ -76,12 +78,20 @@ and integrate both the unknown event-60 threshold date and the unannounced 80th 
 moment-matched three-point lag grids spanning 0–14 days. The 104-patient
 planning projection centers the provisional reference path but is deliberately excluded from
 likelihood evidence; the reference path is not an independent Bayesian prior.
+The WP6 conditioning tests then keep enrollment evidence, event-count compatibility, the interim
+decision, and the final projection on one latent patient history. They pin the exact WP5 likelihood
+ratio in a small fixture, require every proposed trajectory to satisfy the event-80 right censor,
+verify continuation/final branch conservation, exercise pre-outcome censoring, and reuse identical
+importance draws across assumed futility thresholds. Reported effective sample size and maximum
+weight share expose a poorly supported fixed-scenario projection rather than hiding it behind a
+raw draw count.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
 python3 audit/interim_efficacy_replay.py --nsim 10000  # reproduce the equal-strata interim result
 python3 audit/v2_trial_decision_validation.py --nsim 200000  # validate v2 alpha/branches/futility grid
 python3 audit/v2_public_history_validation.py  # validate WP5 data/accrual/joint likelihood
+python3 audit/v2_interim_conditioning_validation.py  # validate WP6 latent-history/rare-continuation IS
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 

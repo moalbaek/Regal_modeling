@@ -494,7 +494,7 @@ class PublicHistory:
             if current[1] < previous[1]:
                 raise ValueError("enrollment counts must be non-decreasing over time")
         event_constraints = _event_calendar_validation_constraints(events, target)
-        if _merge_constraints(event_constraints, target) is None:
+        if merge_count_constraints(event_constraints, target) is None:
             raise ValueError("event count constraints are inconsistent over time")
         object.__setattr__(self, "schema_version", schema_version)
         object.__setattr__(self, "registry_id", registry_id)
@@ -582,7 +582,13 @@ def _normalize_numeric_bounds(lower_bounds, upper_bounds, total):
     return tuple(lower), tuple(upper)
 
 
-def _event_interval_probabilities(cumulative_probabilities):
+def event_interval_probabilities(cumulative_probabilities):
+    """Convert patient cumulative CDFs to mutually exclusive intervals.
+
+    The final column is the probability of no event by the last cutoff.  WP6
+    uses this public adapter to construct an importance proposal over the same
+    interval representation used by the exact WP5 likelihood.
+    """
     try:
         cumulative = np.asarray(cumulative_probabilities, dtype=float)
     except (TypeError, ValueError) as error:
@@ -632,7 +638,7 @@ def joint_cumulative_count_log_probability(
     increment vector satisfying all lower and upper bounds.
     """
 
-    intervals = _event_interval_probabilities(cumulative_probabilities)
+    intervals = event_interval_probabilities(cumulative_probabilities)
     patient_count = intervals.shape[0]
     cutoff_count = intervals.shape[1] - 1
     if len(lower_bounds) != cutoff_count or len(upper_bounds) != cutoff_count:
@@ -698,7 +704,13 @@ def joint_cumulative_count_probability(*args, **kwargs):
     return 0.0 if result == float("-inf") else exp(result)
 
 
-def _merge_constraints(constraints, total):
+def merge_count_constraints(constraints, total):
+    """Merge same-date bounds and propagate monotonic cumulative limits.
+
+    ``None`` denotes an inconsistent branch.  This is public because WP6 must
+    sample the exact disclosure-lag branches represented by the WP5
+    likelihood, rather than reimplementing subtly different count semantics.
+    """
     by_date = {}
     labels = {}
     for constraint in constraints:
@@ -1057,7 +1069,7 @@ class EventIncrementTrajectory:
 def sample_event_increment_trajectory(cumulative_probabilities, rng):
     """Sample a latent integer event trajectory from patient-specific CDFs."""
 
-    intervals = _event_interval_probabilities(cumulative_probabilities)
+    intervals = event_interval_probabilities(cumulative_probabilities)
     draws = np.asarray(rng.random(intervals.shape[0]), dtype=float)
     if draws.shape != (intervals.shape[0],) or np.any(~np.isfinite(draws)) or np.any(
         (draws < 0.0) | (draws >= 1.0)
@@ -1118,7 +1130,7 @@ def _constraint_mixture_log_likelihood(
         mixture_weight = prod(choice[1] for choice in choices)
         if mixture_weight <= 0.0:
             continue
-        merged = _merge_constraints(constraints, patient_count)
+        merged = merge_count_constraints(constraints, patient_count)
         if merged is None:
             continue
         columns = []
