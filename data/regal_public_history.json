@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "trial": {
+    "registry_id": "NCT04229979",
+    "study_start": "2021-02-08",
+    "target_enrollment": 126,
+    "interim_event_threshold": 60,
+    "final_event_threshold": 80
+  },
+  "enrollment_observations": [
+    {
+      "id": "first_20_before_protocol_v3",
+      "observation_date": "2022-04-30",
+      "announcement_date": "2024-11-28",
+      "observation_type": "threshold_reached_by",
+      "count": 20,
+      "count_lower": 20,
+      "count_upper": 126,
+      "use_in_likelihood": true,
+      "accrual_anchor": true,
+      "reporting_lag": {
+        "distribution": "not_applicable"
+      },
+      "source": {
+        "title": "REGAL: galinpepimut-S vs. best available therapy as maintenance in acute myeloid leukemia in second complete remission",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11760237/",
+        "published_date": "2024-11-28"
+      },
+      "notes": "The design paper states that the WT1 eligibility amendment followed enrollment of the first 20 patients and identifies protocol version 3 as April 2022. Month-end is the explicit operational cutoff and means at least 20 patients had enrolled by then; it does not assert that the cumulative count was still exactly 20 on April 30."
+    },
+    {
+      "id": "ex_china_enrollment_projection",
+      "observation_date": "2023-11-30",
+      "announcement_date": "2023-10-12",
+      "observation_type": "projected_count_interval",
+      "count": 104,
+      "count_lower": 101,
+      "count_upper": 106,
+      "use_in_likelihood": false,
+      "accrual_anchor": true,
+      "reporting_lag": {
+        "distribution": "not_applicable"
+      },
+      "source": {
+        "title": "SELLAS Life Sciences Provides Update on Phase 3 REGAL Clinical Trial for Galinpepimut-S in Acute Myeloid Leukemia",
+        "url": "https://ir.sellaslifesciences.com/news/News-Details/2023/SELLAS-Life-Sciences-Provides-Update-on-Phase-3-REGAL-Clinical-Trial-for-Galinpepimut-S-in-Acute-Myeloid-Leukemia/default.aspx",
+        "published_date": "2023-10-12"
+      },
+      "notes": "The sponsor projected completion outside China in November 2023 with 20-25 of the eventual 126 patients still anticipated from China. The resulting 101-106 range has midpoint 103.5, represented by the rounded 104 anchor. This is a planning projection used to center the provisional reference accrual path, not an observed count and therefore not likelihood evidence."
+    },
+    {
+      "id": "enrollment_complete",
+      "observation_date": "2024-04-30",
+      "announcement_date": "2025-08-07",
+      "observation_type": "exact_as_of",
+      "count": 126,
+      "count_lower": 126,
+      "count_upper": 126,
+      "use_in_likelihood": true,
+      "accrual_anchor": true,
+      "reporting_lag": {
+        "distribution": "not_applicable"
+      },
+      "source": {
+        "title": "SELLAS Life Sciences Announces Independent Data Monitoring Committee Periodic Review and Positive Recommendation to Continue Pivotal Phase 3 REGAL Trial of GPS in AML Without Modification",
+        "url": "https://ir.sellaslifesciences.com/news/News-Details/2025/SELLAS-Life-Sciences-Announces-Independent-Data-Monitoring-Committee-Periodic-Review-and-Positive-Recommendation-to-Continue-Pivotal-Phase-3-REGAL-Trial-of-GPS-in-AML-Without-Modification/default.aspx",
+        "published_date": "2025-08-07"
+      },
+      "notes": "The later sponsor reconciliation states that enrollment completed in April 2024 with 126 randomized patients. Month-end is used because individual randomization dates and the exact completion day are not public; contemporaneous releases referred to n=127."
+    }
+  ],
+  "event_observations": [
+    {
+      "id": "interim_60_threshold",
+      "observation_date": null,
+      "announcement_date": "2024-12-10",
+      "observation_type": "threshold_hit",
+      "count": 60,
+      "count_lower": 60,
+      "count_upper": 60,
+      "use_in_likelihood": true,
+      "reporting_lag": {
+        "distribution": "discrete_pmf",
+        "values": [
+          {"days": 0, "probability": 0.19047619047619047},
+          {"days": 7, "probability": 0.6190476190476191},
+          {"days": 14, "probability": 0.19047619047619047}
+        ]
+      },
+      "source": {
+        "title": "SELLAS Life Sciences Triggers Interim Analysis in Phase 3 REGAL Trial of GPS in Acute Myeloid Leukemia",
+        "url": "https://ir.sellaslifesciences.com/news/News-Details/2024/SELLAS-Life-Sciences-Triggers-Interim-Analysis-in-Phase-3-REGAL-Trial-of-GPS-in-Acute-Myeloid-Leukemia/",
+        "published_date": "2024-12-10"
+      },
+      "notes": "The disclosure announced on December 10 that the prespecified 60-death threshold had been reached, but it did not disclose the exact threshold date. Threshold hitting is not treated as an ordinary noisy as-of count. The committed 0/7/14-day PMF has weights 4/21, 13/21, and 4/21, exactly matching the mean and variance of a discrete-uniform 0-14 day sensitivity distribution while reducing likelihood branches. The event-60 and event-80 unknown lags are modeled as independent draws. This is an explicit computational sensitivity assumption, not a disclosed fact."
+    },
+    {
+      "id": "events_72_as_of",
+      "observation_date": "2025-12-26",
+      "announcement_date": "2025-12-29",
+      "observation_type": "exact_as_of",
+      "count": 72,
+      "count_lower": 72,
+      "count_upper": 72,
+      "use_in_likelihood": true,
+      "reporting_lag": {
+        "distribution": "fixed",
+        "days": 3
+      },
+      "source": {
+        "title": "SELLAS Life Sciences Provides Update on Pivotal Phase 3 REGAL Trial of Galinpepimut-S in Acute Myeloid Leukemia",
+        "url": "https://ir.sellaslifesciences.com/news/News-Details/2025/SELLAS-Life-Sciences-Provides-Update-on-Pivotal-Phase-3-REGAL-Trial-of-Galinpepimut-S-GPS-in-Acute-Myeloid-Leukemia-AML/default.aspx",
+        "published_date": "2025-12-29"
+      },
+      "notes": "The CRO supplied an exact pooled count as of December 26; the three-day announcement lag is observed rather than estimated."
+    },
+    {
+      "id": "events_78_as_of",
+      "observation_date": "2026-05-11",
+      "announcement_date": "2026-05-12",
+      "observation_type": "exact_as_of",
+      "count": 78,
+      "count_lower": 78,
+      "count_upper": 78,
+      "use_in_likelihood": true,
+      "reporting_lag": {
+        "distribution": "fixed",
+        "days": 1
+      },
+      "source": {
+        "title": "SELLAS Life Sciences Reports First Quarter 2026 Financial Results and Provides Corporate Update",
+        "url": "https://ir.sellaslifesciences.com/news/News-Details/2026/SELLAS-Life-Sciences-Reports-First-Quarter-2026-Financial-Results-and-Provides-Corporate-Update/default.aspx",
+        "published_date": "2026-05-12"
+      },
+      "notes": "The CRO supplied an exact pooled count as of May 11; the one-day announcement lag is observed rather than estimated."
+    },
+    {
+      "id": "event_80_not_announced",
+      "observation_date": "2026-08-11",
+      "announcement_date": null,
+      "observation_type": "threshold_not_announced",
+      "count": 80,
+      "count_lower": 0,
+      "count_upper": 79,
+      "use_in_likelihood": true,
+      "reporting_lag": {
+        "distribution": "discrete_pmf",
+        "values": [
+          {"days": 0, "probability": 0.19047619047619047},
+          {"days": 7, "probability": 0.6190476190476191},
+          {"days": 14, "probability": 0.19047619047619047}
+        ]
+      },
+      "source": {
+        "title": "SELLAS Life Sciences Reports Second Quarter 2026 Financial Results and Provides Corporate Update",
+        "url": "https://ir.sellaslifesciences.com/news/News-Details/2026/SELLAS-Life-Sciences-Reports-Second-Quarter-2026-Financial-Results-and-Provides-Corporate-Update/default.aspx",
+        "published_date": "2026-08-11"
+      },
+      "notes": "The sponsor said it was approaching event 80 and would announce when the threshold occurs. This constrains the announcement process, not the event date directly: for reporting lag L, event 80 must occur after 2026-08-11 minus L. The committed 0/7/14-day PMF has weights 4/21, 13/21, and 4/21, exactly matching the mean and variance of a discrete-uniform 0-14 day sensitivity distribution while reducing likelihood branches. The event-60 and event-80 unknown lags are modeled as independent draws. This is an explicit computational sensitivity assumption, not a disclosed fact."
+    }
+  ]
+}
