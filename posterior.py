@@ -78,6 +78,10 @@ class TiltProposalError(RuntimeError):
     """
 
 
+class _QuotaProposalInfeasibleError(ValueError):
+    """A sampled proposal component cannot realize the selected count vector."""
+
+
 def _positive_integer(value, name):
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
         raise ValueError(f"{name} must be a positive integer")
@@ -912,7 +916,9 @@ def _quota_suffix_table(probabilities, quotas, *, max_states):
     probabilities = np.asarray(probabilities, dtype=float)
     quotas = np.asarray(quotas, dtype=int)
     if not _quota_assignment_feasible(probabilities > 0.0, quotas):
-        raise ValueError("selected count vector is structurally impossible")
+        raise _QuotaProposalInfeasibleError(
+            "selected count vector is structurally impossible"
+        )
     active_categories, shape, layer_shape, total_cells = _quota_dp_dimensions(
         probabilities.shape[0], quotas
     )
@@ -942,7 +948,9 @@ def _quota_suffix_table(probabilities, quotas, *, max_states):
             )
         scale = float(np.max(current))
         if scale <= 0.0:
-            raise ValueError("selected count vector has zero proposal probability")
+            raise _QuotaProposalInfeasibleError(
+                "selected count vector has zero proposal probability"
+            )
         suffix[patient] = current / scale
         log_scales[patient] = log_scales[patient + 1] + log(scale)
     target_index = (0,) + (
@@ -952,7 +960,9 @@ def _quota_suffix_table(probabilities, quotas, *, max_states):
     )
     target_mass = float(suffix[target_index])
     if target_mass <= 0.0:
-        raise ValueError("selected count vector has zero proposal probability")
+        raise _QuotaProposalInfeasibleError(
+            "selected count vector has zero proposal probability"
+        )
     log_probability = log_scales[0] + log(target_mass)
     return suffix, active_categories, log_probability
 
@@ -1064,7 +1074,7 @@ class HistoryImportanceDraw:
     tilt_attempts: int
     tilt_fallbacks: int
     tilt_iterations: Tuple[int, ...]
-    maximum_tilt_error: float
+    maximum_tilt_error: Optional[float]
 
     def __post_init__(self):
         if not isinstance(self.trial_data, EventDrivenTrialData):
@@ -1092,9 +1102,22 @@ class HistoryImportanceDraw:
             or any(value < 1 for value in iterations)
         ):
             raise ValueError("proposal diagnostics are invalid")
-        error = float(self.maximum_tilt_error)
-        if not isfinite(error) or error < 0.0:
-            raise ValueError("maximum_tilt_error must be finite and non-negative")
+        error = self.maximum_tilt_error
+        if error is None:
+            if iterations:
+                raise ValueError(
+                    "maximum_tilt_error is required when a tilt converged"
+                )
+        else:
+            error = float(error)
+            if not isfinite(error) or error < 0.0:
+                raise ValueError(
+                    "maximum_tilt_error must be finite and non-negative"
+                )
+            if not iterations:
+                raise ValueError(
+                    "maximum_tilt_error must be None without a converged tilt"
+                )
         object.__setattr__(self, "entry_dates", entries)
         object.__setattr__(self, "log_importance_weight", weight)
         object.__setattr__(self, "enrollment_counts", tuple(self.enrollment_counts))
@@ -1118,9 +1141,20 @@ def _log_assignment_probability(probabilities, categories):
 
 
 def _zero_weight_history_draw(
-    history, branch, entry_dates, entries, patients, rng
+    history,
+    branch,
+    entry_dates,
+    entries,
+    patients,
+    rng,
+    *,
+    proposal_component=0,
+    tilt_attempts=0,
+    tilt_fallbacks=0,
+    tilt_iterations=(),
+    maximum_tilt_error=None,
 ):
-    """Return a harmless target draw when a sampled lag branch is impossible."""
+    """Return a harmless target draw for a zero-weight proposal outcome."""
 
     uniforms = np.asarray(rng.random(patients.patient_count), dtype=float)
     if uniforms.shape != (patients.patient_count,) or np.any(~np.isfinite(uniforms)):
@@ -1159,11 +1193,11 @@ def _zero_weight_history_draw(
         event_compatible=False,
         enrollment_counts=tuple(int(value) for value in enrollment_counts),
         event_counts=tuple(int(value) for value in event_counts),
-        proposal_component=0,
-        tilt_attempts=0,
-        tilt_fallbacks=0,
-        tilt_iterations=(),
-        maximum_tilt_error=0.0,
+        proposal_component=proposal_component,
+        tilt_attempts=tilt_attempts,
+        tilt_fallbacks=tilt_fallbacks,
+        tilt_iterations=tilt_iterations,
+        maximum_tilt_error=maximum_tilt_error,
     )
 
 
@@ -1242,6 +1276,10 @@ def draw_history_importance_sample(
             continue
         tilts.append(tilt)
     tilts = tuple(tilts)
+    tilt_iterations = tuple(item.iterations for item in tilts)
+    maximum_tilt_error = (
+        max(item.maximum_moment_error for item in tilts) if tilts else None
+    )
     proposal_probabilities = (target_intervals,) + tuple(
         tilt.probabilities for tilt in tilts
     )
@@ -1259,11 +1297,30 @@ def draw_history_importance_sample(
     )
     selected_counts, quotas = structurally_possible[count_index]
     selected_probabilities = proposal_probabilities[proposal_component]
-    suffix, active_categories, suffix_log_probability = _quota_suffix_table(
-        selected_probabilities,
-        quotas,
-        max_states=max_quota_states,
-    )
+    try:
+        suffix, active_categories, suffix_log_probability = _quota_suffix_table(
+            selected_probabilities,
+            quotas,
+            max_states=max_quota_states,
+        )
+    except _QuotaProposalInfeasibleError:
+        # Component and count-vector selection are independent.  An infeasible
+        # pair is therefore a genuine atom of the implemented proposal, not a
+        # reason to condition the Monte Carlo sample on proposal success.  Its
+        # zero weight remains in the nsim denominator and preserves unbiasedness.
+        return _zero_weight_history_draw(
+            history,
+            branch,
+            entry_dates,
+            entries,
+            patients,
+            rng,
+            proposal_component=proposal_component,
+            tilt_attempts=len(proposal_z_targets),
+            tilt_fallbacks=tilt_fallbacks,
+            tilt_iterations=tilt_iterations,
+            maximum_tilt_error=maximum_tilt_error,
+        )
     categories = _sample_exact_quota_assignment(
         selected_probabilities,
         quotas,
@@ -1287,10 +1344,6 @@ def draw_history_importance_sample(
                     max_states=max_quota_states,
                 )
             )
-    if not isfinite(vector_log_probabilities[proposal_component]):
-        raise RuntimeError(
-            "selected proposal component assigns zero mass to selected counts"
-        )
     proposal_terms = []
     for probabilities, vector_log_probability in zip(
         proposal_probabilities,
@@ -1298,10 +1351,9 @@ def draw_history_importance_sample(
     ):
         if not isfinite(vector_log_probability):
             # This component cannot generate the selected count vector and
-            # therefore contributes zero density to the realized mixture.  A
-            # zero mass for the selected component remains an invariant error
-            # above because its conditional assignment could not have been
-            # sampled consistently.
+            # therefore contributes zero density to the realized mixture.  An
+            # infeasible selected component has already returned a counted
+            # zero-weight draw before conditional assignment.
             proposal_terms.append(float("-inf"))
             continue
         proposal_terms.append(
@@ -1375,10 +1427,8 @@ def draw_history_importance_sample(
         proposal_component=proposal_component,
         tilt_attempts=len(proposal_z_targets),
         tilt_fallbacks=tilt_fallbacks,
-        tilt_iterations=tuple(item.iterations for item in tilts),
-        maximum_tilt_error=max(
-            (item.maximum_moment_error for item in tilts), default=0.0
-        ),
+        tilt_iterations=tilt_iterations,
+        maximum_tilt_error=maximum_tilt_error,
     )
 
 

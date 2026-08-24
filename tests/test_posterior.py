@@ -501,6 +501,26 @@ class LatentHistoryConditioningTest(unittest.TestCase):
         )
         self.assertEqual(fallback.log_p_public_history, base.log_p_public_history)
 
+    def test_draw_reports_no_error_when_every_tilt_falls_back(self):
+        history = small_history()
+        with patch.object(
+            posterior_module,
+            "exponential_tilt_event_intervals",
+            side_effect=TiltProposalError("forced non-convergence"),
+        ):
+            draw = draw_history_importance_sample(
+                history,
+                small_enrollment_model(history),
+                small_scenario_sampler,
+                public_history_constraint_branches(history),
+                (0.0,),
+                np.random.default_rng(19),
+            )
+        self.assertEqual(draw.tilt_attempts, 1)
+        self.assertEqual(draw.tilt_fallbacks, 1)
+        self.assertEqual(draw.tilt_iterations, ())
+        self.assertIsNone(draw.maximum_tilt_error)
+
     def test_partial_tilt_fallback_renormalizes_the_realized_mixture(self):
         history = small_history()
         arguments = dict(
@@ -577,24 +597,74 @@ class LatentHistoryConditioningTest(unittest.TestCase):
             base.history_effective_sample_size,
         )
 
-    def test_zero_mass_nonselected_component_contributes_zero_density(self):
+    def test_zero_mass_component_preserves_the_full_proposal_law(self):
         history = small_history()
+        entry_dates = (
+            date(2021, 1, 1),
+            date(2021, 1, 2),
+            date(2021, 1, 3),
+            date(2021, 1, 4),
+            date(2021, 1, 5),
+            date(2021, 1, 6),
+            date(2021, 1, 7),
+            date(2021, 1, 8),
+        )
+        arguments = (
+            history,
+            fixed_model(entry_dates, history),
+            fixed_scenario,
+            public_history_constraint_branches(history),
+        )
+        base = draw_history_importance_sample(
+            *arguments,
+            (),
+            np.random.default_rng(0),
+        )
+        impossible_tilt = posterior_module.ExponentialTilt(
+            np.tile(np.array([0.0, 0.0, 0.0, 1.0]), (8, 1)),
+            iterations=1,
+            maximum_moment_error=0.0,
+            target_cumulative_counts=np.array([2.0, 3.0, 3.0]),
+            target_interim_z=0.0,
+        )
         with patch.object(
             posterior_module,
-            "_quota_log_probability",
-            return_value=float("-inf"),
-        ) as quota_probability:
-            draw = draw_history_importance_sample(
-                history,
-                small_enrollment_model(history),
-                small_scenario_sampler,
-                public_history_constraint_branches(history),
+            "exponential_tilt_event_intervals",
+            return_value=impossible_tilt,
+        ):
+            surviving = draw_history_importance_sample(
+                *arguments,
                 (0.0,),
-                np.random.default_rng(7),
+                np.random.default_rng(0),
             )
-        self.assertEqual(quota_probability.call_count, 1)
-        self.assertEqual(draw.tilt_fallbacks, 0)
-        self.assertTrue(np.isfinite(draw.log_importance_weight))
+            failed = draw_history_importance_sample(
+                *arguments,
+                (0.0,),
+                np.random.default_rng(1),
+            )
+        self.assertEqual(surviving.proposal_component, 0)
+        self.assertAlmostEqual(
+            surviving.log_importance_weight,
+            base.log_importance_weight + np.log(2.0),
+            places=12,
+        )
+        self.assertEqual(failed.proposal_component, 1)
+        self.assertEqual(failed.log_importance_weight, float("-inf"))
+        self.assertFalse(failed.event_compatible)
+        self.assertEqual(failed.tilt_attempts, 1)
+        self.assertEqual(failed.tilt_fallbacks, 0)
+        self.assertEqual(failed.tilt_iterations, (1,))
+        self.assertEqual(failed.maximum_tilt_error, 0.0)
+        # Averaging the successful and zero-weight component selections gives
+        # exactly the same contribution as the surviving component alone.
+        paired_log_mean = posterior_module._logsumexp(
+            (surviving.log_importance_weight, failed.log_importance_weight)
+        ) - np.log(2.0)
+        self.assertAlmostEqual(
+            paired_log_mean,
+            base.log_importance_weight,
+            places=12,
+        )
 
     def test_conditional_projection_conserves_every_weighted_branch(self):
         history = small_history()

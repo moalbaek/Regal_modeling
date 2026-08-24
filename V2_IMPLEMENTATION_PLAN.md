@@ -248,16 +248,19 @@ accidentally removed. If a continuation tilt cannot be fitted for one latent dra
 omitted and the exact base proposal remains in force; attempts, fallbacks, and affected draws are
 reported. `max_quota_states` consistently limits logical patient-by-state DP cells in both the quota
 probability and conditional-sampling paths. A non-selected component with zero mass on the sampled
-count vector contributes zero mixture density, while zero mass for the selected component remains an
-invariant violation. The public `TiltProposalError` supports direct low-level callers.
+count vector contributes zero mixture density. If that component was selected, the outcome is kept
+in the Monte Carlo denominator as a zero-weight draw, preserving the full nominal mixture law rather
+than conditioning on proposal success. The public `TiltProposalError` supports direct low-level
+callers.
 
 `ConditioningResult` keeps `P(public history | fixed scenario)`,
 `P(continue | public history, scenario)`, and
 `P(final rejection | public history, continue, scenario)` separate. It also reports history and
 continuation effective sample sizes and the maximum normalized history weight. The public futility
 rule remains unknown. It additionally reports tilt attempts, fallback components, affected draws,
-and the fallback rate; mean iterations and maximum error are `None` if no tilt converged rather than
-misleadingly reporting zero. `condition_futility_sensitivity_grid()` reuses identical importance
+and the fallback rate; per-draw and run-level maximum errors, along with run-level mean iterations,
+are `None` if no tilt converged rather than misleadingly reporting zero.
+`condition_futility_sensitivity_grid()` reuses identical importance
 draws for no futility and explicit one-step-HR thresholds rather than selecting one as the protocol
 truth.
 
