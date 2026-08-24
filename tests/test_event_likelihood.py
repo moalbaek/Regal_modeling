@@ -17,6 +17,7 @@ sys.path.insert(0, ROOT)
 from event_likelihood import (  # noqa: E402
     CalendarEventProbabilityProvider,
     CountObservation,
+    DEFAULT_MAX_DP_STATES,
     ObservationType,
     PiecewiseEnrollmentModel,
     PublicHistory,
@@ -79,10 +80,15 @@ class PublicHistoryDataTest(unittest.TestCase):
         self.assertIs(by_count[60].observation_type, ObservationType.THRESHOLD_HIT)
         self.assertIsNone(by_count[60].observation_date)
         self.assertEqual(by_count[60].announcement_date, date(2024, 12, 10))
-        self.assertEqual(by_count[60].reporting_lag.days, tuple(range(15)))
+        expected_lag_days = (0, 7, 14)
+        expected_lag_probabilities = (4 / 21, 13 / 21, 4 / 21)
+        self.assertEqual(by_count[60].reporting_lag.days, expected_lag_days)
         self.assertEqual(
             [choice[0].cutoff_date for choice in by_count[60].cutoff_choices()],
-            [date(2024, 12, 10) - timedelta(days=lag) for lag in range(15)],
+            [
+                date(2024, 12, 10) - timedelta(days=lag)
+                for lag in expected_lag_days
+            ],
         )
         self.assertIs(by_count[72].observation_type, ObservationType.EXACT_AS_OF)
         self.assertEqual(by_count[72].announcement_date, date(2025, 12, 29))
@@ -103,8 +109,71 @@ class PublicHistoryDataTest(unittest.TestCase):
         self.assertEqual(right_censor.observation_date, date(2026, 8, 11))
         self.assertIsNone(right_censor.announcement_date)
         self.assertEqual(right_censor.count_upper, 79)
-        self.assertEqual(right_censor.reporting_lag.days, tuple(range(15)))
-        self.assertAlmostEqual(sum(right_censor.reporting_lag.probabilities), 1.0)
+        self.assertEqual(right_censor.reporting_lag.days, expected_lag_days)
+        for observation in (by_count[60], right_censor):
+            with self.subTest(observation=observation.observation_id):
+                for actual, expected in zip(
+                    observation.reporting_lag.probabilities,
+                    expected_lag_probabilities,
+                ):
+                    self.assertAlmostEqual(actual, expected)
+                mean = sum(
+                    lag * probability
+                    for lag, probability in observation.reporting_lag.choices
+                )
+                variance = sum(
+                    probability * (lag - mean) ** 2
+                    for lag, probability in observation.reporting_lag.choices
+                )
+                self.assertAlmostEqual(mean, 7.0)
+                self.assertAlmostEqual(variance, 56 / 3)
+                self.assertIn("independent draws", observation.notes)
+        self.assertEqual(
+            len(by_count[60].cutoff_choices())
+            * len(right_censor.cutoff_choices()),
+            9,
+        )
+
+    def test_undated_threshold_contributes_definite_calendar_bounds(self):
+        threshold = next(
+            item
+            for item in self.history.event_observations
+            if item.observation_id == "interim_60_threshold"
+        )
+        fixed = ReportingLag("fixed", (0,), (1.0,))
+        later_lower_count = CountObservation(
+            "contradictory_later_count",
+            date(2025, 1, 15),
+            date(2025, 1, 15),
+            ObservationType.EXACT_AS_OF,
+            55,
+            55,
+            55,
+            fixed,
+            threshold.source,
+            "Synthetic count below a threshold already reached.",
+        )
+        earlier_higher_count = CountObservation(
+            "contradictory_earlier_count",
+            date(2024, 11, 20),
+            date(2024, 11, 20),
+            ObservationType.EXACT_AS_OF,
+            61,
+            61,
+            61,
+            fixed,
+            threshold.source,
+            "Synthetic count above a threshold before its earliest possible date.",
+        )
+        for contradictory in (later_lower_count, earlier_higher_count):
+            with self.subTest(observation=contradictory.observation_id):
+                with self.assertRaisesRegex(ValueError, "inconsistent over time"):
+                    replace(
+                        self.history,
+                        event_observations=(
+                            self.history.event_observations + (contradictory,)
+                        ),
+                    )
 
     def test_every_observation_carries_source_lag_and_notes(self):
         for observation in (
@@ -193,6 +262,18 @@ class JointCountLikelihoodTest(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "integer"):
             joint_cumulative_count_probability(cumulative, (False, 0), (2, 2))
+
+    def test_default_state_cap_clears_regal_three_cutoff_boundary(self):
+        natural_boundary = 127**3
+        self.assertEqual(DEFAULT_MAX_DP_STATES, 4_000_000)
+        self.assertGreater(DEFAULT_MAX_DP_STATES, natural_boundary)
+        with self.assertRaisesRegex(ValueError, "2,048,383 DP states"):
+            joint_cumulative_count_log_probability(
+                np.zeros((126, 3)),
+                (0, 0, 0),
+                (126, 126, 126),
+                max_states=2_000_000,
+            )
 
     def test_latent_trajectory_sampler_keeps_integer_increments(self):
         cumulative = np.tile(np.array([0.20, 0.70]), (3, 1))
@@ -454,8 +535,28 @@ class EventHistoryLikelihoodTest(unittest.TestCase):
         event_log = likelihood.event_log_likelihood(provider)
         self.assertTrue(isfinite(event_log))
         self.assertTrue(isfinite(likelihood.enrollment_log_likelihood()))
+        exact_uniform = ReportingLag(
+            "discrete_uniform",
+            tuple(range(15)),
+            (1 / 15,) * 15,
+        )
+        exact_events = tuple(
+            replace(observation, reporting_lag=exact_uniform)
+            if observation.observation_id
+            in {
+                "interim_60_threshold",
+                "event_80_not_announced",
+            }
+            else observation
+            for observation in history.event_observations
+        )
+        exact_history = replace(history, event_observations=exact_events)
+        exact_event_log = PublicHistoryLikelihood(
+            exact_history, model
+        ).event_log_likelihood(provider)
+        self.assertLess(abs(event_log - exact_event_log), 1e-4)
         with self.assertRaisesRegex(ValueError, "lag mixture"):
-            likelihood.event_log_likelihood(provider, max_lag_combinations=14)
+            likelihood.event_log_likelihood(provider, max_lag_combinations=8)
 
     def test_calendar_provider_excludes_not_yet_randomized_patients(self):
         entries = (date(2024, 1, 1), date(2024, 2, 1))

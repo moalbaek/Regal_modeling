@@ -188,14 +188,20 @@ constraints. Thus 60/72/78 are evaluated jointly rather than as independent resi
 heterogeneous enrollment dates and survival profiles remain available to the caller. The public data
 distinguish the 60-event threshold hit from the exact 72- and 78-event as-of counts. Because the
 60-event announcement did not disclose the exact threshold date, that occurrence date is integrated
-over the same explicit 0-14 day threshold-to-announcement lag sensitivity model used for event 80.
-SELLAS's
-2026-08-11 statement that the study was still approaching event 80 is encoded as announcement-process
-right censoring, integrated over an explicit 0-14 day reporting-lag sensitivity distribution. The
-lag prior is an assumption, not a company disclosure. WP5 deliberately exposes the marginal
+over the same explicit lag sensitivity model used for event 80. Both use independent three-point
+PMFs at 0/7/14 days with weights 4/21, 13/21, and 4/21, which preserve the mean and variance of the
+original discrete-uniform 0-14 day model while reducing the joint mixture from 225 to nine branches.
+SELLAS's 2026-08-11 statement that the study was still approaching event 80 is encoded as
+announcement-process right censoring, integrated over that explicit reporting-lag sensitivity
+distribution. The lag prior is an assumption, not a company disclosure. WP5 deliberately exposes the marginal
 enrollment-anchor likelihood and the event likelihood conditional on patient-level calendar CDFs as
 separate components. WP6 must integrate or condition on the same latent enrollment history; it must
 not silently multiply mismatched marginal and conditional quantities.
+
+The likelihood retains independent safety guards for lag combinations and DP states. The default
+four-million-state cap clears the natural unconstrained three-cutoff REGAL boundary of
+`127^3 = 2,048,383` while still failing loudly before an unbounded allocation; callers can lower
+either guard for tighter runtime or memory budgets.
 
 `audit/v2_public_history_validation.py` pins the schema, accrual gates, a brute-force-verifiable
 small-cohort correlation example, and the right-censor lag path. This package evaluates

@@ -115,10 +115,10 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 
 | Date | Cumulative deaths | % of 126 | Type | Source |
 |------|-------------------|----------|------|--------|
-| Announced 2024-12-10 | 60 | 47.6% | [S] threshold hit | SELLAS announced that the prespecified threshold had been reached, but did not disclose the exact threshold date [R9]. WP5 integrates an explicit 0-14 day threshold-to-announcement lag assumption; IDMC continuation was announced Jan 2025 [R4][R5]. |
+| Announced 2024-12-10 | 60 | 47.6% | [S] threshold hit | SELLAS announced that the prespecified threshold had been reached, but did not disclose the exact threshold date [R9]. WP5 integrates a 0/7/14-day PMF with weights 4/21, 13/21, and 4/21; IDMC continuation was announced Jan 2025 [R4][R5]. |
 | 2025-12-26 | 72 | 57.1% | [S] exact/as-of | CRO count as of 26 Dec, announced by SELLAS 29 Dec 2025 [R3]. |
 | 2026-05-11 | 78 | 61.9% | [S] | SEC 8-K exhibit 99.1 and Q1-2026 release, 12 May 2026 [R6]. |
-| 2026-08-11 | 80 not announced; last exact count remains 78 | — | [S]/right censor | SELLAS said REGAL was still approaching event 80 and would announce when it occurs [R8]. WP5 treats this as censoring of the announcement process with explicit 0-14 day lag uncertainty, not as an invented event count on 11 Aug. |
+| 2026-08-11 | 80 not announced; last exact count remains 78 | — | [S]/right censor | SELLAS said REGAL was still approaching event 80 and would announce when it occurs [R8]. WP5 treats this as censoring of the announcement process with the same 0/7/14-day PMF, not as an invented event count on 11 Aug. |
 
 The exact-count increments were 12 deaths over roughly 12.5 months and then six over roughly 4.5
 months. Event 80 remained unannounced on 11 Aug 2026. These sparse cumulative disclosures strongly
@@ -152,6 +152,12 @@ censor. These are the WP5 likelihood ingredients for `P(public history | fixed s
 quantity conditioned on the IDMC decision and not a posterior forecast. The marginal enrollment-anchor likelihood and event likelihood conditional on
 patient-level calendar CDFs remain separate; WP6 must integrate them over one consistent latent
 enrollment history rather than assume an unjustified factorization.
+
+The two unknown threshold-to-announcement lags are modeled as independent draws. Each uses a
+three-point PMF at 0/7/14 days with weights 4/21, 13/21, and 4/21. This exactly preserves the mean
+and variance of the original discrete-uniform 0–14 day sensitivity distribution while reducing the
+joint lag mixture from 225 to nine branches; it remains a computational sensitivity assumption, not
+a sponsor disclosure.
 
 The convenience calendar-CDF adapter assumes complete death ascertainment apart from administrative
 censoring; it does not add an independent loss-to-follow-up or withdrawal process. That assumption

@@ -42,7 +42,7 @@ REGAL_PUBLIC_HISTORY_PATH = (
     Path(__file__).resolve().parent / "data" / "regal_public_history.json"
 )
 PROBABILITY_TOLERANCE = 1e-12
-DEFAULT_MAX_DP_STATES = 2_000_000
+DEFAULT_MAX_DP_STATES = 4_000_000
 
 
 def _parse_date(value, name, allow_none=False):
@@ -384,6 +384,60 @@ class CountObservation:
         )
 
 
+def _event_calendar_validation_constraints(events, total):
+    """Return count bounds that must hold regardless of unknown event lags."""
+
+    constraints = []
+    for observation in events:
+        if observation.observation_type is ObservationType.THRESHOLD_NOT_ANNOUNCED:
+            earliest_censor_cutoff = observation.observation_date - timedelta(
+                days=max(observation.reporting_lag.days)
+            )
+            constraints.append(
+                CountConstraint(
+                    earliest_censor_cutoff,
+                    observation.count_lower,
+                    observation.count_upper,
+                    f"{observation.observation_id}:definite-censor-bound",
+                )
+            )
+            continue
+        if observation.observation_date is not None:
+            constraints.append(
+                CountConstraint(
+                    observation.observation_date,
+                    observation.count_lower,
+                    observation.count_upper,
+                    observation.observation_id,
+                )
+            )
+            continue
+        if observation.observation_type is ObservationType.THRESHOLD_HIT:
+            earliest_hit = observation.announcement_date - timedelta(
+                days=max(observation.reporting_lag.days)
+            )
+            latest_hit = observation.announcement_date - timedelta(
+                days=min(observation.reporting_lag.days)
+            )
+            constraints.extend(
+                (
+                    CountConstraint(
+                        earliest_hit - timedelta(days=1),
+                        0,
+                        observation.count - 1,
+                        f"{observation.observation_id}:before-earliest-hit",
+                    ),
+                    CountConstraint(
+                        latest_hit,
+                        observation.count,
+                        total,
+                        f"{observation.observation_id}:by-latest-hit",
+                    ),
+                )
+            )
+    return tuple(constraints)
+
+
 @dataclass(frozen=True)
 class PublicHistory:
     """Validated public inputs for one event-driven trial."""
@@ -439,19 +493,9 @@ class PublicHistory:
         for previous, current in zip(dated_enrollment, dated_enrollment[1:]):
             if current[1] < previous[1]:
                 raise ValueError("enrollment counts must be non-decreasing over time")
-        dated_events = sorted(
-            (
-                item.observation_date,
-                item.count_lower,
-                item.count_upper,
-            )
-            for item in events
-            if item.observation_date is not None
-            and item.observation_type is not ObservationType.THRESHOLD_NOT_ANNOUNCED
-        )
-        for previous, current in zip(dated_events, dated_events[1:]):
-            if current[1] < previous[1]:
-                raise ValueError("event counts must be non-decreasing over time")
+        event_constraints = _event_calendar_validation_constraints(events, target)
+        if _merge_constraints(event_constraints, target) is None:
+            raise ValueError("event count constraints are inconsistent over time")
         object.__setattr__(self, "schema_version", schema_version)
         object.__setattr__(self, "registry_id", registry_id)
         object.__setattr__(self, "study_start", study_start)
@@ -1147,7 +1191,13 @@ class PublicHistoryLikelihood:
         max_lag_combinations=4096,
         max_states=DEFAULT_MAX_DP_STATES,
     ):
-        """Integrate the joint event-count likelihood over reporting-lag choices."""
+        """Integrate the joint event-count likelihood over reporting-lag choices.
+
+        Unknown lags attached to different disclosures are treated as
+        independent, so their branch probabilities are multiplied. Any
+        alternative dependence model must be represented explicitly by the
+        caller rather than inferred from the shared sponsor.
+        """
 
         if not callable(cumulative_event_probability):
             raise ValueError("cumulative_event_probability must be callable")

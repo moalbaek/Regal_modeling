@@ -9,7 +9,7 @@ a REGAL forecast.
 
 import argparse
 from dataclasses import replace
-from math import isfinite, log
+from math import isfinite, log, prod
 import os
 import sys
 
@@ -48,11 +48,34 @@ def run(median_months=28.0, seed=20260823):
     model = default_regal_enrollment_model(history)
     likelihood = PublicHistoryLikelihood(history, model)
 
+    uncertain_lags = tuple(
+        observation
+        for observation in history.event_observations
+        if len(observation.reporting_lag.days) > 1
+    )
+    if len(uncertain_lags) != 2:
+        raise SystemExit("expected event-60 and event-80 lag sensitivity models")
+    for observation in uncertain_lags:
+        choices = observation.reporting_lag.choices
+        mean = sum(day * probability for day, probability in choices)
+        variance = sum(
+            probability * (day - mean) ** 2 for day, probability in choices
+        )
+        if observation.reporting_lag.days != (0, 7, 14):
+            raise SystemExit("lag quadrature must use the committed 0/7/14-day grid")
+        if abs(mean - 7.0) > 1e-12 or abs(variance - 56 / 3) > 1e-12:
+            raise SystemExit("lag quadrature must preserve uniform mean and variance")
+
     print("REGAL v2 public-history validation")
     print("=" * 36)
     print(f"Registry: {history.registry_id}")
     print(f"Study start: {history.study_start.isoformat()}")
     print(f"Fixed randomized total: {history.target_enrollment}")
+    print(
+        "Unknown-lag grid: 0/7/14 days; mean 7; variance 56/3; "
+        f"{prod(len(item.reporting_lag.days) for item in uncertain_lags)} "
+        "independent combinations"
+    )
     print()
     print("Enrollment anchors")
     for check in enrollment_anchor_checks(history, model):
