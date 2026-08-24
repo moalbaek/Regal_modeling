@@ -692,11 +692,13 @@ audit-only fields are intentionally absent from the browser; automated full pari
    keeps 60/72/78, the event-80 right censor, the finite continuation-region interim statistic, and
    the forward final outcome on one latent patient history. Range targets preserve every compatible
    count interval, and a failed draw-specific continuation tilt falls back to the exact base proposal
-   without aborting the run. Compatibility, ESS, maximum-weight, and tilt-fallback diagnostics expose
-   scenarios for which the public history or continuation branch is poorly supported. The quota-DP
-   safety limit has one definition throughout: logical patient-by-state cells. Tilt iteration/error
-   diagnostics are unavailable (`None`) when no component converged, and direct callers can catch the
-   exported `TiltProposalError`. This is not yet the WP7 posterior model average.
+   without aborting the run. Compatibility, ESS, maximum-weight, tilt-fallback, and
+   proposal-infeasible-draw diagnostics expose scenarios for which the public history or continuation
+   branch is poorly supported. Structural proposal failures remain counted zero-weight draws, while
+   numerical underflow in positive quota mass remains a loud error. The quota-DP safety limit has one
+   definition throughout: logical patient-by-state cells. Tilt iteration/error diagnostics are
+   unavailable (`None`) when no component converged, and direct callers can catch the exported
+   `TiltProposalError`. This is not yet the WP7 posterior model average.
 3. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 4. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a

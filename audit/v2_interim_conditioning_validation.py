@@ -112,6 +112,11 @@ def validate(nsim=300, seed=20260824):
         f"({mixture.draws_with_tilt_fallback})"
     )
     print(
+        "  proposal-infeasible zero-weight draws: "
+        f"base {base.proposal_infeasible_draws}, "
+        f"centered {mixture.proposal_infeasible_draws}"
+    )
+    print(
         "  log P(public history | illustrative scenario): "
         f"base {base.log_p_public_history:.4f}, "
         f"centered {mixture.log_p_public_history:.4f}"

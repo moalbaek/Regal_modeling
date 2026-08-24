@@ -332,6 +332,22 @@ class ProposalRobustnessTest(unittest.TestCase):
                 function(probabilities, quotas, max_states=7)
             function(probabilities, quotas, max_states=8)
 
+    def test_positive_quota_mass_underflow_is_not_structural_infeasibility(self):
+        tiny = np.nextafter(0.0, 1.0)
+        probabilities = np.array(
+            [
+                [tiny, 1.0],
+                [tiny, 1.0],
+            ]
+        )
+        quotas = np.array([2, 0])
+        for function in (
+            posterior_module._quota_log_probability,
+            posterior_module._quota_suffix_table,
+        ):
+            with self.assertRaisesRegex(FloatingPointError, "underflowed"):
+                function(probabilities, quotas, max_states=9)
+
     def test_real_newton_non_convergence_raises_public_tilt_error(self):
         history = small_history()
         constraints = public_history_constraint_branches(history)[0].event_constraints
@@ -461,6 +477,7 @@ class LatentHistoryConditioningTest(unittest.TestCase):
         self.assertEqual(draw.log_importance_weight, float("-inf"))
         self.assertFalse(draw.event_compatible)
         self.assertFalse(draw.public_history_compatible)
+        self.assertFalse(draw.proposal_infeasible)
 
     def test_failed_tilt_falls_back_to_exact_base_proposal_and_is_reported(self):
         history = small_history()
@@ -643,12 +660,14 @@ class LatentHistoryConditioningTest(unittest.TestCase):
                 np.random.default_rng(1),
             )
         self.assertEqual(surviving.proposal_component, 0)
+        self.assertFalse(surviving.proposal_infeasible)
         self.assertAlmostEqual(
             surviving.log_importance_weight,
             base.log_importance_weight + np.log(2.0),
             places=12,
         )
         self.assertEqual(failed.proposal_component, 1)
+        self.assertTrue(failed.proposal_infeasible)
         self.assertEqual(failed.log_importance_weight, float("-inf"))
         self.assertFalse(failed.event_compatible)
         self.assertEqual(failed.tilt_attempts, 1)
@@ -665,6 +684,50 @@ class LatentHistoryConditioningTest(unittest.TestCase):
             base.log_importance_weight,
             places=12,
         )
+        with patch.object(
+            posterior_module,
+            "draw_history_importance_sample",
+            side_effect=(surviving, failed),
+        ):
+            result = condition_on_public_history(
+                fixed_scenario,
+                scenario_name="proposal infeasibility diagnostic",
+                history=history,
+                enrollment_model=fixed_model(entry_dates, history),
+                design=TrialDecisionDesign(interim_events=2, final_events=4),
+                nsim=2,
+                seed=0,
+                proposal_interim_z_targets=(0.0,),
+            )
+        self.assertEqual(result.proposal_infeasible_draws, 1)
+
+    def test_selected_positive_mass_underflow_aborts_the_public_draw(self):
+        history = small_history()
+        entry_dates = tuple(
+            date(2021, 1, day) for day in range(1, 9)
+        )
+        tiny = np.nextafter(0.0, 1.0)
+        underflowing_tilt = posterior_module.ExponentialTilt(
+            np.tile(np.array([tiny, tiny, 0.0, 1.0]), (8, 1)),
+            iterations=1,
+            maximum_moment_error=0.0,
+            target_cumulative_counts=np.array([2.0, 3.0, 3.0]),
+            target_interim_z=0.0,
+        )
+        with patch.object(
+            posterior_module,
+            "exponential_tilt_event_intervals",
+            return_value=underflowing_tilt,
+        ):
+            with self.assertRaisesRegex(FloatingPointError, "underflowed"):
+                draw_history_importance_sample(
+                    history,
+                    fixed_model(entry_dates, history),
+                    fixed_scenario,
+                    public_history_constraint_branches(history),
+                    (0.0,),
+                    np.random.default_rng(1),
+                )
 
     def test_conditional_projection_conserves_every_weighted_branch(self):
         history = small_history()
@@ -681,6 +744,7 @@ class LatentHistoryConditioningTest(unittest.TestCase):
         self.assertGreater(result.p_public_history, 0.0)
         self.assertLess(result.p_public_history, 1.0)
         self.assertGreater(result.history_compatible_draws, 100)
+        self.assertEqual(result.proposal_infeasible_draws, 0)
         self.assertEqual(
             result.history_compatible_draws,
             result.continuation_compatible_draws

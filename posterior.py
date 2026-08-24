@@ -82,6 +82,10 @@ class _QuotaProposalInfeasibleError(ValueError):
     """A sampled proposal component cannot realize the selected count vector."""
 
 
+class _QuotaProbabilityUnderflowError(FloatingPointError):
+    """A structurally positive quota probability underflowed numerically."""
+
+
 def _positive_integer(value, name):
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
         raise ValueError(f"{name} must be a positive integer")
@@ -898,7 +902,9 @@ def _quota_log_probability(probabilities, quotas, *, max_states):
             )
         scale = float(np.max(updated))
         if scale <= 0.0:
-            return float("-inf")
+            raise _QuotaProbabilityUnderflowError(
+                "quota likelihood underflowed despite positive structural support"
+            )
         dp = updated / scale
         log_scale += log(scale)
     target_index = (
@@ -907,7 +913,11 @@ def _quota_log_probability(probabilities, quotas, *, max_states):
         else (0,)
     )
     mass = float(dp[target_index])
-    return float("-inf") if mass <= 0.0 else log_scale + log(mass)
+    if mass <= 0.0:
+        raise _QuotaProbabilityUnderflowError(
+            "quota likelihood underflowed despite positive structural support"
+        )
+    return log_scale + log(mass)
 
 
 def _quota_suffix_table(probabilities, quotas, *, max_states):
@@ -948,8 +958,9 @@ def _quota_suffix_table(probabilities, quotas, *, max_states):
             )
         scale = float(np.max(current))
         if scale <= 0.0:
-            raise _QuotaProposalInfeasibleError(
-                "selected count vector has zero proposal probability"
+            raise _QuotaProbabilityUnderflowError(
+                "conditional quota sampler underflowed despite positive "
+                "structural support"
             )
         suffix[patient] = current / scale
         log_scales[patient] = log_scales[patient + 1] + log(scale)
@@ -960,8 +971,9 @@ def _quota_suffix_table(probabilities, quotas, *, max_states):
     )
     target_mass = float(suffix[target_index])
     if target_mass <= 0.0:
-        raise _QuotaProposalInfeasibleError(
-            "selected count vector has zero proposal probability"
+        raise _QuotaProbabilityUnderflowError(
+            "conditional quota sampler underflowed despite positive "
+            "structural support"
         )
     log_probability = log_scales[0] + log(target_mass)
     return suffix, active_categories, log_probability
@@ -1071,6 +1083,7 @@ class HistoryImportanceDraw:
     enrollment_counts: Tuple[int, ...]
     event_counts: Tuple[int, ...]
     proposal_component: int
+    proposal_infeasible: bool
     tilt_attempts: int
     tilt_fallbacks: int
     tilt_iterations: Tuple[int, ...]
@@ -1089,6 +1102,14 @@ class HistoryImportanceDraw:
             self.event_compatible, bool
         ):
             raise ValueError("compatibility flags must be boolean")
+        if not isinstance(self.proposal_infeasible, bool):
+            raise ValueError("proposal_infeasible must be boolean")
+        if self.proposal_infeasible and (
+            weight != float("-inf") or self.event_compatible
+        ):
+            raise ValueError(
+                "proposal-infeasible draws must be event-incompatible with zero weight"
+            )
         component = int(self.proposal_component)
         attempts = int(self.tilt_attempts)
         fallbacks = int(self.tilt_fallbacks)
@@ -1153,6 +1174,7 @@ def _zero_weight_history_draw(
     tilt_fallbacks=0,
     tilt_iterations=(),
     maximum_tilt_error=None,
+    proposal_infeasible=False,
 ):
     """Return a harmless target draw for a zero-weight proposal outcome."""
 
@@ -1194,6 +1216,7 @@ def _zero_weight_history_draw(
         enrollment_counts=tuple(int(value) for value in enrollment_counts),
         event_counts=tuple(int(value) for value in event_counts),
         proposal_component=proposal_component,
+        proposal_infeasible=proposal_infeasible,
         tilt_attempts=tilt_attempts,
         tilt_fallbacks=tilt_fallbacks,
         tilt_iterations=tilt_iterations,
@@ -1320,6 +1343,7 @@ def draw_history_importance_sample(
             tilt_fallbacks=tilt_fallbacks,
             tilt_iterations=tilt_iterations,
             maximum_tilt_error=maximum_tilt_error,
+            proposal_infeasible=True,
         )
     categories = _sample_exact_quota_assignment(
         selected_probabilities,
@@ -1425,6 +1449,7 @@ def draw_history_importance_sample(
         enrollment_counts=tuple(int(value) for value in enrollment_counts),
         event_counts=tuple(int(value) for value in event_counts),
         proposal_component=proposal_component,
+        proposal_infeasible=False,
         tilt_attempts=len(proposal_z_targets),
         tilt_fallbacks=tilt_fallbacks,
         tilt_iterations=tilt_iterations,
@@ -1481,6 +1506,7 @@ class ConditioningResult:
     tilt_attempts: int
     tilt_fallbacks: int
     draws_with_tilt_fallback: int
+    proposal_infeasible_draws: int
     mean_tilt_iterations: Optional[float]
     maximum_tilt_error: Optional[float]
 
@@ -1556,6 +1582,7 @@ class _ConditioningAccumulator:
         tilt_attempts,
         tilt_fallbacks,
         draws_with_tilt_fallback,
+        proposal_infeasible_draws,
         mean_tilt_iterations,
         maximum_tilt_error,
     ):
@@ -1597,6 +1624,7 @@ class _ConditioningAccumulator:
             tilt_attempts=tilt_attempts,
             tilt_fallbacks=tilt_fallbacks,
             draws_with_tilt_fallback=draws_with_tilt_fallback,
+            proposal_infeasible_draws=proposal_infeasible_draws,
             mean_tilt_iterations=mean_tilt_iterations,
             maximum_tilt_error=maximum_tilt_error,
         )
@@ -1686,6 +1714,7 @@ def _condition_designs_on_public_history(
     tilt_attempts = 0
     tilt_fallbacks = 0
     draws_with_tilt_fallback = 0
+    proposal_infeasible_draws = 0
     maximum_tilt_error = None
     for _ in range(nsim):
         draw = draw_history_importance_sample(
@@ -1705,6 +1734,7 @@ def _condition_designs_on_public_history(
         tilt_attempts += draw.tilt_attempts
         tilt_fallbacks += draw.tilt_fallbacks
         draws_with_tilt_fallback += int(draw.tilt_fallbacks > 0)
+        proposal_infeasible_draws += int(draw.proposal_infeasible)
         if draw.tilt_iterations:
             maximum_tilt_error = (
                 draw.maximum_tilt_error
@@ -1723,6 +1753,7 @@ def _condition_designs_on_public_history(
             tilt_attempts,
             tilt_fallbacks,
             draws_with_tilt_fallback,
+            proposal_infeasible_draws,
             mean_iterations,
             maximum_tilt_error,
         )

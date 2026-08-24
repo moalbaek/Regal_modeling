@@ -85,9 +85,11 @@ verify continuation/final branch conservation, exercise pre-outcome censoring, a
 importance draws across assumed futility thresholds. They also pin support-preserving range targets,
 consistent quota-DP cell budgets, and unbiased base-proposal fallback when a continuation tilt cannot
 be fitted for one draw. Reported effective sample size, maximum weight share, and tilt-fallback counts
-expose a poorly supported fixed-scenario projection rather than hiding it behind a raw draw count;
-tilt iteration/error summaries are `None` when no tilt converged. Direct tilt callers can catch the
-exported `TiltProposalError`.
+and proposal-infeasible-draw counts expose a poorly supported fixed-scenario projection rather than
+hiding it behind a raw draw count. Structurally infeasible proposal pairs remain counted zero-weight
+draws, while numerical underflow in a mathematically positive quota probability raises instead of
+silently discarding weight. Tilt iteration/error summaries are `None` when no tilt converged. Direct
+tilt callers can catch the exported `TiltProposalError`.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
