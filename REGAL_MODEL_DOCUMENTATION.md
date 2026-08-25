@@ -729,6 +729,16 @@ adds no network or build dependency. `python3 report.py validate` strictly parse
 validates the release/schema invariants, and requires exact equality of the parsed objects. The HTML
 formats the bundle only; all legacy JavaScript calculations remain confined to the v1 section.
 
+The checked-in production artifact was generated on 2026-08-25 from source revision
+`c2774331ffe034a98369c9478e81a8bdc8ca808e`, with seed `20260825` and 10,000 importance draws per
+family. It is complete but **not release-ready**. In the balanced, no-futility baseline, history ESS
+ranges from 5.9 to 109.4, continuation ESS from 11.2 to 56.7, and maximum history-weight share from
+2.3% to 37.6%. No complete family set clears the ≥100/≥100/≤5% gates. The release headline is
+therefore `null`, the interface says “Not published,” and sensitivity probabilities are withheld in
+the rendered tables. The JSON retains the raw rows with `estimate_status = diagnostic_only` so the
+importance proposal and any future larger run can be audited without presenting those estimates as
+REGAL's probability of success.
+
 ---
 
 ## 5. Key functions (reference)

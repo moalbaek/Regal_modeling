@@ -344,7 +344,7 @@ forecast.
   equality, so opening the file directly requires no server, fetch, build step, or duplicated inputs.
 - [x] Preserve the v1 scenario controls as a separately labeled legacy section rather than silently
   changing their numerical behavior.
-- [ ] Publish a production REGAL run from a pinned source revision and seed; the interface may call it
+- [x] Publish a production REGAL run from a pinned source revision and seed; the interface may call it
   a posterior forecast only if the complete primary result clears every numerical readiness gate.
 
 The target module split is:
@@ -382,6 +382,14 @@ absent production run shows “Not published” plus the readiness reasons. Prio
 their own gates remain diagnostic-only. `python3 report.py validate` checks the external bundle,
 embedded bundle, schema, release invariants, and exact parsed equality.
 
+The first production artifact uses 10,000 importance draws per family, seed `20260825`, and source
+revision `c2774331ffe034a98369c9478e81a8bdc8ca808e`. It is a complete seven-family result with all
+model-prior and futility rows, but the release status is **withheld**. Across the balanced baseline,
+family history ESS ranges from 5.9 to 109.4, continuation ESS from 11.2 to 56.7, and maximum history
+weight share from 2.3% to 37.6%. No family set clears all three committed gates, so the bundle's
+headline remains `null` and the interface says “Not published.” The underlying numerical estimates
+are retained only as explicitly marked diagnostic fields for audit and proposal improvement.
+
 ## Release gates
 
 - **v1.1 — complete:** truthful labels, documentation corrections, and UI consistency fixes.
@@ -389,8 +397,11 @@ embedded bundle, schema, release invariants, and exact parsed equality.
 - **v2-forecast backend — complete:** public-history likelihood, interim-continuation conditioning,
   and posterior model averaging.
 - **v2-publication infrastructure — complete:** strict result bundle, self-contained frontend,
-  readiness-gated headline, prior/futility diagnostics, and Python/HTML parity validation. The
-  production-run checkbox in WP8 remains the final publication gate.
+  readiness-gated headline, prior/futility diagnostics, and Python/HTML parity validation.
+- **v2 production integration — complete but withheld:** the pinned 10,000-draw run is published as
+  a diagnostic artifact and fails the numerical release gates above. A v2 headline forecast remains
+  unreleased until a future run clears them; increasing raw draws or improving the importance
+  proposal must be validated rather than assumed sufficient.
 
 Only a complete, numerically ready `PosteriorForecastResult` may be described as the v2 posterior
 forecast. Legacy scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete

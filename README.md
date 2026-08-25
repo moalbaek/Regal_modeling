@@ -16,6 +16,12 @@ complete remission.
 > on the observed decision to continue after the 60-event interim. The separation is tracked in
 > [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md).
 
+The checked-in production bundle uses 10,000 importance draws per family and seed `20260825`. Its
+release status is currently **withheld**: history ESS is 5.9–109.4, continuation ESS is 11.2–56.7,
+and maximum history-weight share is 2.3–37.6% across families, so the complete primary result does
+not clear the ≥100 ESS / ≤5% concentration gates. The interface therefore publishes no headline
+probability; raw numerical estimates remain diagnostic-only in the JSON for audit.
+
 The blinded death-event milestones (60/72/78) constrain only the *pooled* survival trajectory, so the
 split between arms is an explicit assumption. The tool calibrates assumed pooled curve families to
 the milestones, decomposes them into arms under user-controlled assumptions, and simulates the
