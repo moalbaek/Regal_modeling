@@ -317,7 +317,9 @@ w_j(H,C) \propto w_j\,P(H\mid M_j)\,P(C\mid H,M_j),
 where `H` is the public enrollment/event history and `C` is the actual interim continuation. The
 headline conditional final-rejection probability is the posterior-weighted mean of
 `P(final rejection | H, C, M_j)`. `posterior_model_average()` refuses incomplete or duplicate
-family sets; only its complete `PosteriorForecastResult` has `is_posterior_forecast = True`.
+family sets. A complete `PosteriorForecastResult` has `is_posterior_forecast = True` only when every
+family also has history and continuation ESS of at least 100 and maximum history weight share no
+greater than 5%; otherwise `forecast_readiness_issues` identifies the failed numerical gates.
 
 The default WP7 accrual prior draws a log-linear calendar slope over the registry opening-to-close
 window. It uses the known opening and completed-enrollment boundary as support but does not center
@@ -359,6 +361,7 @@ stratified-analysis parity, small-cohort likelihood checks, continuation-boundar
   and posterior model averaging. WP8 still has to publish a versioned result bundle and expose it in
   the interface.
 
-Only a complete `PosteriorForecastResult` may be described as the v2 posterior forecast. Legacy
-scenario rates, one-family WP6/WP7 projections, synthetic audit values, and incomplete family sets
-must not be described as REGAL's probability of success.
+Only a complete, numerically ready `PosteriorForecastResult` may be described as the v2 posterior
+forecast. Legacy scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete
+family sets, and complete averages that fail the ESS/weight-concentration gates must not be described
+as REGAL's probability of success.

@@ -27,6 +27,8 @@ from posterior import (  # noqa: E402
     GPSEffectFamily,
     GPSEffectScenarioSampler,
     LogLinearEnrollmentPrior,
+    MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE,
+    MINIMUM_POSTERIOR_FORECAST_ESS,
     ModelFamilyWeightPrior,
     PiecewiseMixtureHazardEventTimeModel,
     PiecewiseWeibullEventTimeModel,
@@ -256,25 +258,25 @@ def conditioning_result(
     return ConditioningResult(
         scenario_name=family.value,
         design=design,
-        importance_draws=100,
-        history_compatible_draws=50,
-        continuation_compatible_draws=25,
-        interim_efficacy_draws=15,
+        importance_draws=1000,
+        history_compatible_draws=500,
+        continuation_compatible_draws=250,
+        interim_efficacy_draws=150,
         interim_futility_draws=0,
-        non_estimable_interim_draws=10,
-        final_rejection_draws=10,
-        final_non_rejection_draws=10,
-        final_not_reached_draws=5,
+        non_estimable_interim_draws=100,
+        final_rejection_draws=100,
+        final_non_rejection_draws=100,
+        final_not_reached_draws=50,
         log_p_public_history=log_history,
         p_continue_given_public_history=continuation,
         p_final_rejection_given_public_history_and_continuation=rejection,
         p_final_reached_given_public_history_and_continuation=reached,
-        history_effective_sample_size=40.0,
-        continuation_effective_sample_size=20.0,
-        maximum_history_weight_share=0.05,
+        history_effective_sample_size=400.0,
+        continuation_effective_sample_size=200.0,
+        maximum_history_weight_share=0.01,
         valid_disclosure_lag_mass=1.0,
         proposal_interim_z_targets=(0.0,),
-        tilt_attempts=100,
+        tilt_attempts=1000,
         tilt_fallbacks=0,
         draws_with_tilt_fallback=0,
         proposal_infeasible_draws=0,
@@ -348,6 +350,73 @@ class PosteriorModelAverageTest(unittest.TestCase):
         self.assertAlmostEqual(
             forecast.p_public_history_and_continuation, 0.2
         )
+
+    def test_roundoff_above_one_is_clamped_but_material_overshoot_fails(self):
+        projections = list(family_projections())
+        projections[0] = replace(
+            projections[0],
+            conditioning=replace(
+                projections[0].conditioning,
+                p_final_reached_given_public_history_and_continuation=(
+                    1.0 + 0.5e-12
+                ),
+            ),
+        )
+        forecast = posterior_model_average(projections)
+        self.assertEqual(
+            forecast.p_final_reached_given_public_history_and_continuation,
+            1.0,
+        )
+        projections[0] = replace(
+            projections[0],
+            conditioning=replace(
+                projections[0].conditioning,
+                p_final_reached_given_public_history_and_continuation=(
+                    1.0 + 2.0e-12
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "final-reach probability"):
+            posterior_model_average(projections)
+
+    def test_forecast_label_requires_monte_carlo_readiness_in_every_family(self):
+        projections = list(family_projections())
+        first = projections[0]
+        cases = (
+            (
+                "history_effective_sample_size",
+                MINIMUM_POSTERIOR_FORECAST_ESS - 1.0,
+                "history ESS",
+            ),
+            (
+                "continuation_effective_sample_size",
+                MINIMUM_POSTERIOR_FORECAST_ESS - 1.0,
+                "continuation ESS",
+            ),
+            (
+                "maximum_history_weight_share",
+                MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE + 0.01,
+                "maximum history weight share",
+            ),
+        )
+        for field_name, value, expected_issue in cases:
+            with self.subTest(field_name=field_name):
+                changed = list(projections)
+                changed[0] = replace(
+                    first,
+                    conditioning=replace(
+                        first.conditioning,
+                        **{field_name: value},
+                    ),
+                )
+                result = posterior_model_average(changed)
+                self.assertFalse(result.is_posterior_forecast)
+                self.assertTrue(
+                    any(
+                        expected_issue in issue
+                        for issue in result.forecast_readiness_issues
+                    )
+                )
 
     def test_family_evidence_updates_model_weights_by_bayes_rule(self):
         projections = list(family_projections())

@@ -42,7 +42,7 @@ has been established.
 | `data/regal_public_history.json` | Versioned enrollment/event evidence with observation and announcement dates, typed counts, source notes, and explicit reporting-lag uncertainty; current through the 11 Aug 2026 event-80 right censor. |
 | `event_likelihood.py` | Isolated v2 public-history layer: registry-anchored fixed-N accrual and a joint Poisson-multinomial likelihood over correlated integer event increments and latent patient trajectories. |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 audit for schema integrity, reachable 20/104/126 accrual anchors, small-cohort likelihood correctness, and event-80 reporting-lag sensitivity. |
-| `posterior.py` | V2 WP6/WP7 posterior layer: one consistent latent enrollment/outcome history, exact public-count conditioning, continuation-centered importance sampling, all seven required/exploratory GPS effect families, within-family parameter priors, posterior family weights, and prior-weight sensitivity. Fixed-family outputs remain non-forecast projections; only the complete model average is marked as a posterior forecast. |
+| `posterior.py` | V2 WP6/WP7 posterior layer: one consistent latent enrollment/outcome history, exact public-count conditioning, continuation-centered importance sampling, all seven required/exploratory GPS effect families, within-family parameter priors, posterior family weights, and prior-weight sensitivity. Fixed-family outputs remain non-forecast projections; a complete model average must also clear explicit Monte Carlo readiness gates before it is marked as a posterior forecast. |
 | `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 stress audit showing that continuation-centered importance sampling reaches a rare continuation branch while preserving the public-history compatibility estimate. |
 | `audit/v2_effect_model_averaging_validation.py` | Compact synthetic WP7 audit covering every effect family, the full WP6 conditioning path, posterior family-weight normalization, and skeptical/balanced/cure-favoring prior sensitivity. It does not print a REGAL forecast. |
 
@@ -101,7 +101,9 @@ weights update with `P(public history, continuation | family)` and are re-used a
 prior-weight sensitivities. Posterior futility sensitivity retains the same importance draws within
 each family across no-futility and explicit HR-threshold assumptions. The default accrual prior uses
 the registry opening and enrollment-close window as support but does not use the intermediate anchor
-counts as prior centers.
+counts as prior centers. Forecast labeling additionally requires history and continuation ESS of at
+least 100 in every family and no family history weight above 5%; failing diagnostics remain visible
+on the complete model-average result.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test

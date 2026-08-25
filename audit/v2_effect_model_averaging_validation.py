@@ -115,7 +115,7 @@ def synthetic_history():
     )
 
 
-def validate(nsim=100, seed=20260825):
+def validate(nsim=600, seed=20260825):
     history = synthetic_history()
     enrollment = PiecewiseEnrollmentModel(
         total_enrollment=8,
@@ -132,9 +132,9 @@ def validate(nsim=100, seed=20260825):
         seed=seed,
         proposal_interim_z_targets=(0.0,),
     )
-    projections = futility_rows[0]
     if len(futility_rows) != 2:
         raise AssertionError("WP7 futility sensitivity grid lost a requested row")
+    projections = futility_rows[0]
     for no_futility, assumed_futility in zip(*futility_rows):
         if no_futility.family is not assumed_futility.family:
             raise AssertionError("futility rows are misaligned across effect families")
@@ -162,7 +162,10 @@ def validate(nsim=100, seed=20260825):
     forecasts = posterior_prior_sensitivity(projections)
     for forecast in forecasts:
         if not forecast.is_posterior_forecast:
-            raise AssertionError("complete model average did not claim forecast status")
+            raise AssertionError(
+                "complete model average failed readiness gates: "
+                + "; ".join(forecast.forecast_readiness_issues)
+            )
         if abs(sum(forecast.model_posterior_weights.values()) - 1.0) > 1e-12:
             raise AssertionError("posterior model weights do not sum to one")
         probability = (
@@ -171,9 +174,27 @@ def validate(nsim=100, seed=20260825):
         if not np.isfinite(probability) or not 0.0 <= probability <= 1.0:
             raise AssertionError("posterior rejection probability is invalid")
 
+    minimum_history_ess = min(
+        item.conditioning.history_effective_sample_size for item in projections
+    )
+    minimum_continuation_ess = min(
+        item.conditioning.continuation_effective_sample_size
+        for item in projections
+    )
+    maximum_history_share = max(
+        item.conditioning.maximum_history_weight_share for item in projections
+    )
     print("WP7 effect-model averaging validation passed")
     print(f"  synthetic importance draws per family: {nsim:,}")
     print(f"  effect families: {len(projections)}")
+    print(
+        "  minimum history / continuation ESS: "
+        f"{minimum_history_ess:.1f} / {minimum_continuation_ess:.1f}"
+    )
+    print(
+        "  maximum history weight share: "
+        f"{maximum_history_share:.3f}"
+    )
     print("  paired futility assumptions: disabled, HR 1.0")
     print(
         "  model-weight sensitivities: "
@@ -185,7 +206,7 @@ def validate(nsim=100, seed=20260825):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nsim", type=int, default=100)
+    parser.add_argument("--nsim", type=int, default=600)
     parser.add_argument("--seed", type=int, default=20260825)
     args = parser.parse_args()
     if args.nsim < 1:

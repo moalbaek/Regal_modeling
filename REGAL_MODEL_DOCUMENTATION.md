@@ -688,9 +688,13 @@ likelihoods. These profiles quantify analyst-prior sensitivity; none is protocol
 
 `ConditioningResult.is_posterior_forecast` remains false even when its sampler integrates parameters
 inside one family. `posterior_model_average` requires exactly the complete family set and a positive
-prior mass for every family before returning `PosteriorForecastResult.is_posterior_forecast = True`.
-This guard prevents a convenient subset or a boundary-selected cure model from being presented as
-the v2 posterior forecast.
+prior mass for every family. Completeness alone does not confer forecast status: every family must
+also have public-history and continuation ESS of at least 100 and maximum public-history weight share
+no greater than 5%. Failed gates are returned in `forecast_readiness_issues`, and
+`PosteriorForecastResult.is_posterior_forecast` remains false. These guards prevent a convenient
+subset, a boundary-selected cure model, or a numerically unresolved model average from being
+presented as the v2 posterior forecast. The thresholds are release safeguards, not proof of Monte
+Carlo convergence; seed stability and sensitivity diagnostics still require review.
 
 ---
 
@@ -751,8 +755,8 @@ audit-only fields are intentionally absent from the browser; automated full pari
    unavailable (`None`) when no component converged, and direct callers can catch the exported
    `TiltProposalError`. WP7 integrates explicit parameter priors inside all seven families, updates
    their weights with joint public-history/continuation evidence, and reports prior-weight
-   sensitivity. A family-specific result remains non-forecast output; only the complete average is
-   marked as the posterior forecast.
+   sensitivity. A family-specific result remains non-forecast output; a complete average is marked
+   as the posterior forecast only after all family ESS and history-weight-concentration gates pass.
 3. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 4. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a

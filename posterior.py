@@ -84,6 +84,8 @@ DEFAULT_MAX_TILT_ITERATIONS = 80
 DEFAULT_MAX_COUNT_VECTORS = 4096
 TARGET_CATEGORY_MARGIN = 0.25
 MONTH_DAYS = 365.25 / 12.0
+MINIMUM_POSTERIOR_FORECAST_ESS = 100.0
+MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE = 0.05
 
 
 class TiltProposalError(RuntimeError):
@@ -133,6 +135,22 @@ def _probability_from_log(value):
     if value == float("-inf"):
         return 0.0
     return exp(value)
+
+
+def _unit_probability(value, name):
+    """Validate and clamp only floating-point noise outside ``[0, 1]``."""
+
+    try:
+        probability = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be numeric") from error
+    if (
+        not isfinite(probability)
+        or probability < -PROBABILITY_TOLERANCE
+        or probability > 1.0 + PROBABILITY_TOLERANCE
+    ):
+        raise ValueError(f"{name} must lie in [0, 1]")
+    return min(max(probability, 0.0), 1.0)
 
 
 class PatientEventTimeModel(Protocol):
@@ -2806,8 +2824,11 @@ def _max_weight_share(log_weights):
 def _conditional_probability(numerator, denominator):
     if not denominator:
         return float("nan")
-    return _probability_from_log(
-        _logsumexp(numerator) - _logsumexp(denominator)
+    return _unit_probability(
+        _probability_from_log(
+            _logsumexp(numerator) - _logsumexp(denominator)
+        ),
+        "conditional probability",
     )
 
 
@@ -2902,7 +2923,9 @@ class ModelFamilyWeightPrior:
             try:
                 family_value, probability_value = item
             except (TypeError, ValueError) as error:
-                raise ValueError("weights must contain (family, probability) pairs")
+                raise ValueError(
+                    "weights must contain (family, probability) pairs"
+                ) from error
             try:
                 family = GPSEffectFamily(family_value)
             except (TypeError, ValueError) as error:
@@ -2996,7 +3019,7 @@ class PosteriorFamilyResult:
 
 @dataclass(frozen=True)
 class PosteriorForecastResult:
-    """Continuation-conditioned posterior forecast across all effect families."""
+    """Continuation-conditioned model average with explicit readiness checks."""
 
     sensitivity_name: str
     family_results: Tuple[PosteriorFamilyResult, ...]
@@ -3009,8 +3032,55 @@ class PosteriorForecastResult:
         return _probability_from_log(self.log_p_public_history_and_continuation)
 
     @property
+    def forecast_readiness_issues(self):
+        """Reasons this complete average is not ready for a forecast label.
+
+        Completeness is necessary but not sufficient. Every family likelihood
+        and continuation-conditioned projection must also clear the minimum
+        effective-sample-size and maximum history-weight-concentration gates.
+        These are release safeguards, not a proof of Monte Carlo convergence.
+        """
+
+        issues = []
+        families = tuple(item.family for item in self.family_results)
+        if len(families) != len(REQUIRED_EFFECT_FAMILIES) or set(families) != set(
+            REQUIRED_EFFECT_FAMILIES
+        ):
+            issues.append("model average does not contain every required family")
+        for item in self.family_results:
+            result = item.conditioning
+            if (
+                not isfinite(result.history_effective_sample_size)
+                or result.history_effective_sample_size
+                < MINIMUM_POSTERIOR_FORECAST_ESS
+            ):
+                issues.append(
+                    f"{item.family.value} history ESS is below "
+                    f"{MINIMUM_POSTERIOR_FORECAST_ESS:g}"
+                )
+            if (
+                not isfinite(result.continuation_effective_sample_size)
+                or result.continuation_effective_sample_size
+                < MINIMUM_POSTERIOR_FORECAST_ESS
+            ):
+                issues.append(
+                    f"{item.family.value} continuation ESS is below "
+                    f"{MINIMUM_POSTERIOR_FORECAST_ESS:g}"
+                )
+            if (
+                not isfinite(result.maximum_history_weight_share)
+                or result.maximum_history_weight_share
+                > MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+            ):
+                issues.append(
+                    f"{item.family.value} maximum history weight share exceeds "
+                    f"{MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE:g}"
+                )
+        return tuple(issues)
+
+    @property
     def is_posterior_forecast(self):
-        return True
+        return not self.forecast_readiness_issues
 
     @property
     def model_prior_weights(self):
@@ -3076,8 +3146,9 @@ def posterior_model_average(
         if log_history == float("-inf"):
             joint = float("-inf")
         else:
-            if not isfinite(continuation) or not 0.0 <= continuation <= 1.0:
-                raise ValueError("family continuation probability must lie in [0, 1]")
+            continuation = _unit_probability(
+                continuation, "family continuation probability"
+            )
             joint = (
                 float("-inf")
                 if continuation == 0.0
@@ -3103,21 +3174,14 @@ def posterior_model_average(
     ):
         conditioning = projection.conditioning
         if posterior_weight > 0.0:
-            family_rejection = (
-                conditioning.p_final_rejection_given_public_history_and_continuation
+            family_rejection = _unit_probability(
+                conditioning.p_final_rejection_given_public_history_and_continuation,
+                "family final-rejection probability",
             )
-            family_reached = (
-                conditioning.p_final_reached_given_public_history_and_continuation
+            family_reached = _unit_probability(
+                conditioning.p_final_reached_given_public_history_and_continuation,
+                "family final-reach probability",
             )
-            if (
-                not isfinite(family_rejection)
-                or not 0.0 <= family_rejection <= 1.0
-                or not isfinite(family_reached)
-                or not 0.0 <= family_reached <= 1.0
-            ):
-                raise ValueError(
-                    "positive-weight families require finite final probabilities"
-                )
             if family_rejection > family_reached + PROBABILITY_TOLERANCE:
                 raise ValueError(
                     "family final-rejection probability cannot exceed final reach"
@@ -3134,6 +3198,15 @@ def posterior_model_average(
                 conditioning=conditioning,
             )
         )
+    rejection = _unit_probability(
+        rejection, "posterior final-rejection probability"
+    )
+    reached = _unit_probability(reached, "posterior final-reach probability")
+    if rejection > reached + PROBABILITY_TOLERANCE:
+        raise ValueError(
+            "posterior final-rejection probability cannot exceed final reach"
+        )
+    rejection = min(rejection, reached)
     return PosteriorForecastResult(
         sensitivity_name=model_weight_prior.name,
         family_results=tuple(family_results),
@@ -3725,6 +3798,8 @@ __all__ = (
     "HistoryConstraintBranch",
     "HistoryImportanceDraw",
     "LogLinearEnrollmentPrior",
+    "MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE",
+    "MINIMUM_POSTERIOR_FORECAST_ESS",
     "ModelFamilyWeightPrior",
     "PatientEventTimeModel",
     "PiecewiseMixtureHazardEventTimeModel",
