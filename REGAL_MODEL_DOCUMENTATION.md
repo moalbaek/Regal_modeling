@@ -11,16 +11,18 @@ for the actual ongoing trial. The plateau and bounded no-cure panels are alterna
 explanations using the same BAT arm. Their boundary and residual classifications are diagnostics, not
 formal hypothesis tests, and cannot identify whether the pooled tail is GPS-specific.
 
-**Deliverables:** `regal_explorer.html` (self-contained interactive explorer) and
+**Deliverables:** `regal_explorer.html` (self-contained legacy interactive explorer),
 `regal_explorer.py` (the legacy engine in Python, with additional audit-only interim fields, a CLI
-summary, and a 9-panel figure).
+summary, and a 9-panel figure), plus isolated Python v2 modules for corrected survival/BAT inputs,
+trial mechanics, public-history likelihood, continuation conditioning, and posterior effect-family
+averaging.
 
 > **Legacy-v1 status.** The current `ps` values are fixed-scenario rejection rates conditional on the selected assumptions
 > and on reaching the final analysis. V1 does not condition on the observed decision to continue
-> after the 60-event interim. See [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) for the
-> corrective rebuild.
+> after the 60-event interim. The v2 backend now does, but has not yet been connected to the legacy
+> CLI/browser. See [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) for the rebuild status.
 
-**Last updated:** 2026-08-22 · **Status:** research/analysis tool, not investment advice.
+**Last updated:** 2026-08-25 · **Status:** research/analysis tool, not investment advice.
 
 ---
 
@@ -64,8 +66,9 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 | `data/regal_public_history.json` | Versioned WP5 public evidence, current through 11 Aug 2026. | typed enrollment/event counts, observation and announcement dates, source notes, reporting-lag distributions |
 | `event_likelihood.py` | Isolated v2 public-history likelihood; not consumed by the legacy explorer. | registry-anchored fixed-N accrual, correlated Poisson-multinomial event increments, event-80 announcement right censor |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 data/likelihood audit. | anchor reachability, integer-count correlation, reporting-lag sensitivity |
-| `posterior.py` | Isolated WP6 fixed-scenario conditioning engine; not consumed by the legacy explorer. | consistent latent histories, exact public-count conditional draws, continuation importance weights with reported base fallbacks, conditional final projection, ESS diagnostics |
+| `posterior.py` | Isolated WP6/WP7 conditioning and model-averaging engine; not consumed by the legacy explorer. | consistent latent histories, exact public-count conditional draws, continuation importance weights, seven GPS effect families, parameter priors, posterior family weights, prior sensitivity, ESS diagnostics |
 | `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 rare-continuation stress audit. | base-versus-centered proposal coverage and public-history compatibility agreement |
+| `audit/v2_effect_model_averaging_validation.py` | Compact synthetic WP7 end-to-end audit. | complete family coverage, WP6 integration, posterior-weight normalization, and skeptical/balanced/cure-favoring sensitivity |
 
 The two legacy implementations share one enrollment reconstruction, one set of survival primitives,
 the same significance threshold (Section 2.1), and — critically — **one shared BAT arm** (`bat_arm`): the plateau and bounded-alternative
@@ -645,6 +648,54 @@ These statuses say how one chosen parametric family behaves inside one chosen bo
 whether the blinded pooled tail is GPS-specific. V2 replaces this fit-status logic with explicit model
 families, likelihoods, priors, and posterior sensitivity.
 
+### 4.8 WP7 GPS effect families and posterior averaging
+
+WP7 no longer selects one fitted tail family. It runs the same WP6 public-history/continuation
+conditioning engine under seven explicit prior-predictive structures:
+
+| Family | GPS structure | Default within-family prior |
+|--------|---------------|-----------------------------|
+| No effect | GPS and counterfactual BAT share the same component distribution. | Point mass at no effect. |
+| Proportional hazards | The scale-aware marginal cure-mixture all-cause hazard is multiplied from randomization. | Log-uniform HR 0.50–1.10. |
+| Delayed PH | The marginal all-cause hazard is unchanged through a landmark, then receives a proportional multiplier. | Log-uniform HR 0.45–1.05; delay 3–18 mo. |
+| Cure-fraction difference | A fraction of otherwise uncured GPS patients moves to population-mortality-only survival at time zero. | Conditional extra-cure probability 0–0.60. |
+| Delayed cure | Original hazard through a landmark; selected survivors lose disease hazard thereafter while population mortality continues. | Conditional extra-cure probability 0–0.60; delay 3–18 mo. |
+| Waning/piecewise | The marginal all-cause hazard receives one early ratio followed by a distinct late ratio. | Early HR 0.40–0.90; switch 6–24 mo; late HR 0.85–1.15. |
+| Responder/cure exploratory | A sampled immune-responder fraction receives its own cure probability and the BAT non-cured shape; non-responders track Observation. | Response 0.60–0.95; responder cure 0.20–0.85. |
+
+The ranges are deliberately visible analyst priors [A], not parameter estimates or sponsor
+disclosures. Each latent response/cure label is drawn before its event time. BAT pathways and four
+binary protocol-factor columns are also drawn before factor-stratified 1:1 randomization. The
+patient-level BAT sample integrates realized composition uncertainty under the selected BAT design;
+the primary default remains the protocol-compatible equal-planned-strata proxy, while the legacy and
+venetoclax/bear designs retain their comparison/stress labels.
+
+The WP7 accrual prior is separate from WP5's data-centered reference curve. It draws one log-linear
+calendar slope over the registry opening-to-enrollment-close support and never uses the intermediate
+20/104 counts as a prior center. Those observations enter once, through the shared history
+likelihood.
+
+For family `j`, the WP6 run integrates its parameter draws and yields `P(H|M_j)`,
+`P(C|H,M_j)`, and `P(R|H,C,M_j)`, where `H` is the public history, `C` the observed interim
+continuation, and `R` final rejection. Posterior family mass is
+
+`w_j(H,C) ∝ w_j · P(H|M_j) · P(C|H,M_j)`,
+
+and the forecast is `Σ_j w_j(H,C) P(R|H,C,M_j)`. The balanced family prior assigns 20% to no
+effect; 15% each to PH, delayed PH, cure difference, and delayed cure; and 10% each to waning and
+responder/cure. Skeptical and cure-favoring profiles change those weights without rerunning family
+likelihoods. These profiles quantify analyst-prior sensitivity; none is protocol truth.
+
+`ConditioningResult.is_posterior_forecast` remains false even when its sampler integrates parameters
+inside one family. `posterior_model_average` requires exactly the complete family set and a positive
+prior mass for every family. Completeness alone does not confer forecast status: every family must
+also have public-history and continuation ESS of at least 100 and maximum public-history weight share
+no greater than 5%. Failed gates are returned in `forecast_readiness_issues`, and
+`PosteriorForecastResult.is_posterior_forecast` remains false. These guards prevent a convenient
+subset, a boundary-selected cure model, or a numerically unresolved model average from being
+presented as the v2 posterior forecast. The thresholds are release safeguards, not proof of Monte
+Carlo convergence; seed stability and sensitivity diagnostics still require review.
+
 ---
 
 ## 5. Key functions (reference)
@@ -677,6 +728,10 @@ audit-only fields are intentionally absent from the browser; automated full pari
 | `simulate_patient_level_exponential_null` | Independent null validation of the full enrollment-calendar, event-trigger, and stratified-analysis path. |
 | `condition_on_public_history` | WP6 fixed-scenario importance sampler: one latent enrollment/assignment/censoring history, exact public integer-count conditioning, observed interim continuation, and forward final projection. |
 | `condition_futility_sensitivity_grid` | Paired WP6 conditional projections that reuse identical latent histories and importance weights across explicit futility-rule assumptions. |
+| `condition_effect_families_on_public_history` | WP7 runner that integrates each effect family's parameter prior through WP6, using the independent log-linear accrual prior by default. |
+| `condition_effect_families_futility_sensitivity_grid` | Paired WP7 family sets that retain identical latent histories within each family across no-futility and explicit HR-threshold assumptions. |
+| `posterior_model_average` | Requires all effect families, updates their weights with joint history/continuation evidence, and averages conditional final projections. |
+| `posterior_prior_sensitivity` | Reuses identical family likelihoods under skeptical, balanced, and cure-favoring model-weight priors. |
 | `figure()` / `render` + `chart*` | 9-panel figure (py, 3×3 grid) / live SVG charts and metrics panel (html): `chart` (survival), `chartAccrual`, `chartHist`, `chartDiverge`, `chartEnroll`, `chartPower`, `chartSelect`. |
 
 ---
@@ -688,7 +743,7 @@ audit-only fields are intentionally absent from the browser; automated full pari
    planned 2.339711/2.011777 boundaries, recalculates them after a tied-event overshoot, and applies
    the equivalent stratified score test. V1's unstratified HR ≤ 0.636 rule remains a
    reproducibility-only approximation.
-2. **WP6 can now produce a conditional fixed-scenario projection.** Exact integer-count conditioning
+2. **WP6 and WP7 now separate fixed-family projections from the posterior forecast.** Exact integer-count conditioning
    keeps 60/72/78, the event-80 right censor, the finite continuation-region interim statistic, and
    the forward final outcome on one latent patient history. Range targets preserve every compatible
    count interval, and a failed draw-specific continuation tilt falls back to the exact base proposal
@@ -698,7 +753,10 @@ audit-only fields are intentionally absent from the browser; automated full pari
    numerical underflow in positive quota mass remains a loud error. The quota-DP safety limit has one
    definition throughout: logical patient-by-state cells. Tilt iteration/error diagnostics are
    unavailable (`None`) when no component converged, and direct callers can catch the exported
-   `TiltProposalError`. This is not yet the WP7 posterior model average.
+   `TiltProposalError`. WP7 integrates explicit parameter priors inside all seven families, updates
+   their weights with joint public-history/continuation evidence, and reports prior-weight
+   sensitivity. A family-specific result remains non-forecast output; a complete average is marked
+   as the posterior forecast only after all family ESS and history-weight-concentration gates pass.
 3. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 4. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a
@@ -747,9 +805,22 @@ audit-only fields are intentionally absent from the browser; automated full pari
   upper bound on how cleanly eligibility can enrich the cohort; treat it as "how much healthier could
   the enrolled population plausibly be," not a literal drop-rate. It is applied within each component
   (holding the composition weights fixed) and equally to both arms.
-- **V1 remains unstratified.** The isolated v2 decision and WP6 conditioning engines perform the
-  protocol-factor stratified score test and accept a sampled patient-level factor distribution, but
-  REGAL's realized distribution is not public and still requires an explicit WP7 prior/sensitivity.
+- **V1 remains unstratified.** The isolated v2 decision and posterior engines perform the
+  protocol-factor stratified score test. WP7 samples four binary factors at transparent default
+  prevalences, but REGAL's realized confidential distribution remains unknown and those prevalences
+  require sensitivity analysis.
+- **WP7 priors are analyst choices.** Effect ranges, model-family weights, factor prevalences, the
+  log-linear accrual-slope range, and the default primary BAT proxy are not learned from blinded
+  counts before the likelihood. The committed skeptical/balanced/cure-favoring profiles expose one
+  important sensitivity axis but do not exhaust parameter, BAT, enrollment, censoring, or case-mix
+  uncertainty.
+
+The PH, delayed-PH, and waning families act on each scale-aware component's **marginal all-cause**
+cumulative hazard after cure mixing and population-mortality handling. This gives the PH family its
+literal statistical proportional-hazards meaning and retains the exact WP2 no-effect survival curve,
+but it also transforms the population-mortality contribution. These ratios therefore cannot be
+interpreted as biological disease- or excess-hazard effects. A genuine excess-hazard interpretation
+requires the net-survival refit and separately identified population hazard already noted in WP2.
 
 ---
 

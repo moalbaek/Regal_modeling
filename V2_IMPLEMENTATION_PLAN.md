@@ -271,16 +271,66 @@ truth.
 scenario where the exact-count base proposal produced no continuation draws in the pinned
 300-draw run. Adding the continuation-centered component produced 71 raw continuation draws
 (weighted ESS 3.89) while giving a consistent public-history compatibility estimate. This validates
-rare-branch access; none of those illustrative probabilities is a REGAL forecast. WP6 still operates
-under one fixed scenario at a time. Work package 7 must supply effect-family and parameter draws and
-average these conditional projections before the `v2-forecast` gate is complete.
+rare-branch access; none of those illustrative probabilities is a REGAL forecast. WP6 itself still
+operates under one fixed scenario (or one supplied prior-predictive family) at a time. WP7 now
+supplies effect-family and parameter draws and averages those conditional projections.
 
 ### 7. Average across GPS effect structures
 
-Include at least: no effect, proportional hazards, delayed proportional hazards, cure-fraction
-difference, delayed cure, and waning/piecewise effect families. Treat the current responder/cure
-construction as one exploratory family. Report model-family weights and prior sensitivity rather
-than declaring cure from an arbitrary parameter boundary.
+- [x] Include no effect, proportional hazards, delayed proportional hazards, cure-fraction
+  difference, delayed cure, and waning/piecewise effect families.
+- [x] Retain the current responder/cure construction as a separately labeled exploratory family.
+- [x] Draw effect parameters from explicit within-family priors rather than refitting an arbitrary
+  parameter boundary and calling the boundary evidence for cure.
+- [x] Use a prior-predictive accrual model that does not recycle the 20/104/126 anchor centers as
+  prior information; apply public enrollment evidence once in the WP5/WP6 likelihood.
+- [x] Calculate posterior family weights from each family's joint compatibility with the public
+  history and observed continuation, then average the family-specific final projections.
+- [x] Report skeptical, balanced, and cure-favoring model-weight sensitivity while reusing the same
+  family likelihood estimates.
+- [x] Preserve WP6's paired futility-rule sensitivity through the complete family average so no
+  unpublished rule is silently selected as protocol truth.
+
+`posterior.py` now implements the WP7 prior-predictive and model-averaging layer. The six required
+families are joined by a seventh `responder_cure_exploratory` family. No effect, PH, delayed PH, and
+waning start from the exact scale-aware marginal cure-mixture survival curve from WP2. Their hazard
+ratios transform that component-level all-cause cumulative hazard, making PH genuinely proportional
+on the marginal curve. This statistical construction also transforms the population-mortality
+contribution and therefore is not a biological disease- or excess-hazard effect. Delayed PH begins
+that transformation after a sampled landmark; cure difference moves a sampled fraction of otherwise
+uncured GPS patients onto population mortality; delayed cure preserves their original hazard until
+the landmark and removes only disease hazard thereafter; and the waning family uses distinct early
+and late piecewise hazard ratios. The exploratory responder family samples an immune-response
+fraction, gives responders their own cure probability and the BAT non-cured component mixture, and
+keeps non-responders on the Observation profile. Latent cure/response states are drawn before event
+times and are integrated rather than fitted to the same event history.
+
+Every family is run through the unchanged WP6 latent-history engine. Its parameter prior is sampled
+inside the scenario generator, so the resulting `ConditioningResult` integrates parameter and
+patient-level BAT-composition uncertainty within that family but still has
+`is_posterior_forecast = False`. Across families, Bayes' rule uses
+
+\[
+w_j(H,C) \propto w_j\,P(H\mid M_j)\,P(C\mid H,M_j),
+\]
+
+where `H` is the public enrollment/event history and `C` is the actual interim continuation. The
+headline conditional final-rejection probability is the posterior-weighted mean of
+`P(final rejection | H, C, M_j)`. `posterior_model_average()` refuses incomplete or duplicate
+family sets. A complete `PosteriorForecastResult` has `is_posterior_forecast = True` only when every
+family also has history and continuation ESS of at least 100 and maximum history weight share no
+greater than 5%; otherwise `forecast_readiness_issues` identifies the failed numerical gates.
+
+The default WP7 accrual prior draws a log-linear calendar slope over the registry opening-to-close
+window. It uses the known opening and completed-enrollment boundary as support but does not center
+itself on the intermediate public counts; those counts remain likelihood evidence. Default effect
+parameter ranges and the three model-family weight profiles are transparent analyst priors, not
+company disclosures. `condition_effect_families_futility_sensitivity_grid()` reuses identical
+importance draws within each family across no-futility and explicit HR-threshold assumptions before
+the family average. `audit/v2_effect_model_averaging_validation.py` exercises all seven families,
+the complete WP6 conditioning path, paired futility rows, Bayesian weight normalization, and prior
+sensitivity on a compact synthetic trial. Its printed values are validation fixtures, not a REGAL
+forecast.
 
 ### 8. Frontend and validation
 
@@ -305,10 +355,13 @@ stratified-analysis parity, small-cohort likelihood checks, continuation-boundar
 
 ## Release gates
 
-- **v1.1:** truthful labels, documentation corrections, and UI consistency fixes.
-- **v2-scenario:** corrected survival, BAT strata, and trial mechanics.
-- **v2-forecast:** public-history likelihood, interim-continuation conditioning, and posterior model
-  averaging.
+- **v1.1 — complete:** truthful labels, documentation corrections, and UI consistency fixes.
+- **v2-scenario — complete:** corrected survival, BAT strata, and trial mechanics.
+- **v2-forecast backend — complete:** public-history likelihood, interim-continuation conditioning,
+  and posterior model averaging. WP8 still has to publish a versioned result bundle and expose it in
+  the interface.
 
-No single output should be described as REGAL's probability of success before the `v2-forecast`
-gate is complete.
+Only a complete, numerically ready `PosteriorForecastResult` may be described as the v2 posterior
+forecast. Legacy scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete
+family sets, and complete averages that fail the ESS/weight-concentration gates must not be described
+as REGAL's probability of success.
