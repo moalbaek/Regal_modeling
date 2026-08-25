@@ -263,7 +263,7 @@ Supporting literature anchors for these assumptions [A]:
 
 **Base composition** (investigator's-choice weights, contemporary; **assumption [A]**, editable):
 Observation 0.27 · Hydroxyurea 0.08 · HMA 0.22 · Venetoclax 0.35 · LDAC 0.08 → implied BAT cure
-≈ 9%, BAT median ≈ 8.1 mo before enrollment selection (≈ 9% / ≈ 12 mo at the default 25% screen-out
+≈ 9%, BAT median ≈ 8.1 mo before enrollment selection (≈ 12% / ≈ 12 mo at the default 25% screen-out
 filter). Weights follow the US/EU/China BAT-composition review (observation ~35%, venetoclax ~35%,
 HMA ~22%, LDAC ~8%); two alternates ("low-venetoclax / access-constrained", "venetoclax-dominant /
 US-heavy") bracket the range.
@@ -316,6 +316,40 @@ responder Weibull (with `c = 0`) alike. Three properties matter:
   there is nothing for eligibility to select on, so no enrichment is possible at any `q`. Enrichment
   requires prognostic spread, and the model says so.
 
+**Delayed entry (CR2 → randomization).** A second, separately parameterized layer models the
+protocol's entry window. REGAL randomizes patients *after* CR2 is achieved: the last re-induction dose
+must be at least 4 weeks earlier (inclusion 7) and consent must fall within 6 months of CR2
+(inclusion 8). Patients who relapse or die inside that window never enrol. With entry delay `D` drawn
+before outcomes and independent of frailty,
+
+```
+S_trial(t) = P(T > D + t | T > D) = E_D[S(D + t)] / E_D[S(D)]
+```
+
+on the trial clock. `D` uses the same moment-matched three-point discretisation of `Uniform[1, 6]`
+months that WP5 uses for reporting lags. Three points matter:
+
+- **This is a real left-truncation, but on the CR2 clock.** Its truncation point therefore lands at
+  trial-clock `t = 0`, so — unlike the old outcome clip — it creates no guarantee interval and no
+  corner.
+- **The cure fraction legitimately rises**, to `c / E_D[S(D)]`. Uncured patients die during the window,
+  so survivors reaching randomization are enriched for cured ones. This resembles the old clip's
+  `c/(1−q)` inflation but is a different quantity: it conditions on survival *before* enrolment, which
+  screening genuinely observes, not on post-randomization survival, which it cannot.
+- **It enriches only through heterogeneity.** With no frailty spread, no cure fraction and `k = 1`,
+  survival is exponential and therefore memoryless — surviving the window carries no prognostic
+  information and the enrolled curve is unchanged. On the real components, delayed entry alone
+  (`θ = 0`) lifts the BAT median only 8.13 → 8.74 mo; it is the *interaction* with frailty spread that
+  does the work.
+
+The window is applied to the **literature-sourced components** — the BAT components, and GPS
+non-responders who track Observation via `Ssel` — whose medians are CR2-clock quantities. It is
+deliberately **not** applied to the *fitted* GPS responder families (`m_G`/`s_G` in the bounded
+alternative): those are post-randomization descriptions, and conditioning them on surviving the
+pre-randomization window would imply GPS was already acting before it was administered. In the plateau
+panel the responder's non-cured shape inherits the window through `Snc`, which is correct — the
+underlying disease trajectory is window-conditioned and GPS adds cure on top of it.
+
 **Re-anchoring.** `λ` is anchored so the **population** (`q = 0`) marginal median equals the published
 component median. This matters: the literature curves are already marginal over each source study's
 patient heterogeneity, so anchoring the conditional (`frailty = 1`) curve instead would count that
@@ -344,14 +378,16 @@ is what determines how much of the milestone deceleration is attributed to a hea
 versus to the GPS effect; the plateau fit's *only* free parameter is the GPS responder cure `π_resp`.
 The default is **`q = 25%`** (mid-band; see below).
 
-**Effect (base preset).** As `q` rises 0 → 25 → 50% (at the default `θ = 1.43`) the BAT median OS lifts
-~8 → 12 → 21 mo while the BAT cure fraction stays flat at ~9%% — selection rescales the uncured hazard and
-does not manufacture cures (both plotted live in panel *(i)* / the "enrollment selection lifts
-the BAT arm" chart, `S_BAT` and `π_BAT`, independent of the Monte-Carlo). To keep the pooled
-60/72/78 held fixed, the fitted GPS responder cure falls ~0.60 → 0.46 → 0.14, so the plateau scenario rate
-drops steeply ~100 → 94 → 13% — a healthier, harder-to-beat comparator leaves less residual to
+**Effect (base preset).** As `q` rises 0 → 25 → 50% (at the default `θ = 0.53` and the 1–6 mo entry
+window) the BAT median OS lifts ~11 → 12 → 14 mo. The BAT cure fraction barely moves (~12 → 12 → 11%):
+the frailty screen cannot manufacture cures at all, and only the entry window shifts it, in the
+opposite direction as `q` trades against the window's contribution (both plotted live in panel *(i)* /
+the "enrollment selection lifts the BAT arm" chart, `S_BAT` and `π_BAT`, independent of the
+Monte-Carlo). To keep the pooled 60/72/78 held fixed, the fitted GPS responder cure falls
+~0.66 → 0.61 → 0.53, so the plateau scenario rate
+moves ~96 → 89 → 70% — a healthier, harder-to-beat comparator leaves less residual to
 attribute to GPS. Note the direction of the fit-check: at `q = 0` the raw medians *over*-produce early
-deaths (modeled ~65/74/76 vs 60/72/78) and `π_resp` cannot slow BAT, so a residual misfit at low `q` is
+deaths (modeled ~64/74/76 vs 60/72/78) and `π_resp` cannot slow BAT, so a residual misfit at low `q` is
 the signal that *some* selection is needed; the fit tightens through the defensible band and, past it,
 the first milestone starts to *under*-fire (BAT too healthy). Because BAT is shared, the **no-GPS-cure
 alternative** rides the same BAT: as `q` rises its fitted GPS median `m_G` and tail `s_G` re-fit, and the
@@ -527,7 +563,7 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Quantity | Value (base preset) | Source |
 |----------|---------------------|--------|
 | Median enrollment date | ≈ Mar 2023 (cumulative ≈ 30 / 102 / 126 by Apr 2022 / Nov 2023 / Apr 2024) | `enroll` |
-| BAT cure / median | ~9% · ~12 mo at the q=25% default; frailty selection sweeps the median ~8 → 12 → 21 mo over q=0 → 50% while the cured fraction stays ~9% (Section 2.5.1) | `build_plateau` |
+| BAT cure / median | ~12% · ~12 mo at the q=25% default; the frailty screen plus the 1–6 mo entry window sweep the median ~11 → 12 → 14 mo over q=0 → 50%, with the cured fraction ~12% and moving only through the entry window (Section 2.5.1) | `build_plateau` |
 | GPS cure / median | ~63% · ~140 mo all-cause (disease-only plateau is never reached); both fall as selection rises and `π_resp` re-fits down | `build_plateau` |
 | GPS median Poisson 68% CI | ~28 – 276 mo (from 60/72/78 ±√n) — wide: three counts barely pin the tail | `fit_ci` |
 | Pooled long-term-survivor fraction | ~0.38 (disease plateau; all-cause survival decays below it) | `build_plateau` |
@@ -869,11 +905,24 @@ the exact validated Python bundle; the browser performs no duplicate posterior c
 - **Enrollment selection now screens on frailty, but the frailty variance is an analyst choice.** The
   eligibility lever (Section 2.5.1) selects on baseline frailty rather than realized survival, so it no
   longer assumes a screening accuracy no real criterion has. What remains uncalibrated is `θ`, the
-  population frailty variance: the default **1.43** is chosen so that `q = 25%` reproduces the legacy
-  BAT median under the base preset, *not* estimated from AML case-mix data. `θ` and `q` are only weakly
-  separately identified from three aggregate event counts, so treat the pair as one sensitivity axis
-  rather than two measured quantities. Selection is applied within each component (holding composition
-  weights fixed) and equally to both arms, and it does not alter the cure fraction.
+  population frailty variance: the default **0.53** is chosen so that `q = 25%` *plus the entry window*
+  reproduces the legacy BAT median under the base preset, *not* estimated from AML case-mix data. `θ`,
+  `q` and the window length are only weakly separately identified from three aggregate event counts, so
+  treat them as one sensitivity axis rather than three measured quantities. Adding the
+  protocol-grounded entry window cut the unexplained frailty residual by about 63% (`θ` 1.43 → 0.53),
+  which is the point of modelling it, but it did not make the residual identifiable.
+- **The entry window conditions each component on its own hazard.** A patient is not yet on their
+  assigned BAT regimen during the CR2 → randomization window, so strictly the window should be
+  survived under a common pre-randomization hazard. Own-hazard conditioning is defensible here because
+  CR2 continuation therapy is frequently the regimen that achieved CR2 (Section 1 of the BAT research
+  note), but it does differentially enrich the stronger components, and it overstates enrichment for
+  patients who switch regimen at randomization. Composition weights are held fixed, which *is* correct
+  for this layer: the investigator chooses the BAT regimen at randomization, after the window.
+- **The plateau panel's GPS median is an unstable readout near `p_GPS = 0.5`.** It is the crossing point
+  of a curve with a plateau at `p_GPS`, so as the fitted GPS cure approaches one half the median runs
+  off to very large values and is hypersensitive to small parameter changes (base `p_GPS` = 0.497 gives
+  52 mo; bull `p_GPS` = 0.577 gives 99 mo). Read the cure fraction and the rejection rate, not the
+  median, whenever `p_GPS` is near 0.5.
 - **V1 remains unstratified.** The isolated v2 decision and posterior engines perform the
   protocol-factor stratified score test. WP7 samples four binary factors at transparent default
   prevalences, but REGAL's realized confidential distribution remains unknown and those prevalences

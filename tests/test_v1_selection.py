@@ -83,11 +83,15 @@ class FrailtySelectionTest(unittest.TestCase):
                         float(R.Scf(1e12, med, cure, k, THETA, q)), cure, delta=1e-6
                     )
 
-    def test_bat_cure_fraction_is_flat_in_q(self):
-        """pibat used to rise as c/(1-q); it must now be the plain weighted cure."""
+    def test_frailty_screening_alone_does_not_move_the_cure_fraction(self):
+        """With the entry window off, pibat is the plain weighted cure at every q.
+
+        The old clip raised it as c/(1-q) by conditioning on post-randomization survival.
+        Screening on baseline frailty cannot do that: it rescales the uncured hazard only.
+        """
         expected = None
         for q in (0.0, 0.2, 0.4):
-            arm = R.bat_arm(R.default_cfg(esel=q))
+            arm = R.bat_arm(R.default_cfg(esel=q, dmin=0.0, dmax=0.0))
             weighted = sum(
                 arm["w"][i] * arm["cm"][i]["cure"] for i in range(len(arm["cm"]))
             )
@@ -95,6 +99,29 @@ class FrailtySelectionTest(unittest.TestCase):
             if expected is None:
                 expected = arm["pibat"]
             self.assertAlmostEqual(arm["pibat"], expected, places=12)
+
+    def test_entry_window_raises_the_cure_fraction_by_the_survival_denominator(self):
+        """Delayed entry legitimately enriches for cured patients: c / E_D[S(D)].
+
+        This looks like the old clip's c/(1-q) inflation but is a different quantity: it
+        conditions on surviving BEFORE enrolment, which screening actually observes, rather
+        than on post-randomization survival, which it cannot.
+        """
+        cfg = R.default_cfg()
+        arm = R.bat_arm(cfg)
+        grid, weights = R.dgrid(cfg["dmin"], cfg["dmax"])
+        expected = sum(
+            arm["w"][i]
+            * arm["cm"][i]["cure"]
+            / R.entry_survival(
+                arm["cm"][i]["med"], arm["cm"][i]["cure"], arm["cm"][i]["k"],
+                cfg["fvar"], cfg["esel"], grid, weights,
+            )
+            for i in range(len(arm["cm"]))
+        )
+        self.assertAlmostEqual(arm["pibat"], expected, places=12)
+        plain = sum(arm["w"][i] * arm["cm"][i]["cure"] for i in range(len(arm["cm"])))
+        self.assertGreater(arm["pibat"], plain)
 
     def test_selection_is_monotone_and_raises_the_median(self):
         """More screening enriches the cohort; it may never make it worse."""

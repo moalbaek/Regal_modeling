@@ -209,9 +209,12 @@
         <label for="esel">Eligibility screen-out <span class="val" id="eselL">screens out 25%</span></label>
         <input type="range" id="esel" min="0" max="50" step="1" value="25">
         <div class="sub">Fraction of the source population the entry criteria reject. Screening acts on baseline frailty, not on realized survival, so it enriches only as far as the frailty spread below allows.</div>
-        <label for="fvar">Population frailty variance <span class="val" id="fvarL">1.43</span></label>
-        <input type="range" id="fvar" min="0" max="3" step="0.01" value="1.43">
-        <div class="sub">Unobserved prognostic spread available to select on. At 0 no screening can enrich the cohort. Default 1.43 reproduces the legacy BAT median under the base preset.</div>
+        <label for="fvar">Population frailty variance <span class="val" id="fvarL">0.53</span></label>
+        <input type="range" id="fvar" min="0" max="3" step="0.01" value="0.53">
+        <div class="sub">Unobserved prognostic spread available to select on. At 0 no screening can enrich the cohort, and the entry window below barely enriches either. Default 0.53 reproduces the legacy BAT median once the entry window carries its share.</div>
+        <label for="dmax">CR2 &rarr; randomization window <span class="val" id="dmaxL">1&ndash;6 mo</span></label>
+        <input type="range" id="dmax" min="0" max="12" step="0.5" value="6">
+        <div class="sub">Protocol entry delay (inclusion 7: &ge;4 weeks post-reinduction; inclusion 8: consent within 6 months of CR2). Patients who die in this window never enrol, so survivors are enriched and the cure fraction legitimately rises. Set to 0 to disable.</div>
       </div>
       <div class="sub">The component medians above are for <b>all</b> CR2 transplant-ineligible patients, but the trial's eligibility bar
         (incl. REGAL's "life expectancy &gt; 6 months" criterion) enrols a healthier subset. This <b>left-truncates</b> the pooled
@@ -2110,6 +2113,41 @@ function sampGamma(a,scale,rnd){
   }
 }
 const sampf=(theta,q,rnd)=>theta<=0?1:sampGamma(1/theta,fsel(theta,q),rnd);
+// ---------- delayed entry (CR2 -> randomization) ----------
+// REGAL randomizes months AFTER CR2 is achieved: the last re-induction dose must be >=4 weeks
+// earlier (inclusion 7) and consent must fall within 6 months of CR2 (inclusion 8). Patients who
+// relapse or die inside that window never enrol. That is a real left-truncation, but on the CR2
+// clock, so its truncation point sits at trial-clock t=0 and creates no guarantee interval:
+//     S_trial(t) = E_D[S(D+t)] / E_D[S(D)].
+// The cure fraction legitimately RISES to c / E_D[S(D)] — uncured patients die during the window, so
+// survivors reaching randomization are enriched for cured ones. That conditions on PRE-enrolment
+// survival, which screening genuinely observes, unlike the old post-randomization outcome clip.
+function dgrid(dmin,dmax){
+  const a=Math.max(dmin||0,0), b=Math.max(dmax||0,0);
+  if(b<=a) return {D:[a],W:[1]};
+  return {D:[a,0.5*(a+b),b],W:[1/6,2/3,1/6]};   // moment-matched Uniform[a,b], as the WP5 lag PMF
+}
+const entrySurvival=(med,cure,k,theta,q,G)=>G.D.reduce((acc,d,i)=>acc+G.W[i]*Scf(d,med,cure,k,theta,q),0);
+const Sdel=(t,med,cure,k,theta,q,G)=>
+  G.D.reduce((acc,d,i)=>acc+G.W[i]*Scf(t+d,med,cure,k,theta,q),0)/entrySurvival(med,cure,k,theta,q,G);
+// Exact delayed-entry draw: enrolled (length-biased) delay, window-tilted frailty, conditional time.
+function sampdel(med,cure,k,theta,q,G,rnd,uncuredOnly){
+  const lm=lamf(med,cure,k,theta), ths=fsel(theta,q), n=G.D.length;
+  const sd=[],surv=[],mass=[]; let tot=0;
+  for(let i=0;i<n;i++){
+    const x=Math.pow(Math.max(G.D[i],0)/lm,k); sd.push(x);
+    const unc=theta<=0?Math.exp(-x):Math.pow(1+ths*x,-1/theta);
+    surv.push(cure+(1-cure)*unc);
+    const m=G.W[i]*(uncuredOnly?(1-cure)*unc:surv[i]); mass.push(m); tot+=m;
+  }
+  let u=rnd()*tot, j=0, acc=0;
+  for(j=0;j<n;j++){ acc+=mass[j]; if(u<=acc) break; }
+  if(j>=n) j=n-1;
+  const s=sd[j], d=G.D[j];
+  if(!uncuredOnly && rnd()<cure/surv[j]) return 1e9;
+  const z=theta<=0?1:sampGamma(1/theta, ths/(1+ths*s), rnd);
+  return lm*Math.pow(s-Math.log(Math.max(rnd(),1e-300))/z,1/k)-d;
+}
 // natural (non-disease) all-cause mortality as an independent competing risk.
 // ndr is an annual death fraction; convert to a constant monthly hazard.
 const natH=p=>p>0?-Math.log(1-p)/12:0;          // monthly hazard from annual fraction
@@ -2157,18 +2195,21 @@ function batArm(cfg){
   const h=natH(cfg.ndr||0), hd=natH(cfg.drop||0);
   const F=Math.min(Math.max(cfg.esel||0,0),0.5);                // eligibility screen-out fraction q
   const TH=Math.max(cfg.fvar||0,0);                             // population frailty variance theta
-  // Selection acts on baseline frailty, never on the realized death time, so the enrolled curve
-  // keeps positive hazard at t=0 and the cure fraction is unchanged.
-  const Ssel=(t,c)=>Scf(t,c.med,c.cure,c.k,TH,F);
-  const pibat=cm.reduce((a,c,i)=>a+w[i]*c.cure,0), obs=cm[0];
+  const G=dgrid(cfg.dmin,cfg.dmax);                             // CR2 -> randomization entry window
+  // Two pre-randomization layers, neither peeking at post-randomization survival: eligibility
+  // screens on baseline frailty, and the entry window removes CR2 patients who die before they can
+  // be randomized. Both keep positive hazard at t=0.
+  const Ssel=(t,c)=>Sdel(t,c.med,c.cure,c.k,TH,F,G);
+  const ecure=c=>c.cure/entrySurvival(c.med,c.cure,c.k,TH,F,G);  // cure among those reaching randomization
+  const pibat=cm.reduce((a,c,i)=>a+w[i]*ecure(c),0), obs=cm[0];
   const Sbat=t=>cm.reduce((a,c,i)=>a+w[i]*Ssel(t,c),0);
   const Snc=t=>(Sbat(t)-pibat)/(1-pibat);                       // non-cured BAT shape (plateau panel only)
-  return {w,cm,coh,MT,MOBS,WT,h,hd,F,TH,Ssel,pibat,obs,Sbat,Snc};
+  return {w,cm,coh,MT,MOBS,WT,h,hd,F,TH,G,ecure,Ssel,pibat,obs,Sbat,Snc};
 }
 // ---------- plateau (GPS-cure) model: shared BAT + a CURED GPS responder ----------
 // "plateau"/"cure" here means the GPS-cure model: GPS responders get a durable-remission plateau.
 function buildPlateau(cfg){
-  const B=batArm(cfg); const {w,cm,coh,MT,MOBS,WT,h,hd,F,TH,Ssel,pibat,obs,Sbat,Snc}=B; const {fnr}=cfg;
+  const B=batArm(cfg); const {w,cm,coh,MT,MOBS,WT,h,hd,F,TH,G,ecure,Ssel,pibat,obs,Sbat,Snc}=B; const {fnr}=cfg;
   const Spool=(t,pr)=>0.5*Sbat(t)+0.5*((1-fnr)*(pr+(1-pr)*Snc(t))+fnr*Ssel(t,obs));
   // observed deaths are all-cause (disease × background mortality) and net of loss-to-follow-up.
   const ed=(T,pr)=>{const Sf=t=>Spool(t,pr)*Snat(t,h);return coh.reduce((a,c)=>a+(c[0]<=T?c[1]*obsFrac(Sf,T-c[0],hd):0),0);};
@@ -2177,7 +2218,7 @@ function buildPlateau(cfg){
   let best=0.6,bs=1e18;
   for(let ki=0;ki<=90;ki++){const pr=ki/90;let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=pr;}}
   for(let it=0;it<3;it++){const st=.05/(it+1);for(let dp=-4;dp<=4;dp++){const pr=Math.min(.985,Math.max(0,best+dp*st));let e=0;for(let j=0;j<3;j++){const d=ed(MT[j],pr)-MOBS[j];e+=WT[j]*d*d;}if(e<bs){bs=e;best=pr;}}}
-  const presp=best, pgps=(1-fnr)*presp+fnr*obs.cure;
+  const presp=best, pgps=(1-fnr)*presp+fnr*ecure(obs);
   // returned curves are all-cause (disease × background mortality).
   const Sb=t=>Sbat(t)*Snat(t,h), Sg=t=>((1-fnr)*(presp+(1-presp)*Snc(t))+fnr*Ssel(t,obs))*Snat(t,h), Sp=t=>Spool(t,presp)*Snat(t,h);
   return {kind:"plateau",cfg,w,cm,coh,MT,MOBS,presp,h,pibat,pgps,obs,edRaw:ed,
@@ -2190,11 +2231,14 @@ function buildPlateau(cfg){
 // panels. This is a bounded alternative fit, not a hypothesis test. It reports a three-state fit
 // status; boundary and residual-misfit states withhold the alternative's scenario rejection rate.
 function buildNoGPSCure(cfg){
-  const B=batArm(cfg); const {w,cm,coh,MT,MOBS,WT,h,hd,F,TH,Ssel,pibat,obs,Sbat}=B; const {fnr}=cfg;
+  const B=batArm(cfg); const {w,cm,coh,MT,MOBS,WT,h,hd,F,TH,G,Ssel,pibat,obs,Sbat}=B; const {fnr}=cfg;
   const batMed=median(t=>Sbat(t)*Snat(t,h));
   const fitShape=!cfg.shapeOverride;                       // AUTO fits sG; override holds the slider value fixed
   const MGLO=Math.min(isFinite(batMed)?batMed:60,110), MGHI=120, SGMIN=0.15, SGMAX=1.5;  // fit bounds
-  // GPS responder = a single NO-CURE Weibull under the same eligibility selection as BAT.
+  // GPS responder = a single NO-CURE Weibull under the same eligibility screen as BAT. The entry
+  // window is deliberately NOT applied: mG/sG are FITTED post-randomization quantities, and
+  // conditioning them on surviving the pre-randomization window would imply GPS acted before it was
+  // given. Literature-sourced components (BAT, and non-responders on Observation) do carry it.
   const Sresp=(t,mG,sG)=>Scf(t,mG,0,sG,TH,F);
   // GPS non-responders (fnr) track Observation — unchanged and identical to the plateau panel.
   const Sgps=(t,mG,sG)=>(1-fnr)*Sresp(t,mG,sG)+fnr*Ssel(t,obs);
@@ -2260,7 +2304,9 @@ function mc(M,nsim){
   let a1=0;const cwc=w.map(x=>a1+=x);
   const F=Math.min(Math.max(M.cfg.esel||0,0),0.5);        // eligibility screen-out fraction q
   const TH=Math.max(M.cfg.fvar||0,0);                     // population frailty variance theta
-  const ncw=cm.map((c,i)=>w[i]*(1-c.cure));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
+  const G=dgrid(M.cfg.dmin,M.cfg.dmax);                   // CR2 -> randomization entry window
+  const ecw=cm.map(c=>c.cure/entrySurvival(c.med,c.cure,c.k,TH,F,G));   // cure among enrollees
+  const ncw=cm.map((c,i)=>w[i]*(1-ecw[i]));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
   const surv=new Float64Array(N),time=new Float64Array(N),ev2=new Int8Array(N),arm=new Int8Array(N),dcal=new Float64Array(N),en=new Float64Array(N),isdeath=new Int8Array(N),rawcal=new Float64Array(N);
   let sig=0,reached=0,aliveG=0,aliveB=0; const hrs=[],hrsIA=[];
   // Cox/log-rank score at a calendar cutoff -> [num, varr]
@@ -2281,10 +2327,10 @@ function mc(M,nsim){
       {
         const obs=M.obs;
         if(arm[i]===1){
-          if(rnd()<fnr) sv=rnd()<obs.cure?1e9:sampNCf(obs.med,obs.cure,obs.k,TH,rnd(),sampf(TH,F,rnd));
-          else if(M.kind==="nogpscure") sv=sampNCf(M.mG,0,M.sG,TH,rnd(),sampf(TH,F,rnd));   // no-cure GPS responder
-          else { if(rnd()<M.presp) sv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;sv=sampNCf(cm[c].med,cm[c].cure,cm[c].k,TH,rnd(),sampf(TH,F,rnd));} }
-        } else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; sv=rnd()<cm[c].cure?1e9:sampNCf(cm[c].med,cm[c].cure,cm[c].k,TH,rnd(),sampf(TH,F,rnd)); }
+          if(rnd()<fnr) sv=sampdel(obs.med,obs.cure,obs.k,TH,F,G,rnd,false);
+          else if(M.kind==="nogpscure") sv=sampNCf(M.mG,0,M.sG,TH,rnd(),sampf(TH,F,rnd));   // fitted post-randomization responder
+          else { if(rnd()<M.presp) sv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;sv=sampdel(cm[c].med,cm[c].cure,cm[c].k,TH,F,G,rnd,true);} }
+        } else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; sv=sampdel(cm[c].med,cm[c].cure,cm[c].k,TH,F,G,rnd,false); }
       }
       if(h>0){const tn=-Math.log(rnd())/h; if(tn<sv) sv=tn;}   // natural death may preempt
       const td=hdrop>0?-Math.log(rnd())/hdrop:Infinity;        // loss-to-follow-up time
@@ -2589,9 +2635,11 @@ function chartSelect(cfg){
   const H=350,pl=44,pr=48,pt=14,pb=34,QMAX=0.5,MCAP=60;
   const W=chartW("chartSelect",600,910), iw=W-pl-pr, ih=H-pt-pb;
   const {w,cm}=common(cfg), h=natH(cfg.ndr||0);
-  const THq=Math.max(cfg.fvar||0,0);
-  const batCure=q=>{let p=0;for(let j=0;j<cm.length;j++)p+=w[j]*cm[j].cure;return 100*p;};  // selection does not move the cure fraction
-  const batMed=q=>{const S=t=>{let s=0;for(let j=0;j<cm.length;j++)s+=w[j]*Scf(t,cm[j].med,cm[j].cure,cm[j].k,THq,q);return s*Snat(t,h);};const m=median(S);return isFinite(m)?Math.min(m,MCAP):MCAP;};
+  const THq=Math.max(cfg.fvar||0,0), Gq=dgrid(cfg.dmin,cfg.dmax);
+  // The cure fraction moves with q only through the entry window (c / E_D[S(D)]); the frailty screen
+  // alone leaves it untouched.
+  const batCure=q=>{let p=0;for(let j=0;j<cm.length;j++)p+=w[j]*cm[j].cure/entrySurvival(cm[j].med,cm[j].cure,cm[j].k,THq,q,Gq);return 100*p;};
+  const batMed=q=>{const S=t=>{let s=0;for(let j=0;j<cm.length;j++)s+=w[j]*Sdel(t,cm[j].med,cm[j].cure,cm[j].k,THq,q,Gq);return s*Snat(t,h);};const m=median(S);return isFinite(m)?Math.min(m,MCAP):MCAP;};
   const qs=[],medV=[],curV=[]; for(let i=0;i<=25;i++){const q=QMAX*i/25;qs.push(q);medV.push(batMed(q));curV.push(batCure(q));}
   const curMax=Math.max(55,1.15*Math.max(...curV));
   const X=q=>pl+q/QMAX*iw, YL=m=>pt+(1-m/MCAP)*ih, YR=c=>pt+(1-c/curMax)*ih;
@@ -2616,7 +2664,7 @@ const $=id=>document.getElementById(id);
 const cfgFromUI=()=>({N:+$("N").value||126,FINAL:Math.max(2,+$("FINAL").value||2),HRC:+$("HRC").value||0.636,
   fnr:(+$("nr").value)/100,bl:+$("bl").value,shape:+$("shape").value,shapeOverride:$("shapeOverride").checked,
   ndr:(+$("ndr").value)/100,IA:+$("IA").value||60,futHR:+$("futHR").value||1.0,
-  drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,fvar:+$("fvar").value,unweighted:$("unweighted").checked});
+  drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,fvar:+$("fvar").value,dmin:Math.min(1,+$("dmax").value),dmax:+$("dmax").value,unweighted:$("unweighted").checked});
 const fmtMed=m=>m===Infinity?"NR":m.toFixed(0)+"mo";
 // Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts
 function fitCI(cfg,builder){
@@ -2673,7 +2721,7 @@ function render(){
       +metric("BAT @36mo (tail)",(100*bat36).toFixed(0)+"%")
       +metric("GPS cure / median",(100*M.pgps).toFixed(0)+"% <small>/ "+fmtMed(M.gpsMed)+"</small>")
       +metric("Cure-fraction gap","+"+(100*(M.pgps-M.pibat)).toFixed(0)+"<small>pp</small>")
-      +metric("Eligibility screen-out",Math.round((cfg.esel||0)*100)+"% <small>frailty var "+(+(cfg.fvar||0)).toFixed(2)+"</small>")
+      +metric("Eligibility screen-out",Math.round((cfg.esel||0)*100)+"% <small>frailty var "+(+(cfg.fvar||0)).toFixed(2)+", entry "+((cfg.dmax||0)<=0?"off":Math.min(1,cfg.dmax)+"\u2013"+cfg.dmax+"mo")+"</small>")
       +metric("80th event reached",Math.round(r.reach*100)+"%")
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",iaVal)
       +metric("Alive @ 80th (GPS / BAT)",aliveVal);
@@ -2760,11 +2808,12 @@ $("ndr").addEventListener("input",e=>{$("ndrL").textContent=(+e.target.value).to
 $("drop").addEventListener("input",e=>{$("dropL").textContent=(+e.target.value).toFixed(1)+"%/yr";schedule();});
 $("esel").addEventListener("input",e=>{const v=+e.target.value;$("eselL").textContent=`screens out ${v}%`;schedule();});
 $("fvar").addEventListener("input",e=>{$("fvarL").textContent=(+e.target.value).toFixed(2);schedule();});
+$("dmax").addEventListener("input",e=>{const v=+e.target.value;$("dmaxL").textContent=v<=0?"disabled":`${Math.min(1,v)}\u2013${v} mo`;schedule();});
 $("unweighted").addEventListener("change",schedule);
 ["N","FINAL","HRC","IA","futHR"].forEach(id=>$(id).addEventListener("input",()=>{updBl();schedule();}));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-pressed",String(x===b));});render();}));
-$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="screens out 25%";$("fvar").value=1.43;$("fvarL").textContent="1.43";$("unweighted").checked=false;$("vcure").value=15;$("vcL").textContent="15%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="screens out 25%";$("fvar").value=0.53;$("fvarL").textContent="0.53";$("dmax").value=6;$("dmaxL").textContent="1\u20136 mo";$("unweighted").checked=false;$("vcure").value=15;$("vcL").textContent="15%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
 // Charts render at a fixed pixel width read from the container, so a resize must re-render to
