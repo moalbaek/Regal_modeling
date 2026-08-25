@@ -129,7 +129,7 @@ python3 audit/v2_public_history_validation.py  # validate WP5 data/accrual/joint
 python3 audit/v2_interim_conditioning_validation.py  # validate WP6 latent-history/rare-continuation IS
 python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect families/model averaging
 python3 report.py validate                 # validate the committed WP8 JSON + embedded HTML
-# Production publication (expensive; uses the exact WP7 defaults and full sensitivity grid):
+# Production build (expensive; always persists the gated bundle; --require-ready exits nonzero if withheld):
 python3 report.py build --nsim 10000 --seed 20260825 --workers 4 --require-ready
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```

@@ -127,12 +127,9 @@ def _json_number(value):
 def _probability(value, name, allow_none=False):
     if value is None and allow_none:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be numeric")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{name} must be numeric") from error
+    number = float(value)
     if not isfinite(number) or not 0.0 <= number <= 1.0:
         raise ValueError(f"{name} must be finite and lie in [0, 1]")
     return number
@@ -531,10 +528,8 @@ def _validate_forecast_record(record, *, families_required):
         observed = {item.get("family") for item in families if isinstance(item, dict)}
         if len(families) != len(expected) or observed != expected:
             raise ValueError("forecast families must cover every required effect family")
-        prior_total = sum(float(item["prior_weight"]) for item in families)
-        posterior_total = sum(float(item["posterior_weight"]) for item in families)
-        if abs(prior_total - 1.0) > 1e-12 or abs(posterior_total - 1.0) > 1e-12:
-            raise ValueError("forecast family weights must sum to one")
+        prior_weights = []
+        posterior_weights = []
         for item in families:
             try:
                 family = GPSEffectFamily(item["family"])
@@ -542,8 +537,12 @@ def _validate_forecast_record(record, *, families_required):
                 raise ValueError("family record has an unsupported family") from error
             if item.get("label") != FAMILY_LABELS[family]:
                 raise ValueError("family record label differs from the canonical label")
-            _probability(item["prior_weight"], "family prior weight")
-            _probability(item["posterior_weight"], "family posterior weight")
+            prior_weights.append(
+                _probability(item.get("prior_weight"), "family prior weight")
+            )
+            posterior_weights.append(
+                _probability(item.get("posterior_weight"), "family posterior weight")
+            )
             family_probabilities = item.get("probabilities")
             if not isinstance(family_probabilities, dict):
                 raise ValueError("family probabilities must be an object")
@@ -593,6 +592,10 @@ def _validate_forecast_record(record, *, families_required):
                     raise ValueError(
                         "a ready family must clear the history-weight gate"
                     )
+        if abs(sum(prior_weights) - 1.0) > 1e-12 or abs(
+            sum(posterior_weights) - 1.0
+        ) > 1e-12:
+            raise ValueError("forecast family weights must sum to one")
     elif families is not None:
         raise ValueError("futility sensitivity rows must not duplicate family records")
 
@@ -672,6 +675,9 @@ def validate_result_bundle(bundle):
     issues = release.get("readiness_issues")
     if not isinstance(issues, list) or not all(isinstance(item, str) for item in issues):
         raise ValueError("release readiness issues must be a string list")
+    disclosure = release.get("disclosure")
+    if not isinstance(disclosure, str) or not disclosure.strip():
+        raise ValueError("release disclosure must be a non-empty string")
     headline = release.get("headline")
     if ready:
         if status != "ready" or issues or not isinstance(headline, dict):
@@ -873,6 +879,11 @@ def validate_published_artifacts(
     )
     if embedded != external:
         raise ValueError("HTML and JSON result bundles differ")
+    expected_public_data = dict(load_regal_data_snapshot().to_mapping())
+    if external.get("public_data") != expected_public_data:
+        raise ValueError(
+            "bundle public data does not match the committed public history"
+        )
     return external
 
 
@@ -900,7 +911,14 @@ def run_regal_forecast_analysis(
         raise ValueError("seed must be a non-negative integer")
     if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
         raise ValueError("workers must be a positive integer")
-    thresholds = tuple(thresholds)
+    try:
+        thresholds = tuple(thresholds)
+    except TypeError as error:
+        raise ValueError(
+            "thresholds must contain the complete configured grid"
+        ) from error
+    if thresholds != tuple(FUTILITY_HR_SENSITIVITY_GRID):
+        raise ValueError("thresholds must contain the complete configured grid")
     by_family = {}
     if workers == 1:
         for prior in DEFAULT_EFFECT_FAMILY_PRIORS:
@@ -960,19 +978,20 @@ def _build_command(args):
         seed=args.seed,
     )
     bundle = build_result_bundle(prior, futility, metadata=metadata)
-    if args.require_ready and not bundle["release"]["is_posterior_forecast"]:
-        raise RuntimeError(
-            "production result did not clear release gates: "
-            + "; ".join(bundle["release"]["readiness_issues"])
-        )
     write_published_artifacts(
         bundle, json_path=args.output_json, html_path=args.html
     )
     print(
-        "published result bundle with release status "
+        "wrote result bundle with release status "
         + bundle["release"]["status"],
         flush=True,
     )
+    if args.require_ready and not bundle["release"]["is_posterior_forecast"]:
+        raise RuntimeError(
+            "production result did not clear release gates; the diagnostic bundle "
+            "was written: "
+            + "; ".join(bundle["release"]["readiness_issues"])
+        )
 
 
 def main(argv=None):
@@ -988,7 +1007,7 @@ def main(argv=None):
     validate_parser.add_argument("--html", type=Path, default=DEFAULT_HTML_PATH)
 
     build_parser = subparsers.add_parser(
-        "build", help="run the canonical v2 analysis and publish its bundle"
+        "build", help="run the canonical v2 analysis and write its gated bundle"
     )
     build_parser.add_argument("--nsim", type=int, default=DEFAULT_IMPORTANCE_DRAWS)
     build_parser.add_argument("--seed", type=int, default=20260825)
@@ -996,7 +1015,11 @@ def main(argv=None):
         "--workers", type=int, default=max(1, min(os.cpu_count() or 1, 4))
     )
     build_parser.add_argument("--source-revision")
-    build_parser.add_argument("--require-ready", action="store_true")
+    build_parser.add_argument(
+        "--require-ready",
+        action="store_true",
+        help="write diagnostics, then exit nonzero unless the result is release-ready",
+    )
     build_parser.add_argument(
         "--output-json", type=Path, default=DEFAULT_RESULT_BUNDLE_PATH
     )

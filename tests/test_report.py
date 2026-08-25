@@ -6,7 +6,10 @@ import json
 from math import log
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,9 +31,11 @@ from report import (  # noqa: E402
     RESULT_BUNDLE_START,
     build_result_bundle,
     build_unpublished_result_bundle,
+    _build_command,
     canonical_result_json,
     embed_result_bundle,
     extract_embedded_result_bundle,
+    run_regal_forecast_analysis,
     validate_published_artifacts,
     validate_result_bundle,
 )
@@ -111,6 +116,16 @@ def sensitivity_results(*, history_ess=400.0):
             )
         futility_rows.append(posterior_model_average(row, BALANCED_MODEL_FAMILY_PRIOR))
     return prior_rows, tuple(futility_rows)
+
+
+def result_html_template():
+    return (
+        "<html><body>\n"
+        + RESULT_BUNDLE_START
+        + '\n<script id="regal-v2-result" type="application/json">{}</script>\n'
+        + RESULT_BUNDLE_END
+        + "\n</body></html>"
+    )
 
 
 class RegalDataSnapshotTest(unittest.TestCase):
@@ -201,6 +216,31 @@ class ResultBundleTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "withhold"):
             validate_result_bundle(bundle)
 
+    def test_wire_validator_requires_numeric_family_weights(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        del bundle["prior_sensitivity"][0]["families"][0]["prior_weight"]
+        with self.assertRaisesRegex(ValueError, "family prior weight must be numeric"):
+            validate_result_bundle(bundle)
+
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        family = bundle["prior_sensitivity"][0]["families"][0]
+        family["posterior_weight"] = str(family["posterior_weight"])
+        with self.assertRaisesRegex(
+            ValueError, "family posterior weight must be numeric"
+        ):
+            validate_result_bundle(bundle)
+
+    def test_wire_validator_requires_release_disclosure(self):
+        for invalid in (None, "", "   "):
+            with self.subTest(invalid=invalid):
+                bundle = json.loads(canonical_result_json(self.ready_bundle()))
+                if invalid is None:
+                    del bundle["release"]["disclosure"]
+                else:
+                    bundle["release"]["disclosure"] = invalid
+                with self.assertRaisesRegex(ValueError, "release disclosure"):
+                    validate_result_bundle(bundle)
+
     def test_unpublished_bundle_has_no_analysis_values(self):
         bundle = build_unpublished_result_bundle(
             generated_at=self.metadata.generated_at,
@@ -214,13 +254,7 @@ class ResultBundleTest(unittest.TestCase):
 
     def test_html_embedding_round_trips_and_requires_unique_markers(self):
         bundle = self.ready_bundle()
-        template = (
-            "<html><body>\n"
-            + RESULT_BUNDLE_START
-            + '\n<script id="regal-v2-result" type="application/json">{}</script>\n'
-            + RESULT_BUNDLE_END
-            + "\n</body></html>"
-        )
+        template = result_html_template()
         updated = embed_result_bundle(template, bundle)
         self.assertEqual(extract_embedded_result_bundle(updated), bundle)
         with self.assertRaisesRegex(ValueError, "exactly one"):
@@ -234,6 +268,65 @@ class ResultBundleTest(unittest.TestCase):
         self.assertIn("renderV2Forecast()", html)
         self.assertIn("release.is_posterior_forecast===true", html)
         self.assertEqual(extract_embedded_result_bundle(html), bundle)
+
+    def test_published_artifacts_must_match_canonical_public_data(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        bundle["public_data"]["source"]["sha256"] = "a" * 64
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            json_path = root / "bundle.json"
+            html_path = root / "explorer.html"
+            json_path.write_text(canonical_result_json(bundle), encoding="utf-8")
+            html_path.write_text(
+                embed_result_bundle(result_html_template(), bundle),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "committed public history"):
+                validate_published_artifacts(
+                    json_path=json_path,
+                    html_path=html_path,
+                )
+
+    def test_require_ready_persists_withheld_bundle_before_failing(self):
+        prior_rows, futility_rows = sensitivity_results(history_ess=99.0)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            json_path = root / "bundle.json"
+            html_path = root / "explorer.html"
+            html_path.write_text(result_html_template(), encoding="utf-8")
+            args = SimpleNamespace(
+                nsim=1000,
+                seed=20260825,
+                workers=1,
+                source_revision="abc1234",
+                require_ready=True,
+                output_json=json_path,
+                html=html_path,
+            )
+            with mock.patch(
+                "report.run_regal_forecast_analysis",
+                return_value=(prior_rows, futility_rows),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError, "diagnostic bundle was written"
+                ):
+                    _build_command(args)
+            persisted = validate_published_artifacts(
+                json_path=json_path,
+                html_path=html_path,
+            )
+            self.assertEqual(persisted["release"]["status"], "withheld")
+
+    def test_custom_futility_grid_fails_before_family_work_starts(self):
+        with mock.patch("report._family_worker") as worker:
+            with self.assertRaisesRegex(ValueError, "complete configured grid"):
+                run_regal_forecast_analysis(nsim=1, thresholds=(None, 1.0))
+            worker.assert_not_called()
+
+    def test_not_run_bundle_uses_neutral_status_badge(self):
+        html = (ROOT / "regal_explorer.html").read_text(encoding="utf-8")
+        self.assertIn('notRun=release.status==="not_run"', html)
+        self.assertIn('notRun?"":" withheld"', html)
 
 
 if __name__ == "__main__":

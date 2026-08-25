@@ -2033,9 +2033,9 @@ function renderV2Forecast(){
   let bundle;
   try{bundle=JSON.parse(document.getElementById("regal-v2-result").textContent);}
   catch(error){status.textContent="Invalid bundle";status.className="forecast-status withheld";headline.textContent="Not published";headlineLabel.textContent="The embedded result bundle could not be parsed.";issues.hidden=false;issues.textContent=error.message;return;}
-  const release=bundle.release||{}, ready=release.is_posterior_forecast===true, run=bundle.run||{}, data=bundle.public_data||{};
+  const release=bundle.release||{}, ready=release.is_posterior_forecast===true, notRun=release.status==="not_run", run=bundle.run||{}, data=bundle.public_data||{};
   status.textContent=ready?"Release-ready":release.status==="not_run"?"Awaiting production run":"Withheld by readiness gates";
-  status.className="forecast-status "+(ready?"ready":"withheld");
+  status.className="forecast-status"+(ready?" ready":notRun?"":" withheld");
   headline.className="forecast-big"+(ready?"":" withheld");
   headline.textContent=ready&&release.headline?pct(release.headline.value):"Not published";
   headlineLabel.textContent=ready&&release.headline?release.headline.label:(release.disclosure||"No release-ready headline is available.");

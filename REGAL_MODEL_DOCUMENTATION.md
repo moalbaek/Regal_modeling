@@ -726,8 +726,11 @@ diagnostic-only and do not display their numerical probability as a forecast.
 The publisher writes `data/regal_v2_result_bundle.json` and safely embeds the identical payload in a
 marked `application/json` block inside `regal_explorer.html`. This preserves direct `file://` use and
 adds no network or build dependency. `python3 report.py validate` strictly parses both copies,
-validates the release/schema invariants, and requires exact equality of the parsed objects. The HTML
-formats the bundle only; all legacy JavaScript calculations remain confined to the v1 section.
+validates the release/schema invariants, requires exact equality of the parsed objects, and reloads
+the committed public-history file to verify the entire embedded evidence snapshot and fingerprint.
+The production build always persists a gated diagnostic bundle; `--require-ready` then exits
+nonzero if that bundle remains withheld. The HTML formats the bundle only; all legacy JavaScript
+calculations remain confined to the v1 section.
 
 The checked-in production artifact was generated on 2026-08-25 from source revision
 `c2774331ffe034a98369c9478e81a8bdc8ca808e`, with seed `20260825` and 10,000 importance draws per

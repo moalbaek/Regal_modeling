@@ -380,7 +380,9 @@ The publisher writes `data/regal_v2_result_bundle.json` and replaces one marked
 shows the exactly labeled `P(final rejection | public history, interim continuation)`; a failed or
 absent production run shows “Not published” plus the readiness reasons. Prior/futility rows that fail
 their own gates remain diagnostic-only. `python3 report.py validate` checks the external bundle,
-embedded bundle, schema, release invariants, and exact parsed equality.
+embedded bundle, schema, release invariants, exact parsed equality, and the full evidence snapshot
+against the committed public-history source. A production build always persists its gated bundle;
+`--require-ready` returns a nonzero status after writing when the result remains withheld.
 
 The first production artifact uses 10,000 importance draws per family, seed `20260825`, and source
 revision `c2774331ffe034a98369c9478e81a8bdc8ca808e`. It is a complete seven-family result with all
