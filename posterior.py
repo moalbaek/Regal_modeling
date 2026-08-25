@@ -1296,7 +1296,9 @@ class GPSEffectScenarioSampler:
 
     effect_prior: EffectFamilyPrior
     bat_design: BATDesign = PRIMARY_EQUAL_STRATA
-    component_library: Mapping = DEFAULT_COMPONENT_LIBRARY
+    component_library: Mapping = field(
+        default_factory=lambda: DEFAULT_COMPONENT_LIBRARY
+    )
     background_mortality: ExponentialBackgroundMortality = (
         ExponentialBackgroundMortality(0.02)
     )
