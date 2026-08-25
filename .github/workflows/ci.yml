@@ -42,6 +42,8 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Validate the published v2 result bundle
+        run: python report.py validate
       - name: Run the CLI engine (prints summary, writes the 9-panel figure)
         run: python regal_explorer.py
       - name: Upload the generated figure

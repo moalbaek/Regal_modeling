@@ -334,8 +334,20 @@ forecast.
 
 ### 8. Frontend and validation
 
-Use Python as the canonical engine and generate a versioned JSON result bundle for the self-contained
-HTML interface. The target module split is:
+- [x] Keep Python as the canonical engine; the browser must format a supplied result bundle and must
+  not independently calculate the posterior.
+- [x] Generate a strict, versioned, finite-number JSON wire bundle with the public-data fingerprint,
+  run metadata, complete family diagnostics, model-prior sensitivity, and paired futility sensitivity.
+- [x] Enforce the WP7 release gates in the wire contract: a non-ready or not-run bundle must have a
+  null headline and explicit readiness issues.
+- [x] Embed the exact checked-in JSON in the self-contained HTML and validate byte-independent parsed
+  equality, so opening the file directly requires no server, fetch, build step, or duplicated inputs.
+- [x] Preserve the v1 scenario controls as a separately labeled legacy section rather than silently
+  changing their numerical behavior.
+- [ ] Publish a production REGAL run from a pinned source revision and seed; the interface may call it
+  a posterior forecast only if the complete primary result clears every numerical readiness gate.
+
+The target module split is:
 
 ```text
 regal_data.py
@@ -351,15 +363,34 @@ report.py
 Required tests include survival-scale handling, non-immortal cure survival, no future-outcome
 selection, BAT weights and combinations, interim branch conservation, O'Brien-Fleming type-I error,
 stratified-analysis parity, small-cohort likelihood checks, continuation-boundary conditioning,
-80th-event right censoring, and Python/HTML consistency.
+80th-event right censoring, strict JSON/non-finite handling, release-label gating, and Python/HTML
+consistency.
+
+`regal_data.py` is now the reporting boundary around the validated WP5 public-history object. It
+fingerprints the exact source JSON and supplies one compact evidence snapshot; it does not implement
+a second likelihood. `report.py` serializes `PosteriorForecastResult` values, requires all three
+model-weight prior rows and the full paired futility grid, and refuses drift between the balanced
+no-futility rows. Every family carries its active parameter prior, prior/posterior weight,
+within-family conditional probabilities, ESS, maximum history-weight share, and proposal
+diagnostics. Non-finite diagnostic estimates serialize as JSON `null`; a release-ready result may
+not contain a null probability.
+
+The publisher writes `data/regal_v2_result_bundle.json` and replaces one marked
+`application/json` block in `regal_explorer.html`. The UI reads only that block. A ready primary row
+shows the exactly labeled `P(final rejection | public history, interim continuation)`; a failed or
+absent production run shows “Not published” plus the readiness reasons. Prior/futility rows that fail
+their own gates remain diagnostic-only. `python3 report.py validate` checks the external bundle,
+embedded bundle, schema, release invariants, and exact parsed equality.
 
 ## Release gates
 
 - **v1.1 — complete:** truthful labels, documentation corrections, and UI consistency fixes.
 - **v2-scenario — complete:** corrected survival, BAT strata, and trial mechanics.
 - **v2-forecast backend — complete:** public-history likelihood, interim-continuation conditioning,
-  and posterior model averaging. WP8 still has to publish a versioned result bundle and expose it in
-  the interface.
+  and posterior model averaging.
+- **v2-publication infrastructure — complete:** strict result bundle, self-contained frontend,
+  readiness-gated headline, prior/futility diagnostics, and Python/HTML parity validation. The
+  production-run checkbox in WP8 remains the final publication gate.
 
 Only a complete, numerically ready `PosteriorForecastResult` may be described as the v2 posterior
 forecast. Legacy scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete

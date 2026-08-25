@@ -3631,6 +3631,82 @@ def _effect_family_seed(seed, index):
     )
 
 
+def condition_effect_family_futility_sensitivity(
+    effect_prior,
+    thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+    *,
+    bat_design=PRIMARY_EQUAL_STRATA,
+    component_library=DEFAULT_COMPONENT_LIBRARY,
+    background_mortality=ExponentialBackgroundMortality(0.02),
+    censoring_annual_probability=0.0,
+    protocol_factor_probabilities=(0.5, 0.5, 0.5, 0.5),
+    base_design=REGAL_V2_EFFICACY_DESIGN,
+    history=None,
+    enrollment_model=None,
+    nsim=DEFAULT_IMPORTANCE_DRAWS,
+    seed=20260825,
+    proposal_interim_z_targets=None,
+    max_lag_combinations=4096,
+    max_count_vectors=DEFAULT_MAX_COUNT_VECTORS,
+    max_quota_states=DEFAULT_MAX_DP_STATES,
+    tilt_tolerance=DEFAULT_TILT_TOLERANCE,
+    max_tilt_iterations=DEFAULT_MAX_TILT_ITERATIONS,
+):
+    """Run the paired futility grid for one canonical effect family.
+
+    The complete model average still requires every member of
+    :data:`REQUIRED_EFFECT_FAMILIES`.  This narrower public entry point exists so
+    reporting jobs may distribute independent family integrations across
+    worker processes without duplicating the canonical family seeding or
+    scenario-construction contract.
+    """
+
+    if not isinstance(effect_prior, EffectFamilyPrior):
+        raise ValueError("effect_prior must be EffectFamilyPrior")
+    try:
+        family_index = REQUIRED_EFFECT_FAMILIES.index(effect_prior.family)
+    except ValueError as error:
+        raise ValueError("effect_prior family is not a required effect family") from error
+    if history is None:
+        history = load_regal_public_history()
+    if not isinstance(history, PublicHistory):
+        raise ValueError("history must be PublicHistory")
+    if enrollment_model is None:
+        enrollment_model = default_regal_enrollment_prior(history)
+    sampler = GPSEffectScenarioSampler(
+        effect_prior=effect_prior,
+        bat_design=bat_design,
+        component_library=component_library,
+        background_mortality=background_mortality,
+        censoring_annual_probability=censoring_annual_probability,
+        protocol_factor_probabilities=protocol_factor_probabilities,
+    )
+    results = condition_futility_sensitivity_grid(
+        sampler,
+        thresholds=thresholds,
+        scenario_name=f"WP7 {effect_prior.family.value} prior predictive",
+        base_design=base_design,
+        history=history,
+        enrollment_model=enrollment_model,
+        nsim=nsim,
+        seed=_effect_family_seed(seed, family_index),
+        proposal_interim_z_targets=proposal_interim_z_targets,
+        max_lag_combinations=max_lag_combinations,
+        max_count_vectors=max_count_vectors,
+        max_quota_states=max_quota_states,
+        tilt_tolerance=tilt_tolerance,
+        max_tilt_iterations=max_tilt_iterations,
+    )
+    return tuple(
+        EffectFamilyProjection(
+            family=effect_prior.family,
+            parameter_prior=effect_prior,
+            conditioning=result,
+        )
+        for result in results
+    )
+
+
 def condition_effect_families_on_public_history(
     effect_priors=DEFAULT_EFFECT_FAMILY_PRIORS,
     *,
@@ -3740,25 +3816,21 @@ def condition_effect_families_futility_sensitivity_grid(
     if enrollment_model is None:
         enrollment_model = default_regal_enrollment_prior(history)
     projection_rows = None
-    for index, family in enumerate(REQUIRED_EFFECT_FAMILIES):
+    for family in REQUIRED_EFFECT_FAMILIES:
         prior = ordered[family]
-        sampler = GPSEffectScenarioSampler(
-            effect_prior=prior,
+        family_rows = condition_effect_family_futility_sensitivity(
+            prior,
+            thresholds,
             bat_design=bat_design,
             component_library=component_library,
             background_mortality=background_mortality,
             censoring_annual_probability=censoring_annual_probability,
             protocol_factor_probabilities=protocol_factor_probabilities,
-        )
-        results = condition_futility_sensitivity_grid(
-            sampler,
-            thresholds=thresholds,
-            scenario_name=f"WP7 {family.value} prior predictive",
             base_design=base_design,
             history=history,
             enrollment_model=enrollment_model,
             nsim=nsim,
-            seed=_effect_family_seed(seed, index),
+            seed=seed,
             proposal_interim_z_targets=proposal_interim_z_targets,
             max_lag_combinations=max_lag_combinations,
             max_count_vectors=max_count_vectors,
@@ -3767,17 +3839,11 @@ def condition_effect_families_futility_sensitivity_grid(
             max_tilt_iterations=max_tilt_iterations,
         )
         if projection_rows is None:
-            projection_rows = [[] for _ in results]
-        elif len(results) != len(projection_rows):
+            projection_rows = [[] for _ in family_rows]
+        elif len(family_rows) != len(projection_rows):
             raise RuntimeError("futility sensitivity rows changed across families")
-        for row, result in zip(projection_rows, results):
-            row.append(
-                EffectFamilyProjection(
-                    family=family,
-                    parameter_prior=prior,
-                    conditioning=result,
-                )
-            )
+        for row, projection in zip(projection_rows, family_rows):
+            row.append(projection)
     return tuple(tuple(row) for row in projection_rows)
 
 
@@ -3853,6 +3919,7 @@ __all__ = (
     "WeibullEventTimeModel",
     "condition_effect_families_futility_sensitivity_grid",
     "condition_effect_families_on_public_history",
+    "condition_effect_family_futility_sensitivity",
     "condition_futility_sensitivity_grid",
     "condition_on_public_history",
     "default_regal_enrollment_prior",
