@@ -7,11 +7,13 @@ A public-information scenario explorer for SELLAS Life Sciences' (NASDAQ: **SLS*
 complete remission.
 
 > [!IMPORTANT]
-> The current Python and HTML engines are the **v1 legacy model**. Their `P(success)` output is a
+> The current interactive Python and HTML engines are the **v1 legacy model**. Their `P(success)` output is a
 > fixed-scenario Monte-Carlo rejection rate conditional on the model assumptions and on reaching the
 > final analysis. It is **not** a posterior probability for the ongoing REGAL trial and does not
-> condition on the observed decision to continue after the 60-event interim. The rebuild is tracked
-> in [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md).
+> condition on the observed decision to continue after the 60-event interim. The isolated v2 backend
+> now implements continuation conditioning and WP7 effect-family model averaging, but it is not yet
+> wired into those legacy interfaces. The rebuild is tracked in
+> [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md).
 
 The blinded death-event milestones (60/72/78) constrain only the *pooled* survival trajectory, so the
 split between arms is an explicit assumption. The tool calibrates assumed pooled curve families to
@@ -40,8 +42,9 @@ has been established.
 | `data/regal_public_history.json` | Versioned enrollment/event evidence with observation and announcement dates, typed counts, source notes, and explicit reporting-lag uncertainty; current through the 11 Aug 2026 event-80 right censor. |
 | `event_likelihood.py` | Isolated v2 public-history layer: registry-anchored fixed-N accrual and a joint Poisson-multinomial likelihood over correlated integer event increments and latent patient trajectories. |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 audit for schema integrity, reachable 20/104/126 accrual anchors, small-cohort likelihood correctness, and event-80 reporting-lag sensitivity. |
-| `posterior.py` | Isolated WP6 fixed-scenario conditioning layer: one consistent latent enrollment/outcome history, exact public-count conditional sampling, continuation-centered mixture importance weights, right-censor enforcement, and forward final projection. It does not yet average across model families or parameters. |
+| `posterior.py` | V2 WP6/WP7 posterior layer: one consistent latent enrollment/outcome history, exact public-count conditioning, continuation-centered importance sampling, all seven required/exploratory GPS effect families, within-family parameter priors, posterior family weights, and prior-weight sensitivity. Fixed-family outputs remain non-forecast projections; only the complete model average is marked as a posterior forecast. |
 | `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 stress audit showing that continuation-centered importance sampling reaches a rare continuation branch while preserving the public-history compatibility estimate. |
+| `audit/v2_effect_model_averaging_validation.py` | Compact synthetic WP7 audit covering every effect family, the full WP6 conditioning path, posterior family-weight normalization, and skeptical/balanced/cure-favoring prior sensitivity. It does not print a REGAL forecast. |
 
 ```bash
 pip install -r requirements.txt  # numpy + matplotlib (the .html needs nothing)
@@ -90,6 +93,15 @@ hiding it behind a raw draw count. Structurally infeasible proposal pairs remain
 draws, while numerical underflow in a mathematically positive quota probability raises instead of
 silently discarding weight. Tilt iteration/error summaries are `None` when no tilt converged. Direct
 tilt callers can catch the exported `TiltProposalError`.
+The WP7 tests additionally pin piecewise and delayed-cure event-time inversion, scale-aware
+population hazards, exact nesting of PH=1 inside no effect, protocol-factor-stratified randomization,
+complete coverage of the six required effect structures plus the exploratory responder/cure family,
+and the distinction between within-family projections and a complete posterior forecast. Model
+weights update with `P(public history, continuation | family)` and are re-used across three named
+prior-weight sensitivities. Posterior futility sensitivity retains the same importance draws within
+each family across no-futility and explicit HR-threshold assumptions. The default accrual prior uses
+the registry opening and enrollment-close window as support but does not use the intermediate anchor
+counts as prior centers.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
@@ -97,6 +109,7 @@ python3 audit/interim_efficacy_replay.py --nsim 10000  # reproduce the equal-str
 python3 audit/v2_trial_decision_validation.py --nsim 200000  # validate v2 alpha/branches/futility grid
 python3 audit/v2_public_history_validation.py  # validate WP5 data/accrual/joint likelihood
 python3 audit/v2_interim_conditioning_validation.py  # validate WP6 latent-history/rare-continuation IS
+python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect families/model averaging
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 

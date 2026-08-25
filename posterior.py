@@ -1,4 +1,4 @@
-"""REGAL v2 public-history and interim-continuation conditioning.
+"""REGAL v2 public-history conditioning and posterior model averaging.
 
 Work package 5 evaluates public count likelihoods conditional on a supplied
 calendar event CDF.  This module performs the latent-history integration needed
@@ -19,26 +19,38 @@ conditional distribution, so their conditional density cancels from the
 weight. This is importance sampling, not rejection sampling and not a product
 of the marginal enrollment likelihood and an unrelated event realization.
 
-Outputs are *conditional fixed-scenario projections*.  Work package 7 must
-still average them over survival families and parameter uncertainty before any
-quantity can be described as a posterior REGAL forecast.
+The low-level ``ConditioningResult`` remains a *conditional fixed-scenario (or
+within-family prior-predictive) projection*. Work package 7 adds explicit GPS
+effect-family priors and combines a complete family set only after weighting by
+``P(public history, continuation | family)``. Only the resulting
+``PosteriorForecastResult`` advertises posterior-forecast status.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from datetime import date, datetime
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timedelta
+from enum import Enum
 from itertools import product
-from math import exp, isfinite, log, sqrt
+from math import exp, expm1, isfinite, log, sqrt
 from numbers import Integral
+from types import MappingProxyType
 from typing import Optional, Protocol, Tuple
 
 import numpy as np
 
+from bat_regimens import (
+    BATComponent,
+    BATDesign,
+    DEFAULT_COMPONENT_LIBRARY,
+    PRIMARY_EQUAL_STRATA,
+    component_for,
+)
+
 from event_likelihood import (
     DEFAULT_MAX_DP_STATES,
     CountConstraint,
-    PiecewiseEnrollmentModel,
     PublicHistory,
     default_regal_enrollment_model,
     event_interval_probabilities,
@@ -58,6 +70,11 @@ from trial_design import (
     TrialDecisionDesign,
     binary_indicator,
 )
+from survival_models import (
+    CureMixtureComponent,
+    ExponentialBackgroundMortality,
+    SurvivalScale,
+)
 
 
 PROBABILITY_TOLERANCE = 1e-12
@@ -66,6 +83,7 @@ DEFAULT_TILT_TOLERANCE = 1e-8
 DEFAULT_MAX_TILT_ITERATIONS = 80
 DEFAULT_MAX_COUNT_VECTORS = 4096
 TARGET_CATEGORY_MARGIN = 0.25
+MONTH_DAYS = 365.25 / 12.0
 
 
 class TiltProposalError(RuntimeError):
@@ -224,6 +242,609 @@ class WeibullEventTimeModel:
 
 
 @dataclass(frozen=True, eq=False)
+class PiecewiseWeibullEventTimeModel:
+    """Patient event times under piecewise multipliers of a Weibull hazard.
+
+    ``constant_hazard`` is an additive hazard that is never modified by the
+    piecewise multiplier. It is zero for an uncured overall-survival input,
+    the population hazard for an uncured net-survival input, and the only
+    active hazard for an explicitly cured patient. ``weibull_weight`` is one
+    for an uncured component and zero for a cured patient. WP7 uses this
+    latent-state representation for the cure-difference and responder/cure
+    families; its statistical marginal-PH families use
+    :class:`PiecewiseMixtureHazardEventTimeModel` instead.
+
+    ``breakpoints`` has shape ``(patients, segments - 1)`` and
+    ``hazard_multipliers`` has shape ``(patients, segments)``.  A delayed PH
+    model, for example, uses one breakpoint and multipliers ``(1, HR)``.
+    """
+
+    scale_time: np.ndarray
+    shape: np.ndarray
+    constant_hazard: np.ndarray
+    weibull_weight: np.ndarray
+    breakpoints: np.ndarray
+    hazard_multipliers: np.ndarray
+
+    def __post_init__(self):
+        try:
+            scale = np.asarray(self.scale_time, dtype=float)
+            shape = np.asarray(self.shape, dtype=float)
+            constant = np.asarray(self.constant_hazard, dtype=float)
+            weight = np.asarray(self.weibull_weight, dtype=float)
+            breakpoints = np.asarray(self.breakpoints, dtype=float)
+            multipliers = np.asarray(self.hazard_multipliers, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise ValueError("piecewise event parameters must be numeric") from error
+        if scale.ndim != 1 or not len(scale):
+            raise ValueError("scale_time must be a non-empty vector")
+        patient_count = len(scale)
+        if shape.shape != (patient_count,):
+            raise ValueError("shape must contain one value per patient")
+        if constant.shape != (patient_count,) or weight.shape != (patient_count,):
+            raise ValueError(
+                "constant_hazard and weibull_weight must contain one value per patient"
+            )
+        if breakpoints.ndim != 2 or breakpoints.shape[0] != patient_count:
+            raise ValueError("breakpoints must have one row per patient")
+        if multipliers.shape != (patient_count, breakpoints.shape[1] + 1):
+            raise ValueError(
+                "hazard_multipliers must have one more column than breakpoints"
+            )
+        if np.any(~np.isfinite(scale)) or np.any(scale <= 0.0):
+            raise ValueError("scale_time must contain finite positive values")
+        if np.any(~np.isfinite(shape)) or np.any(shape <= 0.0):
+            raise ValueError("shape must contain finite positive values")
+        if np.any(~np.isfinite(constant)) or np.any(constant < 0.0):
+            raise ValueError("constant_hazard must contain finite non-negative values")
+        if np.any(~np.isfinite(weight)) or np.any(weight < 0.0):
+            raise ValueError("weibull_weight must contain finite non-negative values")
+        if np.any(~np.isfinite(breakpoints)) or np.any(breakpoints < 0.0):
+            raise ValueError("breakpoints must contain finite non-negative values")
+        if breakpoints.shape[1] > 1 and np.any(
+            np.diff(breakpoints, axis=1) <= 0.0
+        ):
+            raise ValueError("breakpoints must be strictly increasing within each patient")
+        if np.any(~np.isfinite(multipliers)) or np.any(multipliers <= 0.0):
+            raise ValueError("hazard_multipliers must contain finite positive values")
+        copied = []
+        for array in (scale, shape, constant, weight, breakpoints, multipliers):
+            value = np.array(array, copy=True)
+            value.setflags(write=False)
+            copied.append(value)
+        (
+            scale,
+            shape,
+            constant,
+            weight,
+            breakpoints,
+            multipliers,
+        ) = copied
+        object.__setattr__(self, "scale_time", scale)
+        object.__setattr__(self, "shape", shape)
+        object.__setattr__(self, "constant_hazard", constant)
+        object.__setattr__(self, "weibull_weight", weight)
+        object.__setattr__(self, "breakpoints", breakpoints)
+        object.__setattr__(self, "hazard_multipliers", multipliers)
+
+    @property
+    def patient_count(self):
+        return len(self.scale_time)
+
+    def _vector(self, values, name, allow_infinity=False):
+        try:
+            result = np.asarray(values, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{name} must be numeric") from error
+        if result.shape != (self.patient_count,):
+            raise ValueError(f"{name} must contain one value per patient")
+        invalid = np.isnan(result) if allow_infinity else ~np.isfinite(result)
+        if np.any(invalid):
+            qualifier = "non-NaN" if allow_infinity else "finite"
+            raise ValueError(f"{name} must contain {qualifier} values")
+        return result
+
+    def _disease_cumulative_hazard(self, times):
+        baseline = np.power(times / self.scale_time, self.shape)
+        disease = np.zeros(self.patient_count, dtype=float)
+        start_time = np.zeros(self.patient_count, dtype=float)
+        start_hazard = np.zeros(self.patient_count, dtype=float)
+        for index in range(self.breakpoints.shape[1]):
+            end_time = self.breakpoints[:, index]
+            end_hazard = np.power(end_time / self.scale_time, self.shape)
+            active = times > start_time
+            interval_end = np.minimum(times, end_time)
+            interval_hazard = np.power(
+                interval_end / self.scale_time, self.shape
+            )
+            increment = np.where(
+                active,
+                np.maximum(interval_hazard - start_hazard, 0.0),
+                0.0,
+            )
+            disease += self.hazard_multipliers[:, index] * increment
+            start_time = end_time
+            start_hazard = end_hazard
+        active = times > start_time
+        increment = np.where(
+            active,
+            np.maximum(baseline - start_hazard, 0.0),
+            0.0,
+        )
+        disease += self.hazard_multipliers[:, -1] * increment
+        return disease
+
+    def _cumulative_hazard(self, times):
+        result = np.zeros(self.patient_count, dtype=float)
+        constant = self.constant_hazard > 0.0
+        result[constant] = self.constant_hazard[constant] * times[constant]
+        disease = self.weibull_weight > 0.0
+        if np.any(disease):
+            cumulative = self._disease_cumulative_hazard(times)
+            result[disease] += self.weibull_weight[disease] * cumulative[disease]
+        return result
+
+    def cdf(self, followup_time):
+        times = self._vector(followup_time, "followup_time", allow_infinity=True)
+        if np.any(times < 0.0):
+            raise ValueError("followup_time must be non-negative")
+        return -np.expm1(-self._cumulative_hazard(times))
+
+    def _inverse_disease_only(self, target, selected):
+        indices = np.flatnonzero(selected)
+        result = np.full(len(indices), np.inf, dtype=float)
+        required = target[indices] / self.weibull_weight[indices]
+        accumulated = np.zeros(len(indices), dtype=float)
+        start_hazard = np.zeros(len(indices), dtype=float)
+        unresolved = np.ones(len(indices), dtype=bool)
+        for column in range(self.breakpoints.shape[1]):
+            end_time = self.breakpoints[indices, column]
+            end_hazard = np.power(
+                end_time / self.scale_time[indices], self.shape[indices]
+            )
+            multiplier = self.hazard_multipliers[indices, column]
+            boundary = accumulated + multiplier * (end_hazard - start_hazard)
+            within = unresolved & (required <= boundary)
+            if np.any(within):
+                baseline_target = start_hazard[within] + (
+                    required[within] - accumulated[within]
+                ) / multiplier[within]
+                result[within] = self.scale_time[indices[within]] * np.power(
+                    baseline_target, 1.0 / self.shape[indices[within]]
+                )
+                unresolved[within] = False
+            accumulated = boundary
+            start_hazard = end_hazard
+        if np.any(unresolved):
+            multiplier = self.hazard_multipliers[indices, -1]
+            baseline_target = start_hazard[unresolved] + (
+                required[unresolved] - accumulated[unresolved]
+            ) / multiplier[unresolved]
+            result[unresolved] = self.scale_time[indices[unresolved]] * np.power(
+                baseline_target, 1.0 / self.shape[indices[unresolved]]
+            )
+        return indices, result
+
+    def ppf(self, probability):
+        probabilities = self._vector(probability, "probability")
+        if np.any((probabilities < 0.0) | (probabilities > 1.0)):
+            raise ValueError("probability must lie in [0, 1]")
+        result = np.full(self.patient_count, np.inf, dtype=float)
+        result[probabilities == 0.0] = 0.0
+        finite = (probabilities > 0.0) & (probabilities < 1.0)
+        target = np.zeros(self.patient_count, dtype=float)
+        target[finite] = -np.log1p(-probabilities[finite])
+        constant_only = finite & (self.constant_hazard > 0.0) & (
+            self.weibull_weight == 0.0
+        )
+        result[constant_only] = (
+            target[constant_only] / self.constant_hazard[constant_only]
+        )
+        disease_only = finite & (self.constant_hazard == 0.0) & (
+            self.weibull_weight > 0.0
+        )
+        if np.any(disease_only):
+            indices, values = self._inverse_disease_only(target, disease_only)
+            result[indices] = values
+        mixed = finite & (self.constant_hazard > 0.0) & (
+            self.weibull_weight > 0.0
+        )
+        if np.any(mixed):
+            indices = np.flatnonzero(mixed)
+            lower = np.zeros(len(indices), dtype=float)
+            last_break = (
+                self.breakpoints[indices, -1]
+                if self.breakpoints.shape[1]
+                else np.zeros(len(indices), dtype=float)
+            )
+            upper = np.maximum(
+                self.scale_time[indices] + last_break,
+                target[indices] / self.constant_hazard[indices],
+            )
+            probe = np.zeros(self.patient_count, dtype=float)
+            for _ in range(64):
+                probe.fill(0.0)
+                probe[indices] = upper
+                too_low = self._cumulative_hazard(probe)[indices] < target[indices]
+                if not np.any(too_low):
+                    break
+                upper[too_low] *= 2.0
+            else:
+                raise FloatingPointError("could not bracket mixed event-time quantile")
+            for _ in range(80):
+                midpoint = 0.5 * (lower + upper)
+                probe.fill(0.0)
+                probe[indices] = midpoint
+                below = self._cumulative_hazard(probe)[indices] < target[indices]
+                lower[below] = midpoint[below]
+                upper[~below] = midpoint[~below]
+            result[indices] = 0.5 * (lower + upper)
+        return result
+
+
+@dataclass(frozen=True, eq=False)
+class PiecewiseMixtureHazardEventTimeModel:
+    """Piecewise transforms of a scale-aware marginal cure-mixture hazard.
+
+    This model supplies the statistical no-effect, PH, delayed-PH, and waning
+    families.  The baseline curve is exactly the component-level marginal
+    survival from WP2.  Multipliers act on its all-cause cumulative hazard, so
+    the PH family is genuinely proportional on that marginal curve rather
+    than only within a sampled latent cure class.  That statistical all-cause
+    construction does not isolate a biological disease hazard.
+    """
+
+    scale_time: np.ndarray
+    shape: np.ndarray
+    cure_fraction: np.ndarray
+    background_hazard: np.ndarray
+    net_scale: np.ndarray
+    breakpoints: np.ndarray
+    hazard_multipliers: np.ndarray
+
+    def __post_init__(self):
+        try:
+            scale = np.asarray(self.scale_time, dtype=float)
+            shape = np.asarray(self.shape, dtype=float)
+            cure = np.asarray(self.cure_fraction, dtype=float)
+            background = np.asarray(self.background_hazard, dtype=float)
+            raw_net = np.asarray(self.net_scale, dtype=object)
+            breakpoints = np.asarray(self.breakpoints, dtype=float)
+            multipliers = np.asarray(self.hazard_multipliers, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise ValueError("mixture-hazard event parameters must be numeric") from error
+        if scale.ndim != 1 or not len(scale):
+            raise ValueError("scale_time must be a non-empty vector")
+        patient_count = len(scale)
+        if any(
+            array.shape != (patient_count,)
+            for array in (shape, cure, background, raw_net)
+        ):
+            raise ValueError("mixture-hazard parameters must contain one value per patient")
+        if any(not isinstance(value, (bool, np.bool_)) for value in raw_net.flat):
+            raise ValueError("net_scale must contain boolean values")
+        net = np.asarray(raw_net, dtype=bool)
+        if breakpoints.ndim != 2 or breakpoints.shape[0] != patient_count:
+            raise ValueError("breakpoints must have one row per patient")
+        if multipliers.shape != (patient_count, breakpoints.shape[1] + 1):
+            raise ValueError(
+                "hazard_multipliers must have one more column than breakpoints"
+            )
+        if np.any(~np.isfinite(scale)) or np.any(scale <= 0.0):
+            raise ValueError("scale_time must contain finite positive values")
+        if np.any(~np.isfinite(shape)) or np.any(shape <= 0.0):
+            raise ValueError("shape must contain finite positive values")
+        if np.any(~np.isfinite(cure)) or np.any((cure < 0.0) | (cure > 1.0)):
+            raise ValueError("cure_fraction must lie in [0, 1]")
+        if np.any(~np.isfinite(background)) or np.any(background < 0.0):
+            raise ValueError("background_hazard must contain finite non-negative values")
+        if np.any(~np.isfinite(breakpoints)) or np.any(breakpoints < 0.0):
+            raise ValueError("breakpoints must contain finite non-negative values")
+        if breakpoints.shape[1] > 1 and np.any(
+            np.diff(breakpoints, axis=1) <= 0.0
+        ):
+            raise ValueError("breakpoints must be strictly increasing within each patient")
+        if np.any(~np.isfinite(multipliers)) or np.any(multipliers <= 0.0):
+            raise ValueError("hazard_multipliers must contain finite positive values")
+        copied = []
+        for array in (
+            scale,
+            shape,
+            cure,
+            background,
+            net,
+            breakpoints,
+            multipliers,
+        ):
+            value = np.array(array, copy=True)
+            value.setflags(write=False)
+            copied.append(value)
+        (
+            scale,
+            shape,
+            cure,
+            background,
+            net,
+            breakpoints,
+            multipliers,
+        ) = copied
+        object.__setattr__(self, "scale_time", scale)
+        object.__setattr__(self, "shape", shape)
+        object.__setattr__(self, "cure_fraction", cure)
+        object.__setattr__(self, "background_hazard", background)
+        object.__setattr__(self, "net_scale", net)
+        object.__setattr__(self, "breakpoints", breakpoints)
+        object.__setattr__(self, "hazard_multipliers", multipliers)
+
+    @property
+    def patient_count(self):
+        return len(self.scale_time)
+
+    def _vector(self, values, name, allow_infinity=False):
+        try:
+            result = np.asarray(values, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{name} must be numeric") from error
+        if result.shape != (self.patient_count,):
+            raise ValueError(f"{name} must contain one value per patient")
+        invalid = np.isnan(result) if allow_infinity else ~np.isfinite(result)
+        if np.any(invalid):
+            qualifier = "non-NaN" if allow_infinity else "finite"
+            raise ValueError(f"{name} must contain {qualifier} values")
+        return result
+
+    def _baseline_cumulative_hazard(self, times):
+        disease_hazard = np.power(times / self.scale_time, self.shape)
+        uncured_survival = np.exp(-disease_hazard)
+        background_hazard = np.zeros(self.patient_count, dtype=float)
+        positive = self.background_hazard > 0.0
+        background_hazard[positive] = (
+            self.background_hazard[positive] * times[positive]
+        )
+        background_survival = np.exp(-background_hazard)
+        overall = (
+            self.cure_fraction * background_survival
+            + (1.0 - self.cure_fraction) * uncured_survival
+        )
+        net = background_survival * (
+            self.cure_fraction
+            + (1.0 - self.cure_fraction) * uncured_survival
+        )
+        survival = np.where(self.net_scale, net, overall)
+        result = np.full(self.patient_count, np.inf, dtype=float)
+        positive_survival = survival > 0.0
+        result[positive_survival] = -np.log(survival[positive_survival])
+        return result
+
+    def _cumulative_hazard(self, times):
+        baseline = self._baseline_cumulative_hazard(times)
+        result = np.zeros(self.patient_count, dtype=float)
+        start_time = np.zeros(self.patient_count, dtype=float)
+        start_hazard = np.zeros(self.patient_count, dtype=float)
+        for index in range(self.breakpoints.shape[1]):
+            end_time = self.breakpoints[:, index]
+            end_hazard = self._baseline_cumulative_hazard(end_time)
+            active = times > start_time
+            interval_end = np.minimum(times, end_time)
+            interval_hazard = self._baseline_cumulative_hazard(interval_end)
+            increment = np.where(
+                active,
+                np.maximum(interval_hazard - start_hazard, 0.0),
+                0.0,
+            )
+            result += self.hazard_multipliers[:, index] * increment
+            start_time = end_time
+            start_hazard = end_hazard
+        active = times > start_time
+        increment = np.where(
+            active,
+            np.maximum(baseline - start_hazard, 0.0),
+            0.0,
+        )
+        result += self.hazard_multipliers[:, -1] * increment
+        return result
+
+    def cdf(self, followup_time):
+        times = self._vector(followup_time, "followup_time", allow_infinity=True)
+        if np.any(times < 0.0):
+            raise ValueError("followup_time must be non-negative")
+        return -np.expm1(-self._cumulative_hazard(times))
+
+    def ppf(self, probability):
+        probabilities = self._vector(probability, "probability")
+        if np.any((probabilities < 0.0) | (probabilities > 1.0)):
+            raise ValueError("probability must lie in [0, 1]")
+        result = np.full(self.patient_count, np.inf, dtype=float)
+        result[probabilities == 0.0] = 0.0
+        target = np.zeros(self.patient_count, dtype=float)
+        interior = (probabilities > 0.0) & (probabilities < 1.0)
+        target[interior] = -np.log1p(-probabilities[interior])
+        limits = self._cumulative_hazard(
+            np.full(self.patient_count, np.inf, dtype=float)
+        )
+        feasible = interior & ((target < limits) | np.isinf(limits))
+        if not np.any(feasible):
+            return result
+        indices = np.flatnonzero(feasible)
+        lower = np.zeros(len(indices), dtype=float)
+        last_break = (
+            self.breakpoints[indices, -1]
+            if self.breakpoints.shape[1]
+            else np.zeros(len(indices), dtype=float)
+        )
+        upper = self.scale_time[indices] + last_break
+        positive_background = self.background_hazard[indices] > 0.0
+        if np.any(positive_background):
+            upper[positive_background] = np.maximum(
+                upper[positive_background],
+                target[indices[positive_background]]
+                / self.background_hazard[indices[positive_background]],
+            )
+        probe = np.zeros(self.patient_count, dtype=float)
+        for _ in range(128):
+            probe.fill(0.0)
+            probe[indices] = upper
+            too_low = self._cumulative_hazard(probe)[indices] < target[indices]
+            if not np.any(too_low):
+                break
+            upper[too_low] *= 2.0
+        else:
+            raise FloatingPointError("could not bracket mixture event-time quantile")
+        for _ in range(80):
+            midpoint = 0.5 * (lower + upper)
+            probe.fill(0.0)
+            probe[indices] = midpoint
+            below = self._cumulative_hazard(probe)[indices] < target[indices]
+            lower[below] = midpoint[below]
+            upper[~below] = midpoint[~below]
+        result[indices] = 0.5 * (lower + upper)
+        return result
+
+
+@dataclass(frozen=True, eq=False)
+class DelayedCureEventTimeModel:
+    """Baseline hazard until a landmark, then population hazard only.
+
+    Patients with ``switch_to_background=True`` retain their original event
+    distribution through ``switch_time``.  If alive at that landmark, their
+    Weibull disease hazard stops while the unmodified constant population
+    hazard continues.  Other patients stay on the baseline curve.  This is a
+    continuous delayed-cure construction rather than a time-zero cure label.
+    """
+
+    scale_time: np.ndarray
+    shape: np.ndarray
+    constant_hazard: np.ndarray
+    weibull_weight: np.ndarray
+    post_switch_hazard: np.ndarray
+    switch_time: np.ndarray
+    switch_to_background: np.ndarray
+    _base_model: PiecewiseWeibullEventTimeModel = field(
+        init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self):
+        try:
+            scale = np.asarray(self.scale_time, dtype=float)
+            shape = np.asarray(self.shape, dtype=float)
+            constant = np.asarray(self.constant_hazard, dtype=float)
+            weight = np.asarray(self.weibull_weight, dtype=float)
+            post_switch = np.asarray(self.post_switch_hazard, dtype=float)
+            switch_time = np.asarray(self.switch_time, dtype=float)
+            raw_switches = np.asarray(self.switch_to_background, dtype=object)
+        except (TypeError, ValueError) as error:
+            raise ValueError("delayed-cure event parameters must be numeric") from error
+        if any(
+            not isinstance(value, (bool, np.bool_))
+            for value in raw_switches.flat
+        ):
+            raise ValueError("switch_to_background must contain boolean values")
+        switches = np.asarray(raw_switches, dtype=bool)
+        if scale.ndim != 1 or not len(scale):
+            raise ValueError("scale_time must be a non-empty vector")
+        patient_count = len(scale)
+        if any(
+            array.shape != (patient_count,)
+            for array in (
+                shape,
+                constant,
+                weight,
+                post_switch,
+                switch_time,
+                switches,
+            )
+        ):
+            raise ValueError("delayed-cure parameters must contain one value per patient")
+        if np.any(~np.isfinite(post_switch)) or np.any(post_switch < 0.0):
+            raise ValueError(
+                "post_switch_hazard must contain finite non-negative values"
+            )
+        if np.any(~np.isfinite(switch_time)) or np.any(switch_time < 0.0):
+            raise ValueError("switch_time must contain finite non-negative values")
+        base = PiecewiseWeibullEventTimeModel(
+            scale,
+            shape,
+            constant,
+            weight,
+            np.empty((patient_count, 0), dtype=float),
+            np.ones((patient_count, 1), dtype=float),
+        )
+        copied_switch = np.array(switch_time, copy=True)
+        copied_switches = np.array(switches, copy=True)
+        copied_post_switch = np.array(post_switch, copy=True)
+        copied_switch.setflags(write=False)
+        copied_switches.setflags(write=False)
+        copied_post_switch.setflags(write=False)
+        object.__setattr__(self, "scale_time", base.scale_time)
+        object.__setattr__(self, "shape", base.shape)
+        object.__setattr__(self, "constant_hazard", base.constant_hazard)
+        object.__setattr__(self, "weibull_weight", base.weibull_weight)
+        object.__setattr__(self, "post_switch_hazard", copied_post_switch)
+        object.__setattr__(self, "switch_time", copied_switch)
+        object.__setattr__(self, "switch_to_background", copied_switches)
+        object.__setattr__(self, "_base_model", base)
+
+    @property
+    def patient_count(self):
+        return len(self.scale_time)
+
+    def cdf(self, followup_time):
+        times = self._base_model._vector(
+            followup_time, "followup_time", allow_infinity=True
+        )
+        if np.any(times < 0.0):
+            raise ValueError("followup_time must be non-negative")
+        cumulative = self._base_model._cumulative_hazard(times)
+        selected = self.switch_to_background
+        if np.any(selected):
+            before_time = np.minimum(times[selected], self.switch_time[selected])
+            disease = self.weibull_weight[selected] * np.power(
+                before_time / self.scale_time[selected], self.shape[selected]
+            )
+            before_constant = self.constant_hazard[selected] * before_time
+            after_time = np.maximum(
+                times[selected] - self.switch_time[selected], 0.0
+            )
+            after_constant = np.zeros(np.count_nonzero(selected), dtype=float)
+            positive = self.post_switch_hazard[selected] > 0.0
+            after_constant[positive] = (
+                self.post_switch_hazard[selected][positive] * after_time[positive]
+            )
+            cumulative[selected] = before_constant + disease + after_constant
+        return -np.expm1(-cumulative)
+
+    def ppf(self, probability):
+        probabilities = self._base_model._vector(probability, "probability")
+        if np.any((probabilities < 0.0) | (probabilities > 1.0)):
+            raise ValueError("probability must lie in [0, 1]")
+        result = self._base_model.ppf(probabilities)
+        selected = self.switch_to_background & (probabilities > 0.0) & (
+            probabilities < 1.0
+        )
+        if not np.any(selected):
+            return result
+        indices = np.flatnonzero(selected)
+        target = -np.log1p(-probabilities[indices])
+        delay = self.switch_time[indices]
+        landmark_hazard = (
+            self.constant_hazard[indices] * delay
+            + self.weibull_weight[indices]
+            * np.power(delay / self.scale_time[indices], self.shape[indices])
+        )
+        after = target > landmark_hazard
+        if np.any(after):
+            after_indices = indices[after]
+            population = self.post_switch_hazard[after_indices]
+            result[after_indices] = np.inf
+            positive = population > 0.0
+            if np.any(positive):
+                result[after_indices[positive]] = delay[after][positive] + (
+                    target[after][positive] - landmark_hazard[after][positive]
+                ) / population[positive]
+        return result
+
+
+@dataclass(frozen=True, eq=False)
 class ScenarioPatients:
     """Latent randomized assignments and outcome models for one trial draw.
 
@@ -283,6 +904,715 @@ class ScenarioSampler(Protocol):
         self, entry_dates: Tuple[date, ...], rng: np.random.Generator
     ) -> ScenarioPatients:
         ...
+
+
+class EnrollmentDateSampler(Protocol):
+    """Prior-predictive enrollment interface consumed by the WP6 engine."""
+
+    @property
+    def total_enrollment(self) -> int:
+        ...
+
+    def sample_enrollment_dates(
+        self, rng: np.random.Generator
+    ) -> Tuple[date, ...]:
+        ...
+
+
+@dataclass(frozen=True)
+class LogLinearEnrollmentPrior:
+    """Accrual prior that does not center itself on enrollment-count evidence.
+
+    Each trial draws one log-linear calendar slope uniformly from the supplied
+    range and then draws exactly ``N`` enrollment dates between registry
+    opening and the known enrollment close.  The intermediate 20- and
+    104-patient quantities never enter this prior; they remain likelihood
+    evidence in :func:`public_history_constraint_branches`.
+    """
+
+    total_enrollment: int
+    study_start: date
+    enrollment_close: date
+    log_rate_slope_lower: float = -2.0
+    log_rate_slope_upper: float = 2.0
+
+    def __post_init__(self):
+        total = _positive_integer(self.total_enrollment, "total_enrollment")
+        start = _parse_date(self.study_start, "study_start")
+        close = _parse_date(self.enrollment_close, "enrollment_close")
+        if close < start:
+            raise ValueError("enrollment_close must not precede study_start")
+        if isinstance(self.log_rate_slope_lower, (bool, np.bool_)) or isinstance(
+            self.log_rate_slope_upper, (bool, np.bool_)
+        ):
+            raise ValueError("log-rate slope bounds must be numeric, not boolean")
+        lower = float(self.log_rate_slope_lower)
+        upper = float(self.log_rate_slope_upper)
+        if not isfinite(lower) or not isfinite(upper) or lower > upper:
+            raise ValueError("log-rate slope bounds must be finite and ordered")
+        object.__setattr__(self, "total_enrollment", total)
+        object.__setattr__(self, "study_start", start)
+        object.__setattr__(self, "enrollment_close", close)
+        object.__setattr__(self, "log_rate_slope_lower", lower)
+        object.__setattr__(self, "log_rate_slope_upper", upper)
+
+    def sample_enrollment_dates(self, rng):
+        slope_draw = float(rng.random())
+        if not isfinite(slope_draw) or not 0.0 <= slope_draw < 1.0:
+            raise ValueError("rng.random must return a slope draw in [0, 1)")
+        slope = self.log_rate_slope_lower + slope_draw * (
+            self.log_rate_slope_upper - self.log_rate_slope_lower
+        )
+        uniforms = np.asarray(rng.random(self.total_enrollment), dtype=float)
+        if uniforms.shape != (self.total_enrollment,) or np.any(
+            ~np.isfinite(uniforms)
+        ):
+            raise ValueError("rng.random must return one finite draw per patient")
+        if np.any((uniforms < 0.0) | (uniforms >= 1.0)):
+            raise ValueError("rng.random draws must lie in [0, 1)")
+        if abs(slope) <= 1e-10:
+            positions = uniforms
+        else:
+            positions = np.log1p(uniforms * expm1(slope)) / slope
+        duration = (self.enrollment_close - self.study_start).days + 1
+        offsets = np.minimum((positions * duration).astype(int), duration - 1)
+        return tuple(
+            self.study_start + timedelta(days=int(offset)) for offset in offsets
+        )
+
+
+def default_regal_enrollment_prior(history=None):
+    """Return the WP7 accrual prior, using no intermediate count as a center."""
+
+    if history is None:
+        history = load_regal_public_history()
+    if not isinstance(history, PublicHistory):
+        raise ValueError("history must be PublicHistory")
+    completion_dates = [
+        item.observation_date
+        for item in history.enrollment_observations
+        if item.accrual_anchor and item.count == history.target_enrollment
+    ]
+    if not completion_dates:
+        raise ValueError("public history must identify the enrollment-close boundary")
+    return LogLinearEnrollmentPrior(
+        total_enrollment=history.target_enrollment,
+        study_start=history.study_start,
+        enrollment_close=max(completion_dates),
+    )
+
+
+class GPSEffectFamily(str, Enum):
+    """Mutually explicit GPS effect structures averaged by work package 7."""
+
+    NO_EFFECT = "no_effect"
+    PROPORTIONAL_HAZARDS = "proportional_hazards"
+    DELAYED_PROPORTIONAL_HAZARDS = "delayed_proportional_hazards"
+    CURE_FRACTION_DIFFERENCE = "cure_fraction_difference"
+    DELAYED_CURE = "delayed_cure"
+    WANING_PIECEWISE = "waning_piecewise"
+    RESPONDER_CURE = "responder_cure_exploratory"
+
+
+REQUIRED_EFFECT_FAMILIES = tuple(GPSEffectFamily)
+
+
+@dataclass(frozen=True)
+class UniformPriorRange:
+    """A transparent linear- or log-uniform scalar prior range."""
+
+    lower: float
+    upper: float
+    log_scale: bool = False
+
+    def __post_init__(self):
+        if isinstance(self.lower, (bool, np.bool_)) or isinstance(
+            self.upper, (bool, np.bool_)
+        ):
+            raise ValueError("prior bounds must be numeric, not boolean")
+        lower = float(self.lower)
+        upper = float(self.upper)
+        if not isfinite(lower) or not isfinite(upper) or lower > upper:
+            raise ValueError("prior bounds must be finite and ordered")
+        if not isinstance(self.log_scale, bool):
+            raise ValueError("log_scale must be boolean")
+        if self.log_scale and lower <= 0.0:
+            raise ValueError("log-uniform prior bounds must be positive")
+        object.__setattr__(self, "lower", lower)
+        object.__setattr__(self, "upper", upper)
+
+    @property
+    def is_point_mass(self):
+        return self.lower == self.upper
+
+    def is_point_at(self, value):
+        return self.is_point_mass and self.lower == float(value)
+
+    def sample(self, rng):
+        if self.is_point_mass:
+            return self.lower
+        draw = float(rng.random())
+        if not isfinite(draw) or not 0.0 <= draw < 1.0:
+            raise ValueError("rng.random must return a prior draw in [0, 1)")
+        if self.log_scale:
+            return exp(log(self.lower) + draw * (log(self.upper) - log(self.lower)))
+        return self.lower + draw * (self.upper - self.lower)
+
+
+POINT_ZERO_PRIOR = UniformPriorRange(0.0, 0.0)
+POINT_ONE_PRIOR = UniformPriorRange(1.0, 1.0, log_scale=True)
+
+
+@dataclass(frozen=True)
+class EffectParameters:
+    """One parameter draw from a named GPS effect-family prior."""
+
+    family: GPSEffectFamily
+    hazard_ratio: float = 1.0
+    delay_months: float = 0.0
+    late_hazard_ratio: float = 1.0
+    extra_cure_probability: float = 0.0
+    response_probability: float = 0.0
+    responder_cure_probability: float = 0.0
+
+    def __post_init__(self):
+        try:
+            family = GPSEffectFamily(self.family)
+        except (TypeError, ValueError) as error:
+            raise ValueError("family must be a GPSEffectFamily") from error
+        raw_values = {
+            "hazard_ratio": self.hazard_ratio,
+            "delay_months": self.delay_months,
+            "late_hazard_ratio": self.late_hazard_ratio,
+            "extra_cure_probability": self.extra_cure_probability,
+            "response_probability": self.response_probability,
+            "responder_cure_probability": self.responder_cure_probability,
+        }
+        if any(isinstance(value, (bool, np.bool_)) for value in raw_values.values()):
+            raise ValueError("effect parameters must be numeric, not boolean")
+        values = {
+            "hazard_ratio": float(self.hazard_ratio),
+            "delay_months": float(self.delay_months),
+            "late_hazard_ratio": float(self.late_hazard_ratio),
+            "extra_cure_probability": float(self.extra_cure_probability),
+            "response_probability": float(self.response_probability),
+            "responder_cure_probability": float(
+                self.responder_cure_probability
+            ),
+        }
+        if any(not isfinite(value) for value in values.values()):
+            raise ValueError("effect parameters must be finite")
+        if values["hazard_ratio"] <= 0.0 or values["late_hazard_ratio"] <= 0.0:
+            raise ValueError("hazard ratios must be positive")
+        if values["delay_months"] < 0.0:
+            raise ValueError("delay_months must be non-negative")
+        for name in (
+            "extra_cure_probability",
+            "response_probability",
+            "responder_cure_probability",
+        ):
+            if not 0.0 <= values[name] <= 1.0:
+                raise ValueError(f"{name} must lie in [0, 1]")
+        active = {
+            GPSEffectFamily.NO_EFFECT: (),
+            GPSEffectFamily.PROPORTIONAL_HAZARDS: ("hazard_ratio",),
+            GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS: (
+                "hazard_ratio",
+                "delay_months",
+            ),
+            GPSEffectFamily.CURE_FRACTION_DIFFERENCE: (
+                "extra_cure_probability",
+            ),
+            GPSEffectFamily.DELAYED_CURE: (
+                "extra_cure_probability",
+                "delay_months",
+            ),
+            GPSEffectFamily.WANING_PIECEWISE: (
+                "hazard_ratio",
+                "late_hazard_ratio",
+                "delay_months",
+            ),
+            GPSEffectFamily.RESPONDER_CURE: (
+                "response_probability",
+                "responder_cure_probability",
+            ),
+        }[family]
+        neutral = {
+            "hazard_ratio": 1.0,
+            "delay_months": 0.0,
+            "late_hazard_ratio": 1.0,
+            "extra_cure_probability": 0.0,
+            "response_probability": 0.0,
+            "responder_cure_probability": 0.0,
+        }
+        ignored = set(values) - set(active)
+        if any(values[name] != neutral[name] for name in ignored):
+            raise ValueError(f"{family.value} received parameters it does not use")
+        object.__setattr__(self, "family", family)
+        for name, value in values.items():
+            object.__setattr__(self, name, value)
+
+
+@dataclass(frozen=True)
+class EffectFamilyPrior:
+    """Within-family parameter prior, kept separate from model weights."""
+
+    family: GPSEffectFamily
+    hazard_ratio: UniformPriorRange = POINT_ONE_PRIOR
+    delay_months: UniformPriorRange = POINT_ZERO_PRIOR
+    late_hazard_ratio: UniformPriorRange = POINT_ONE_PRIOR
+    extra_cure_probability: UniformPriorRange = POINT_ZERO_PRIOR
+    response_probability: UniformPriorRange = POINT_ZERO_PRIOR
+    responder_cure_probability: UniformPriorRange = POINT_ZERO_PRIOR
+
+    def __post_init__(self):
+        try:
+            family = GPSEffectFamily(self.family)
+        except (TypeError, ValueError) as error:
+            raise ValueError("family must be a GPSEffectFamily") from error
+        ranges = {
+            "hazard_ratio": self.hazard_ratio,
+            "delay_months": self.delay_months,
+            "late_hazard_ratio": self.late_hazard_ratio,
+            "extra_cure_probability": self.extra_cure_probability,
+            "response_probability": self.response_probability,
+            "responder_cure_probability": self.responder_cure_probability,
+        }
+        if not all(isinstance(value, UniformPriorRange) for value in ranges.values()):
+            raise ValueError("effect parameter priors must be UniformPriorRange values")
+        if ranges["hazard_ratio"].lower <= 0.0 or ranges[
+            "late_hazard_ratio"
+        ].lower <= 0.0:
+            raise ValueError("hazard-ratio prior bounds must be positive")
+        if ranges["delay_months"].lower < 0.0:
+            raise ValueError("delay prior bounds must be non-negative")
+        for name in (
+            "extra_cure_probability",
+            "response_probability",
+            "responder_cure_probability",
+        ):
+            if ranges[name].lower < 0.0 or ranges[name].upper > 1.0:
+                raise ValueError(f"{name} prior bounds must lie in [0, 1]")
+        sample = EffectParameters(
+            family=family,
+            hazard_ratio=ranges["hazard_ratio"].lower,
+            delay_months=ranges["delay_months"].lower,
+            late_hazard_ratio=ranges["late_hazard_ratio"].lower,
+            extra_cure_probability=ranges["extra_cure_probability"].lower,
+            response_probability=ranges["response_probability"].lower,
+            responder_cure_probability=ranges[
+                "responder_cure_probability"
+            ].lower,
+        )
+        # Validate the opposite corner too, catching a non-neutral ignored range.
+        EffectParameters(
+            family=family,
+            hazard_ratio=ranges["hazard_ratio"].upper,
+            delay_months=ranges["delay_months"].upper,
+            late_hazard_ratio=ranges["late_hazard_ratio"].upper,
+            extra_cure_probability=ranges["extra_cure_probability"].upper,
+            response_probability=ranges["response_probability"].upper,
+            responder_cure_probability=ranges[
+                "responder_cure_probability"
+            ].upper,
+        )
+        object.__setattr__(self, "family", sample.family)
+
+    def sample(self, rng):
+        family = self.family
+        values = {}
+        if family in (
+            GPSEffectFamily.PROPORTIONAL_HAZARDS,
+            GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS,
+            GPSEffectFamily.WANING_PIECEWISE,
+        ):
+            values["hazard_ratio"] = self.hazard_ratio.sample(rng)
+        if family in (
+            GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS,
+            GPSEffectFamily.DELAYED_CURE,
+            GPSEffectFamily.WANING_PIECEWISE,
+        ):
+            values["delay_months"] = self.delay_months.sample(rng)
+        if family is GPSEffectFamily.WANING_PIECEWISE:
+            values["late_hazard_ratio"] = self.late_hazard_ratio.sample(rng)
+        if family in (
+            GPSEffectFamily.CURE_FRACTION_DIFFERENCE,
+            GPSEffectFamily.DELAYED_CURE,
+        ):
+            values["extra_cure_probability"] = (
+                self.extra_cure_probability.sample(rng)
+            )
+        if family is GPSEffectFamily.RESPONDER_CURE:
+            values["response_probability"] = self.response_probability.sample(rng)
+            values["responder_cure_probability"] = (
+                self.responder_cure_probability.sample(rng)
+            )
+        return EffectParameters(family=family, **values)
+
+
+DEFAULT_EFFECT_FAMILY_PRIORS = (
+    EffectFamilyPrior(GPSEffectFamily.NO_EFFECT),
+    EffectFamilyPrior(
+        GPSEffectFamily.PROPORTIONAL_HAZARDS,
+        hazard_ratio=UniformPriorRange(0.50, 1.10, log_scale=True),
+    ),
+    EffectFamilyPrior(
+        GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS,
+        hazard_ratio=UniformPriorRange(0.45, 1.05, log_scale=True),
+        delay_months=UniformPriorRange(3.0, 18.0),
+    ),
+    EffectFamilyPrior(
+        GPSEffectFamily.CURE_FRACTION_DIFFERENCE,
+        extra_cure_probability=UniformPriorRange(0.0, 0.60),
+    ),
+    EffectFamilyPrior(
+        GPSEffectFamily.DELAYED_CURE,
+        delay_months=UniformPriorRange(3.0, 18.0),
+        extra_cure_probability=UniformPriorRange(0.0, 0.60),
+    ),
+    EffectFamilyPrior(
+        GPSEffectFamily.WANING_PIECEWISE,
+        hazard_ratio=UniformPriorRange(0.40, 0.90, log_scale=True),
+        delay_months=UniformPriorRange(6.0, 24.0),
+        late_hazard_ratio=UniformPriorRange(0.85, 1.15, log_scale=True),
+    ),
+    EffectFamilyPrior(
+        GPSEffectFamily.RESPONDER_CURE,
+        response_probability=UniformPriorRange(0.60, 0.95),
+        responder_cure_probability=UniformPriorRange(0.20, 0.85),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class GPSEffectScenarioSampler:
+    """Prior-predictive patient generator for one GPS effect family.
+
+    BAT assignments are drawn before randomization.  Four binary protocol
+    factors are then drawn and treatment is balanced independently inside each
+    realized combined stratum.  This is a prior over an unknown patient-level
+    factor distribution, not a claim about REGAL's confidential covariates.
+    """
+
+    effect_prior: EffectFamilyPrior
+    bat_design: BATDesign = PRIMARY_EQUAL_STRATA
+    component_library: Mapping = DEFAULT_COMPONENT_LIBRARY
+    background_mortality: ExponentialBackgroundMortality = (
+        ExponentialBackgroundMortality(0.02)
+    )
+    censoring_annual_probability: float = 0.0
+    protocol_factor_probabilities: Tuple[float, ...] = (0.5, 0.5, 0.5, 0.5)
+
+    def __post_init__(self):
+        if not isinstance(self.effect_prior, EffectFamilyPrior):
+            raise ValueError("effect_prior must be EffectFamilyPrior")
+        if not isinstance(self.bat_design, BATDesign):
+            raise ValueError("bat_design must be BATDesign")
+        if not isinstance(self.component_library, Mapping):
+            raise ValueError("component_library must be a mapping")
+        library = dict(self.component_library)
+        self.bat_design.validate_library(library)
+        observation = library.get(BATComponent.OBSERVATION)
+        if not isinstance(observation, CureMixtureComponent):
+            raise ValueError(
+                "component library must include a valid observation profile"
+            )
+        if not isinstance(self.background_mortality, ExponentialBackgroundMortality):
+            raise ValueError(
+                "background_mortality must be ExponentialBackgroundMortality"
+            )
+        if isinstance(self.censoring_annual_probability, (bool, np.bool_)):
+            raise ValueError(
+                "censoring_annual_probability must be numeric, not boolean"
+            )
+        censoring = float(self.censoring_annual_probability)
+        if not isfinite(censoring) or not 0.0 <= censoring < 1.0:
+            raise ValueError("censoring_annual_probability must lie in [0, 1)")
+        try:
+            raw_factors = tuple(self.protocol_factor_probabilities)
+        except TypeError as error:
+            raise ValueError(
+                "protocol factor probabilities must be an iterable"
+            ) from error
+        if any(isinstance(value, (bool, np.bool_)) for value in raw_factors):
+            raise ValueError("protocol factor probabilities must be numeric, not boolean")
+        try:
+            factors = tuple(float(value) for value in raw_factors)
+        except (TypeError, ValueError) as error:
+            raise ValueError("protocol factor probabilities must be numeric") from error
+        if len(factors) != 4 or any(
+            not isfinite(value) or not 0.0 <= value <= 1.0 for value in factors
+        ):
+            raise ValueError(
+                "protocol_factor_probabilities must contain four values in [0, 1]"
+            )
+        object.__setattr__(self, "component_library", MappingProxyType(library))
+        object.__setattr__(self, "censoring_annual_probability", censoring)
+        object.__setattr__(self, "protocol_factor_probabilities", factors)
+
+    def _sample_protocol_factors(self, patient_count, rng):
+        draws = np.asarray(rng.random((patient_count, 4)), dtype=float)
+        if draws.shape != (patient_count, 4) or np.any(~np.isfinite(draws)):
+            raise ValueError("rng.random must return four factor draws per patient")
+        if np.any((draws < 0.0) | (draws >= 1.0)):
+            raise ValueError("rng.random factor draws must lie in [0, 1)")
+        return draws < np.asarray(self.protocol_factor_probabilities, dtype=float)
+
+    @staticmethod
+    def _uniform_vector(rng, patient_count, label):
+        draws = np.asarray(rng.random(patient_count), dtype=float)
+        if draws.shape != (patient_count,) or np.any(~np.isfinite(draws)):
+            raise ValueError(f"rng.random must return one finite {label} draw per patient")
+        if np.any((draws < 0.0) | (draws >= 1.0)):
+            raise ValueError(f"rng.random {label} draws must lie in [0, 1)")
+        return draws
+
+    @staticmethod
+    def _stratified_randomize(factors, rng):
+        patient_count = len(factors)
+        _, cells = np.unique(factors, axis=0, return_inverse=True)
+        treatment = np.zeros(patient_count, dtype=bool)
+        for cell in range(int(cells.max()) + 1):
+            indices = np.flatnonzero(cells == cell)
+            count = len(indices) // 2
+            if len(indices) % 2:
+                extra = float(rng.random())
+                if not isfinite(extra) or not 0.0 <= extra < 1.0:
+                    raise ValueError("rng.random must return a randomization draw in [0, 1)")
+                count += int(extra < 0.5)
+            order = np.asarray(rng.permutation(indices), dtype=int)
+            if order.shape != indices.shape:
+                raise ValueError("rng.permutation returned an invalid stratum order")
+            treatment[order[:count]] = True
+        return treatment
+
+    def _component_vectors(self, assignments):
+        components = tuple(
+            component_for(assignment, self.component_library)
+            for assignment in assignments
+        )
+        scale = np.asarray(
+            [item.uncured.scale_months * MONTH_DAYS for item in components],
+            dtype=float,
+        )
+        shape = np.asarray([item.uncured.shape for item in components], dtype=float)
+        cure = np.asarray([item.cure_fraction for item in components], dtype=float)
+        background = self.background_mortality.monthly_hazard / MONTH_DAYS
+        net_scale = np.asarray(
+            [item.survival_scale is SurvivalScale.NET for item in components],
+            dtype=bool,
+        )
+        constant = np.asarray(
+            [
+                background if is_net else 0.0 for is_net in net_scale
+            ],
+            dtype=float,
+        )
+        return scale, shape, cure, constant, net_scale
+
+    def _apply_cure(self, cured, constant, weight):
+        background = self.background_mortality.monthly_hazard / MONTH_DAYS
+        constant[cured] = background
+        weight[cured] = 0.0
+
+    def _sample_uncured_bat_components(self, patient_count, rng):
+        positive_pathways = tuple(
+            pathway
+            for pathway in self.bat_design.pathways
+            if pathway.probability > 0.0
+        )
+        components = tuple(
+            self.component_library[pathway.regimen.survival_component]
+            for pathway in positive_pathways
+        )
+        masses = np.asarray(
+            [
+                pathway.probability * (1.0 - component.cure_fraction)
+                for pathway, component in zip(positive_pathways, components)
+            ],
+            dtype=float,
+        )
+        total = float(masses.sum())
+        if not isfinite(total) or total <= 0.0:
+            raise ValueError("BAT prior has no uncured responder-profile mass")
+        cumulative = np.cumsum(masses / total)
+        cumulative[-1] = 1.0
+        draws = self._uniform_vector(rng, patient_count, "BAT-profile")
+        indices = np.searchsorted(cumulative, draws, side="right")
+        return tuple(components[index] for index in indices)
+
+    def _responder_vectors(
+        self, treatment, scale, shape, cure, constant, weight, parameters, rng
+    ):
+        patient_count = len(treatment)
+        baseline_cured = self._uniform_vector(
+            rng, patient_count, "baseline-cure"
+        ) < cure
+        response = self._uniform_vector(rng, patient_count, "response") < (
+            parameters.response_probability
+        )
+        responder_cured = self._uniform_vector(
+            rng, patient_count, "responder-cure"
+        ) < (
+            parameters.responder_cure_probability
+        )
+        treated_responder = treatment & response
+        treated_nonresponder = treatment & ~response
+        responder_components = self._sample_uncured_bat_components(
+            patient_count, rng
+        )
+        if np.any(treated_responder):
+            responder_indices = np.flatnonzero(treated_responder)
+            for index in responder_indices:
+                component = responder_components[index]
+                scale[index] = component.uncured.scale_months * MONTH_DAYS
+                shape[index] = component.uncured.shape
+                constant[index] = (
+                    self.background_mortality.monthly_hazard / MONTH_DAYS
+                    if component.survival_scale is SurvivalScale.NET
+                    else 0.0
+                )
+        observation = self.component_library[BATComponent.OBSERVATION]
+        if np.any(treated_nonresponder):
+            scale[treated_nonresponder] = observation.uncured.scale_months * MONTH_DAYS
+            shape[treated_nonresponder] = observation.uncured.shape
+            constant[treated_nonresponder] = (
+                self.background_mortality.monthly_hazard / MONTH_DAYS
+                if observation.survival_scale is SurvivalScale.NET
+                else 0.0
+            )
+        nonresponder_cured = self._uniform_vector(
+            rng, patient_count, "nonresponder-cure"
+        ) < observation.cure_fraction
+        cured = (~treatment & baseline_cured) | (
+            treated_responder & responder_cured
+        ) | (treated_nonresponder & nonresponder_cured)
+        self._apply_cure(cured, constant, weight)
+
+    def __call__(self, entry_dates, rng):
+        entries = tuple(_parse_date(value, "entry date") for value in entry_dates)
+        if not entries:
+            raise ValueError("entry_dates must contain at least one patient")
+        patient_count = len(entries)
+        bat = self.bat_design.sample(patient_count, rng)
+        factors = self._sample_protocol_factors(patient_count, rng)
+        treatment = self._stratified_randomize(factors, rng)
+        parameters = self.effect_prior.sample(rng)
+        scale, shape, cure, constant, net_scale = self._component_vectors(
+            bat.assignments
+        )
+        weight = np.ones(patient_count, dtype=float)
+        family = parameters.family
+        delayed_switch = None
+        marginal_hazard_family = family in (
+            GPSEffectFamily.NO_EFFECT,
+            GPSEffectFamily.PROPORTIONAL_HAZARDS,
+            GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS,
+            GPSEffectFamily.WANING_PIECEWISE,
+        )
+
+        if family is GPSEffectFamily.RESPONDER_CURE:
+            self._responder_vectors(
+                treatment,
+                scale,
+                shape,
+                cure,
+                constant,
+                weight,
+                parameters,
+                rng,
+            )
+        elif not marginal_hazard_family:
+            base_cured = self._uniform_vector(
+                rng, patient_count, "baseline-cure"
+            ) < cure
+            extra_cured = np.zeros(patient_count, dtype=bool)
+            if family in (
+                GPSEffectFamily.CURE_FRACTION_DIFFERENCE,
+                GPSEffectFamily.DELAYED_CURE,
+            ):
+                extra_draws = self._uniform_vector(
+                    rng, patient_count, "extra-cure"
+                )
+                extra_cured = treatment & ~base_cured & (
+                    extra_draws < parameters.extra_cure_probability
+                )
+            self._apply_cure(base_cured, constant, weight)
+            if family is GPSEffectFamily.CURE_FRACTION_DIFFERENCE:
+                self._apply_cure(extra_cured, constant, weight)
+            elif family is GPSEffectFamily.DELAYED_CURE:
+                delayed_switch = extra_cured
+
+        censoring_model = ExponentialBackgroundMortality(
+            self.censoring_annual_probability
+        )
+        censoring = np.asarray(
+            censoring_model.sample_event_times(rng, (patient_count,)), dtype=float
+        ) * MONTH_DAYS
+
+        if family is GPSEffectFamily.DELAYED_CURE:
+            event_model = DelayedCureEventTimeModel(
+                scale,
+                shape,
+                constant,
+                weight,
+                np.full(
+                    patient_count,
+                    self.background_mortality.monthly_hazard / MONTH_DAYS,
+                ),
+                np.full(patient_count, parameters.delay_months * MONTH_DAYS),
+                delayed_switch,
+            )
+        else:
+            if family in (
+                GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS,
+                GPSEffectFamily.WANING_PIECEWISE,
+            ):
+                breakpoints = np.full(
+                    (patient_count, 1), parameters.delay_months * MONTH_DAYS
+                )
+                multipliers = np.ones((patient_count, 2), dtype=float)
+                affected = treatment & (weight > 0.0)
+                if family is GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS:
+                    multipliers[affected, 1] = parameters.hazard_ratio
+                else:
+                    multipliers[affected, 0] = parameters.hazard_ratio
+                    multipliers[affected, 1] = parameters.late_hazard_ratio
+            else:
+                breakpoints = np.empty((patient_count, 0), dtype=float)
+                multipliers = np.ones((patient_count, 1), dtype=float)
+                if family is GPSEffectFamily.PROPORTIONAL_HAZARDS:
+                    multipliers[treatment & (weight > 0.0), 0] = (
+                        parameters.hazard_ratio
+                    )
+            if marginal_hazard_family:
+                event_model = PiecewiseMixtureHazardEventTimeModel(
+                    scale,
+                    shape,
+                    cure,
+                    np.full(
+                        patient_count,
+                        self.background_mortality.monthly_hazard / MONTH_DAYS,
+                    ),
+                    net_scale,
+                    breakpoints,
+                    multipliers,
+                )
+            else:
+                event_model = PiecewiseWeibullEventTimeModel(
+                    scale,
+                    shape,
+                    constant,
+                    weight,
+                    breakpoints,
+                    multipliers,
+                )
+        return ScenarioPatients(
+            treatment=treatment,
+            strata=factors.astype(int),
+            censoring_time=censoring,
+            event_time_model=event_model,
+        )
 
 
 @dataclass(frozen=True)
@@ -1528,6 +2858,306 @@ class ConditioningResult:
         return self.tilt_fallbacks / self.tilt_attempts if self.tilt_attempts else 0.0
 
 
+@dataclass(frozen=True)
+class EffectFamilyProjection:
+    """One within-family prior-predictive WP6 projection."""
+
+    family: GPSEffectFamily
+    parameter_prior: EffectFamilyPrior
+    conditioning: ConditioningResult
+
+    def __post_init__(self):
+        try:
+            family = GPSEffectFamily(self.family)
+        except (TypeError, ValueError) as error:
+            raise ValueError("family must be a GPSEffectFamily") from error
+        if not isinstance(self.parameter_prior, EffectFamilyPrior):
+            raise ValueError("parameter_prior must be EffectFamilyPrior")
+        if self.parameter_prior.family is not family:
+            raise ValueError("projection family and parameter prior differ")
+        if not isinstance(self.conditioning, ConditioningResult):
+            raise ValueError("conditioning must be ConditioningResult")
+        object.__setattr__(self, "family", family)
+
+
+@dataclass(frozen=True)
+class ModelFamilyWeightPrior:
+    """Prior masses over the complete required effect-family set."""
+
+    name: str
+    weights: Tuple[Tuple[GPSEffectFamily, float], ...]
+
+    def __post_init__(self):
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("model-weight prior name must be non-empty")
+        normalized = []
+        seen = set()
+        try:
+            supplied = tuple(self.weights)
+        except TypeError as error:
+            raise ValueError("weights must contain (family, probability) pairs") from error
+        for item in supplied:
+            try:
+                family_value, probability_value = item
+            except (TypeError, ValueError) as error:
+                raise ValueError("weights must contain (family, probability) pairs")
+            try:
+                family = GPSEffectFamily(family_value)
+            except (TypeError, ValueError) as error:
+                raise ValueError("model-weight keys must be GPSEffectFamily values") from error
+            if family in seen:
+                raise ValueError("model-weight prior must not repeat a family")
+            if isinstance(probability_value, (bool, np.bool_)):
+                raise ValueError("model-family prior weights must be numeric, not boolean")
+            probability = float(probability_value)
+            if not isfinite(probability) or probability <= 0.0:
+                raise ValueError("every required family must have positive prior mass")
+            seen.add(family)
+            normalized.append((family, probability))
+        if seen != set(REQUIRED_EFFECT_FAMILIES):
+            raise ValueError("model-weight prior must cover every required effect family")
+        total = sum(value for _, value in normalized)
+        if abs(total - 1.0) > PROBABILITY_TOLERANCE:
+            raise ValueError("model-family prior weights must sum to one")
+        normalized = tuple(
+            (family, value / total) for family, value in normalized
+        )
+        object.__setattr__(self, "name", self.name.strip())
+        object.__setattr__(self, "weights", normalized)
+
+    @property
+    def as_mapping(self):
+        return MappingProxyType(dict(self.weights))
+
+
+BALANCED_MODEL_FAMILY_PRIOR = ModelFamilyWeightPrior(
+    "balanced",
+    (
+        (GPSEffectFamily.NO_EFFECT, 0.20),
+        (GPSEffectFamily.PROPORTIONAL_HAZARDS, 0.15),
+        (GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS, 0.15),
+        (GPSEffectFamily.CURE_FRACTION_DIFFERENCE, 0.15),
+        (GPSEffectFamily.DELAYED_CURE, 0.15),
+        (GPSEffectFamily.WANING_PIECEWISE, 0.10),
+        (GPSEffectFamily.RESPONDER_CURE, 0.10),
+    ),
+)
+
+SKEPTICAL_MODEL_FAMILY_PRIOR = ModelFamilyWeightPrior(
+    "skeptical",
+    (
+        (GPSEffectFamily.NO_EFFECT, 0.40),
+        (GPSEffectFamily.PROPORTIONAL_HAZARDS, 0.15),
+        (GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS, 0.15),
+        (GPSEffectFamily.CURE_FRACTION_DIFFERENCE, 0.08),
+        (GPSEffectFamily.DELAYED_CURE, 0.08),
+        (GPSEffectFamily.WANING_PIECEWISE, 0.10),
+        (GPSEffectFamily.RESPONDER_CURE, 0.04),
+    ),
+)
+
+CURE_FAVORING_MODEL_FAMILY_PRIOR = ModelFamilyWeightPrior(
+    "cure_favoring",
+    (
+        (GPSEffectFamily.NO_EFFECT, 0.10),
+        (GPSEffectFamily.PROPORTIONAL_HAZARDS, 0.10),
+        (GPSEffectFamily.DELAYED_PROPORTIONAL_HAZARDS, 0.10),
+        (GPSEffectFamily.CURE_FRACTION_DIFFERENCE, 0.20),
+        (GPSEffectFamily.DELAYED_CURE, 0.20),
+        (GPSEffectFamily.WANING_PIECEWISE, 0.10),
+        (GPSEffectFamily.RESPONDER_CURE, 0.20),
+    ),
+)
+
+DEFAULT_MODEL_FAMILY_PRIOR_SENSITIVITY = (
+    SKEPTICAL_MODEL_FAMILY_PRIOR,
+    BALANCED_MODEL_FAMILY_PRIOR,
+    CURE_FAVORING_MODEL_FAMILY_PRIOR,
+)
+
+
+@dataclass(frozen=True)
+class PosteriorFamilyResult:
+    """Prior and posterior contribution from one GPS effect family."""
+
+    family: GPSEffectFamily
+    prior_weight: float
+    posterior_weight: float
+    log_p_public_history_and_continuation: float
+    parameter_prior: EffectFamilyPrior
+    conditioning: ConditioningResult
+
+    @property
+    def p_public_history_and_continuation(self):
+        return _probability_from_log(self.log_p_public_history_and_continuation)
+
+
+@dataclass(frozen=True)
+class PosteriorForecastResult:
+    """Continuation-conditioned posterior forecast across all effect families."""
+
+    sensitivity_name: str
+    family_results: Tuple[PosteriorFamilyResult, ...]
+    log_p_public_history_and_continuation: float
+    p_final_rejection_given_public_history_and_continuation: float
+    p_final_reached_given_public_history_and_continuation: float
+
+    @property
+    def p_public_history_and_continuation(self):
+        return _probability_from_log(self.log_p_public_history_and_continuation)
+
+    @property
+    def is_posterior_forecast(self):
+        return True
+
+    @property
+    def model_prior_weights(self):
+        return MappingProxyType(
+            {item.family: item.prior_weight for item in self.family_results}
+        )
+
+    @property
+    def model_posterior_weights(self):
+        return MappingProxyType(
+            {item.family: item.posterior_weight for item in self.family_results}
+        )
+
+    @property
+    def assumed_futility_hr_threshold(self):
+        return self.family_results[0].conditioning.assumed_futility_hr_threshold
+
+
+def posterior_model_average(
+    projections,
+    model_weight_prior=BALANCED_MODEL_FAMILY_PRIOR,
+):
+    """Average family projections using ``P(history, continue | family)``.
+
+    Within-family parameter uncertainty is already integrated by each
+    ``scenario_sampler`` draw.  Bayes' rule then gives
+
+    ``w_j | H,C proportional to w_j P(H | j) P(C | H,j)``.
+
+    The final rejection forecast is the posterior-weighted average of the WP6
+    family-specific conditional projections.  A result is returned only when
+    all required families are present, preventing a partial sensitivity run
+    from being mislabeled as the v2 forecast.
+    """
+
+    projections = tuple(projections)
+    if not projections or not all(
+        isinstance(item, EffectFamilyProjection) for item in projections
+    ):
+        raise ValueError("projections must contain EffectFamilyProjection values")
+    if not isinstance(model_weight_prior, ModelFamilyWeightPrior):
+        raise ValueError("model_weight_prior must be ModelFamilyWeightPrior")
+    by_family = {}
+    for projection in projections:
+        if projection.family in by_family:
+            raise ValueError("projections must not repeat an effect family")
+        by_family[projection.family] = projection
+    if set(by_family) != set(REQUIRED_EFFECT_FAMILIES):
+        raise ValueError("projections must cover every required effect family")
+    ordered = tuple(by_family[family] for family in REQUIRED_EFFECT_FAMILIES)
+    first_design = ordered[0].conditioning.design
+    if any(item.conditioning.design != first_design for item in ordered[1:]):
+        raise ValueError("all effect-family projections must use the same trial design")
+
+    prior_weights = model_weight_prior.as_mapping
+    joint_logs = []
+    for projection in ordered:
+        result = projection.conditioning
+        continuation = result.p_continue_given_public_history
+        log_history = float(result.log_p_public_history)
+        if np.isnan(log_history) or log_history == float("inf"):
+            raise ValueError("family public-history log probability is invalid")
+        if log_history == float("-inf"):
+            joint = float("-inf")
+        else:
+            if not isfinite(continuation) or not 0.0 <= continuation <= 1.0:
+                raise ValueError("family continuation probability must lie in [0, 1]")
+            joint = (
+                float("-inf")
+                if continuation == 0.0
+                else log_history + log(continuation)
+            )
+        joint_logs.append(joint)
+    evidence_terms = [
+        log(prior_weights[projection.family]) + joint
+        for projection, joint in zip(ordered, joint_logs)
+    ]
+    log_evidence = _logsumexp(evidence_terms)
+    if not isfinite(log_evidence):
+        raise ValueError("all effect families have zero history/continuation evidence")
+    posterior_weights = [
+        0.0 if not isfinite(term) else exp(term - log_evidence)
+        for term in evidence_terms
+    ]
+    family_results = []
+    rejection = 0.0
+    reached = 0.0
+    for projection, joint, posterior_weight in zip(
+        ordered, joint_logs, posterior_weights
+    ):
+        conditioning = projection.conditioning
+        if posterior_weight > 0.0:
+            family_rejection = (
+                conditioning.p_final_rejection_given_public_history_and_continuation
+            )
+            family_reached = (
+                conditioning.p_final_reached_given_public_history_and_continuation
+            )
+            if (
+                not isfinite(family_rejection)
+                or not 0.0 <= family_rejection <= 1.0
+                or not isfinite(family_reached)
+                or not 0.0 <= family_reached <= 1.0
+            ):
+                raise ValueError(
+                    "positive-weight families require finite final probabilities"
+                )
+            if family_rejection > family_reached + PROBABILITY_TOLERANCE:
+                raise ValueError(
+                    "family final-rejection probability cannot exceed final reach"
+                )
+            rejection += posterior_weight * family_rejection
+            reached += posterior_weight * family_reached
+        family_results.append(
+            PosteriorFamilyResult(
+                family=projection.family,
+                prior_weight=prior_weights[projection.family],
+                posterior_weight=posterior_weight,
+                log_p_public_history_and_continuation=joint,
+                parameter_prior=projection.parameter_prior,
+                conditioning=conditioning,
+            )
+        )
+    return PosteriorForecastResult(
+        sensitivity_name=model_weight_prior.name,
+        family_results=tuple(family_results),
+        log_p_public_history_and_continuation=log_evidence,
+        p_final_rejection_given_public_history_and_continuation=rejection,
+        p_final_reached_given_public_history_and_continuation=reached,
+    )
+
+
+def posterior_prior_sensitivity(
+    projections,
+    model_weight_priors=DEFAULT_MODEL_FAMILY_PRIOR_SENSITIVITY,
+):
+    """Reweight identical family likelihoods across named model priors."""
+
+    priors = tuple(model_weight_priors)
+    if not priors or not all(
+        isinstance(item, ModelFamilyWeightPrior) for item in priors
+    ):
+        raise ValueError("model_weight_priors must contain named model priors")
+    if len({item.name for item in priors}) != len(priors):
+        raise ValueError("model-weight sensitivity names must be unique")
+    projections = tuple(projections)
+    return tuple(posterior_model_average(projections, prior) for prior in priors)
+
+
 class _ConditioningAccumulator:
     def __init__(self, design):
         self.design = design
@@ -1689,9 +3319,16 @@ def _condition_designs_on_public_history(
         raise ValueError("history must be PublicHistory")
     if enrollment_model is None:
         enrollment_model = default_regal_enrollment_model(history)
-    if not isinstance(enrollment_model, PiecewiseEnrollmentModel):
-        raise ValueError("enrollment_model must be PiecewiseEnrollmentModel")
-    if enrollment_model.total_enrollment != history.target_enrollment:
+    if not callable(getattr(enrollment_model, "sample_enrollment_dates", None)):
+        raise ValueError("enrollment_model must provide sample_enrollment_dates")
+    total_enrollment = getattr(enrollment_model, "total_enrollment", None)
+    if (
+        isinstance(total_enrollment, (bool, np.bool_))
+        or not isinstance(total_enrollment, Integral)
+        or int(total_enrollment) < 1
+    ):
+        raise ValueError("enrollment_model must expose a positive patient total")
+    if int(total_enrollment) != history.target_enrollment:
         raise ValueError("enrollment model and history totals differ")
     for design in designs:
         if (
@@ -1858,23 +3495,257 @@ def condition_futility_sensitivity_grid(
     )
 
 
+def _normalize_effect_family_priors(effect_priors):
+    priors = tuple(effect_priors)
+    if not priors or not all(isinstance(item, EffectFamilyPrior) for item in priors):
+        raise ValueError("effect_priors must contain EffectFamilyPrior values")
+    if len({item.family for item in priors}) != len(priors):
+        raise ValueError("effect_priors must not repeat an effect family")
+    if {item.family for item in priors} != set(REQUIRED_EFFECT_FAMILIES):
+        raise ValueError("effect_priors must cover every required effect family")
+    return {item.family: item for item in priors}
+
+
+def _effect_family_seed(seed, index):
+    if isinstance(seed, (bool, np.bool_)) or not isinstance(seed, Integral):
+        raise ValueError("seed must be an integer")
+    if int(seed) < 0:
+        raise ValueError("seed must be non-negative")
+    return int(
+        np.random.SeedSequence((int(seed), index)).generate_state(
+            1, dtype=np.uint64
+        )[0]
+    )
+
+
+def condition_effect_families_on_public_history(
+    effect_priors=DEFAULT_EFFECT_FAMILY_PRIORS,
+    *,
+    bat_design=PRIMARY_EQUAL_STRATA,
+    component_library=DEFAULT_COMPONENT_LIBRARY,
+    background_mortality=ExponentialBackgroundMortality(0.02),
+    censoring_annual_probability=0.0,
+    protocol_factor_probabilities=(0.5, 0.5, 0.5, 0.5),
+    design=REGAL_V2_EFFICACY_DESIGN,
+    history=None,
+    enrollment_model=None,
+    nsim=DEFAULT_IMPORTANCE_DRAWS,
+    seed=20260825,
+    proposal_interim_z_targets=None,
+    max_lag_combinations=4096,
+    max_count_vectors=DEFAULT_MAX_COUNT_VECTORS,
+    max_quota_states=DEFAULT_MAX_DP_STATES,
+    tilt_tolerance=DEFAULT_TILT_TOLERANCE,
+    max_tilt_iterations=DEFAULT_MAX_TILT_ITERATIONS,
+):
+    """Integrate parameter uncertainty separately inside every effect family.
+
+    The default enrollment model here is deliberately the WP7 log-linear
+    prior, not WP5's data-centered reference curve.  Public enrollment counts
+    are applied exactly once by the shared history-conditioning likelihood.
+    """
+
+    ordered = _normalize_effect_family_priors(effect_priors)
+    if history is None:
+        history = load_regal_public_history()
+    if not isinstance(history, PublicHistory):
+        raise ValueError("history must be PublicHistory")
+    if enrollment_model is None:
+        enrollment_model = default_regal_enrollment_prior(history)
+    projections = []
+    for index, family in enumerate(REQUIRED_EFFECT_FAMILIES):
+        prior = ordered[family]
+        sampler = GPSEffectScenarioSampler(
+            effect_prior=prior,
+            bat_design=bat_design,
+            component_library=component_library,
+            background_mortality=background_mortality,
+            censoring_annual_probability=censoring_annual_probability,
+            protocol_factor_probabilities=protocol_factor_probabilities,
+        )
+        family_seed = _effect_family_seed(seed, index)
+        result = condition_on_public_history(
+            sampler,
+            scenario_name=f"WP7 {family.value} prior predictive",
+            design=design,
+            history=history,
+            enrollment_model=enrollment_model,
+            nsim=nsim,
+            seed=family_seed,
+            proposal_interim_z_targets=proposal_interim_z_targets,
+            max_lag_combinations=max_lag_combinations,
+            max_count_vectors=max_count_vectors,
+            max_quota_states=max_quota_states,
+            tilt_tolerance=tilt_tolerance,
+            max_tilt_iterations=max_tilt_iterations,
+        )
+        projections.append(
+            EffectFamilyProjection(
+                family=family,
+                parameter_prior=prior,
+                conditioning=result,
+            )
+        )
+    return tuple(projections)
+
+
+def condition_effect_families_futility_sensitivity_grid(
+    effect_priors=DEFAULT_EFFECT_FAMILY_PRIORS,
+    thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+    *,
+    bat_design=PRIMARY_EQUAL_STRATA,
+    component_library=DEFAULT_COMPONENT_LIBRARY,
+    background_mortality=ExponentialBackgroundMortality(0.02),
+    censoring_annual_probability=0.0,
+    protocol_factor_probabilities=(0.5, 0.5, 0.5, 0.5),
+    base_design=REGAL_V2_EFFICACY_DESIGN,
+    history=None,
+    enrollment_model=None,
+    nsim=DEFAULT_IMPORTANCE_DRAWS,
+    seed=20260825,
+    proposal_interim_z_targets=None,
+    max_lag_combinations=4096,
+    max_count_vectors=DEFAULT_MAX_COUNT_VECTORS,
+    max_quota_states=DEFAULT_MAX_DP_STATES,
+    tilt_tolerance=DEFAULT_TILT_TOLERANCE,
+    max_tilt_iterations=DEFAULT_MAX_TILT_ITERATIONS,
+):
+    """Return complete family sets for paired futility-rule assumptions.
+
+    Each family calls WP6's paired grid once, so all thresholds for that family
+    reuse identical latent histories and importance weights.  The returned
+    outer rows align with ``thresholds`` and are ready for
+    :func:`posterior_model_average`.
+    """
+
+    ordered = _normalize_effect_family_priors(effect_priors)
+    thresholds = tuple(thresholds)
+    if history is None:
+        history = load_regal_public_history()
+    if not isinstance(history, PublicHistory):
+        raise ValueError("history must be PublicHistory")
+    if enrollment_model is None:
+        enrollment_model = default_regal_enrollment_prior(history)
+    projection_rows = None
+    for index, family in enumerate(REQUIRED_EFFECT_FAMILIES):
+        prior = ordered[family]
+        sampler = GPSEffectScenarioSampler(
+            effect_prior=prior,
+            bat_design=bat_design,
+            component_library=component_library,
+            background_mortality=background_mortality,
+            censoring_annual_probability=censoring_annual_probability,
+            protocol_factor_probabilities=protocol_factor_probabilities,
+        )
+        results = condition_futility_sensitivity_grid(
+            sampler,
+            thresholds=thresholds,
+            scenario_name=f"WP7 {family.value} prior predictive",
+            base_design=base_design,
+            history=history,
+            enrollment_model=enrollment_model,
+            nsim=nsim,
+            seed=_effect_family_seed(seed, index),
+            proposal_interim_z_targets=proposal_interim_z_targets,
+            max_lag_combinations=max_lag_combinations,
+            max_count_vectors=max_count_vectors,
+            max_quota_states=max_quota_states,
+            tilt_tolerance=tilt_tolerance,
+            max_tilt_iterations=max_tilt_iterations,
+        )
+        if projection_rows is None:
+            projection_rows = [[] for _ in results]
+        elif len(results) != len(projection_rows):
+            raise RuntimeError("futility sensitivity rows changed across families")
+        for row, result in zip(projection_rows, results):
+            row.append(
+                EffectFamilyProjection(
+                    family=family,
+                    parameter_prior=prior,
+                    conditioning=result,
+                )
+            )
+    return tuple(tuple(row) for row in projection_rows)
+
+
+def posterior_forecast_futility_sensitivity_grid(
+    effect_priors=DEFAULT_EFFECT_FAMILY_PRIORS,
+    thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+    *,
+    model_weight_prior=BALANCED_MODEL_FAMILY_PRIOR,
+    **conditioning_options,
+):
+    """Average the complete paired family grid under one model-weight prior."""
+
+    projection_rows = condition_effect_families_futility_sensitivity_grid(
+        effect_priors,
+        thresholds,
+        **conditioning_options,
+    )
+    return tuple(
+        posterior_model_average(row, model_weight_prior)
+        for row in projection_rows
+    )
+
+
+def posterior_forecast_prior_sensitivity(
+    effect_priors=DEFAULT_EFFECT_FAMILY_PRIORS,
+    model_weight_priors=DEFAULT_MODEL_FAMILY_PRIOR_SENSITIVITY,
+    **conditioning_options,
+):
+    """Run all family projections once and report model-weight sensitivity."""
+
+    projections = condition_effect_families_on_public_history(
+        effect_priors,
+        **conditioning_options,
+    )
+    return posterior_prior_sensitivity(projections, model_weight_priors)
+
+
 __all__ = (
+    "BALANCED_MODEL_FAMILY_PRIOR",
+    "CURE_FAVORING_MODEL_FAMILY_PRIOR",
     "ConditioningResult",
+    "DEFAULT_EFFECT_FAMILY_PRIORS",
     "DEFAULT_IMPORTANCE_DRAWS",
     "DEFAULT_MAX_COUNT_VECTORS",
     "DEFAULT_MAX_TILT_ITERATIONS",
+    "DEFAULT_MODEL_FAMILY_PRIOR_SENSITIVITY",
     "DEFAULT_TILT_TOLERANCE",
+    "DelayedCureEventTimeModel",
+    "EffectFamilyPrior",
+    "EffectFamilyProjection",
+    "EffectParameters",
+    "EnrollmentDateSampler",
     "ExponentialTilt",
+    "GPSEffectFamily",
+    "GPSEffectScenarioSampler",
     "HistoryConstraintBranch",
     "HistoryImportanceDraw",
+    "LogLinearEnrollmentPrior",
+    "ModelFamilyWeightPrior",
     "PatientEventTimeModel",
+    "PiecewiseMixtureHazardEventTimeModel",
+    "PiecewiseWeibullEventTimeModel",
+    "PosteriorFamilyResult",
+    "PosteriorForecastResult",
+    "REQUIRED_EFFECT_FAMILIES",
+    "SKEPTICAL_MODEL_FAMILY_PRIOR",
     "ScenarioPatients",
     "ScenarioSampler",
     "TiltProposalError",
+    "UniformPriorRange",
     "WeibullEventTimeModel",
+    "condition_effect_families_futility_sensitivity_grid",
+    "condition_effect_families_on_public_history",
     "condition_futility_sensitivity_grid",
     "condition_on_public_history",
+    "default_regal_enrollment_prior",
     "draw_history_importance_sample",
     "exponential_tilt_event_intervals",
+    "posterior_forecast_futility_sensitivity_grid",
+    "posterior_forecast_prior_sensitivity",
+    "posterior_model_average",
+    "posterior_prior_sensitivity",
     "public_history_constraint_branches",
 )
