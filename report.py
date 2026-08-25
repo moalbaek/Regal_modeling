@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 from posterior import (
@@ -987,11 +988,15 @@ def _build_command(args):
         flush=True,
     )
     if args.require_ready and not bundle["release"]["is_posterior_forecast"]:
-        raise RuntimeError(
+        print(
             "production result did not clear release gates; the diagnostic bundle "
             "was written: "
-            + "; ".join(bundle["release"]["readiness_issues"])
+            + "; ".join(bundle["release"]["readiness_issues"]),
+            file=sys.stderr,
+            flush=True,
         )
+        return 1
+    return 0
 
 
 def main(argv=None):
@@ -1036,8 +1041,7 @@ def main(argv=None):
             + ")"
         )
         return 0
-    _build_command(args)
-    return 0
+    return _build_command(args)
 
 
 if __name__ == "__main__":

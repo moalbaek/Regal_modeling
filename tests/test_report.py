@@ -1,7 +1,9 @@
 """WP8 versioned result-bundle and HTML publication tests."""
 
+from contextlib import redirect_stderr
 from dataclasses import replace
 from datetime import datetime, timezone
+from io import StringIO
 import json
 from math import log
 from pathlib import Path
@@ -307,10 +309,12 @@ class ResultBundleTest(unittest.TestCase):
                 "report.run_regal_forecast_analysis",
                 return_value=(prior_rows, futility_rows),
             ):
-                with self.assertRaisesRegex(
-                    RuntimeError, "diagnostic bundle was written"
-                ):
-                    _build_command(args)
+                stderr = StringIO()
+                with redirect_stderr(stderr):
+                    exit_code = _build_command(args)
+            self.assertEqual(exit_code, 1)
+            self.assertIn("diagnostic bundle was written", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
             persisted = validate_published_artifacts(
                 json_path=json_path,
                 html_path=html_path,
