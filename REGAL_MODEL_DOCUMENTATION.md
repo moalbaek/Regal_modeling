@@ -64,6 +64,8 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 | `data/regal_public_history.json` | Versioned WP5 public evidence, current through 11 Aug 2026. | typed enrollment/event counts, observation and announcement dates, source notes, reporting-lag distributions |
 | `event_likelihood.py` | Isolated v2 public-history likelihood; not consumed by the legacy explorer. | registry-anchored fixed-N accrual, correlated Poisson-multinomial event increments, event-80 announcement right censor |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 data/likelihood audit. | anchor reachability, integer-count correlation, reporting-lag sensitivity |
+| `posterior.py` | Isolated WP6 fixed-scenario conditioning engine; not consumed by the legacy explorer. | consistent latent histories, exact public-count conditional draws, continuation importance weights with reported base fallbacks, conditional final projection, ESS diagnostics |
+| `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 rare-continuation stress audit. | base-versus-centered proposal coverage and public-history compatibility agreement |
 
 The two legacy implementations share one enrollment reconstruction, one set of survival primitives,
 the same significance threshold (Section 2.1), and — critically — **one shared BAT arm** (`bat_arm`): the plateau and bounded-alternative
@@ -148,10 +150,14 @@ patients enrolled at the sourced anchor dates, so drift away from the anchors is
 WP5 evaluates enrollment constraints jointly under a fixed-N multinomial model. Event likelihood is
 also joint: each patient supplies probabilities for mutually exclusive calendar intervals, and a
 dynamic program sums all patient allocations compatible with 60/72/78 plus the event-80 right
-censor. These are the WP5 likelihood ingredients for `P(public history | fixed scenario)`, not a
-quantity conditioned on the IDMC decision and not a posterior forecast. The marginal enrollment-anchor likelihood and event likelihood conditional on
-patient-level calendar CDFs remain separate; WP6 must integrate them over one consistent latent
-enrollment history rather than assume an unjustified factorization.
+censor. These are the WP5 likelihood ingredients for `P(public history | fixed scenario)`, not by
+themselves a quantity conditioned on the IDMC decision and not a posterior forecast. WP6 now samples
+one enrollment history and uses those same entry dates for the enrollment constraints and every
+patient calendar event CDF, avoiding an unjustified product of mismatched marginal and conditional
+quantities. It conditions patient event intervals on an allowed 60/72/78/right-censor integer
+trajectory, requires a finite stratified 60-event statistic in the continuation region, and projects
+the unresolved conditional event-time tails to the final 80-event analysis. The resulting quantities
+remain fixed-scenario conditional projections until WP7 averages across models and parameters.
 
 The two unknown threshold-to-announcement lags are modeled as independent draws. Each uses a
 three-point PMF at 0/7/14 days with weights 4/21, 13/21, and 4/21. This exactly preserves the mean
@@ -669,6 +675,8 @@ audit-only fields are intentionally absent from the browser; automated full pari
 | `evaluate_event_driven_trial` | V2 patient-level 60/80-event decision path: interim efficacy/futility/continuation followed, when applicable, by the final stratified test. |
 | `simulate_futility_sensitivity_grid` | Paired canonical-normal operating-characteristic rows for no futility and explicit assumed one-step-HR thresholds. |
 | `simulate_patient_level_exponential_null` | Independent null validation of the full enrollment-calendar, event-trigger, and stratified-analysis path. |
+| `condition_on_public_history` | WP6 fixed-scenario importance sampler: one latent enrollment/assignment/censoring history, exact public integer-count conditioning, observed interim continuation, and forward final projection. |
+| `condition_futility_sensitivity_grid` | Paired WP6 conditional projections that reuse identical latent histories and importance weights across explicit futility-rule assumptions. |
 | `figure()` / `render` + `chart*` | 9-panel figure (py, 3×3 grid) / live SVG charts and metrics panel (html): `chart` (survival), `chartAccrual`, `chartHist`, `chartDiverge`, `chartEnroll`, `chartPower`, `chartSelect`. |
 
 ---
@@ -680,18 +688,29 @@ audit-only fields are intentionally absent from the browser; automated full pari
    planned 2.339711/2.011777 boundaries, recalculates them after a tied-event overshoot, and applies
    the equivalent stratified score test. V1's unstratified HR ≤ 0.636 rule remains a
    reproducibility-only approximation.
-2. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
+2. **WP6 can now produce a conditional fixed-scenario projection.** Exact integer-count conditioning
+   keeps 60/72/78, the event-80 right censor, the finite continuation-region interim statistic, and
+   the forward final outcome on one latent patient history. Range targets preserve every compatible
+   count interval, and a failed draw-specific continuation tilt falls back to the exact base proposal
+   without aborting the run. Compatibility, ESS, maximum-weight, tilt-fallback, and
+   proposal-infeasible-draw diagnostics expose scenarios for which the public history or continuation
+   branch is poorly supported. Structural proposal failures remain counted zero-weight draws, while
+   numerical underflow in positive quota mass remains a loud error. The quota-DP safety limit has one
+   definition throughout: logical patient-by-state cells. Tilt iteration/error diagnostics are
+   unavailable (`None`) when no component converged, and direct callers can catch the exported
+   `TiltProposalError`. This is not yet the WP7 posterior model average.
+3. **Blinded pooled survival is high:** ~33–38% modeled plateau, ~16–21-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
-3. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a
+4. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a
    clinically-built BAT composition it stays high (~100% at base) and is hard to push down
    without assuming venetoclax maintenance is both dominant *and* durable at the top of its
    frontline range — the "bear corner" (70% venetoclax at a 25% cure), where it still only
    falls to ~43%.
-4. **Structural refinements are absorbed by the pooled-family fit.** Component-mixture BAT and a
+5. **Structural refinements are absorbed by the pooled-family fit.** Component-mixture BAT and a
    0–40% non-responder subgroup each leave the legacy scenario rate approximately unchanged because
    fitted parameters redistribute the assumed pooled trajectory. This localizes assumptions rather
    than identifying the arms.
-5. **The bounded alternative is a sensitivity diagnostic.** At the base preset it has an adequate
+6. **The bounded alternative is a sensitivity diagnostic.** At the base preset it has an adequate
    interior fit (median ~48 mo, shape ~1.15). Other settings can drive it to a parameter boundary or
    residual misfit. None of those statuses determines whether the pooled tail is GPS-specific.
 
@@ -717,8 +736,8 @@ audit-only fields are intentionally absent from the browser; automated full pari
 - **Promotional bias.** Several anchors (e.g. the ~8-mo BAT figure, the "longer-than-expected
   survival" framing) originate with SELLAS or affiliates and should be discounted accordingly.
 - **The interim futility rule remains unknown.** V1 treats continuation as a soft HR consistency
-  check. V2 can execute an assumed futility stop and reports paired threshold sensitivity, but WP6
-  must condition on actual continuation without pretending that any one unpublished rule is known.
+  check. V2 conditions on actual continuation for no futility and paired explicit one-step-HR
+  thresholds, but does not pretend that any one unpublished rule is the protocol truth.
 - **Loss to follow-up is modeled as a flat, independent rate.** Administrative censoring (Section 2.11)
   enters both the fit and the simulation, but as a single constant all-cause-independent hazard
   (default 0); real dropout is time- and arm-varying.
@@ -728,9 +747,9 @@ audit-only fields are intentionally absent from the browser; automated full pari
   upper bound on how cleanly eligibility can enrich the cohort; treat it as "how much healthier could
   the enrolled population plausibly be," not a literal drop-rate. It is applied within each component
   (holding the composition weights fixed) and equally to both arms.
-- **V1 remains unstratified.** The isolated v2 decision engine now performs the protocol-factor
-  stratified score test, but its patient-level factor distribution is not a REGAL input and must be
-  generated or integrated over by later scenario/posterior work.
+- **V1 remains unstratified.** The isolated v2 decision and WP6 conditioning engines perform the
+  protocol-factor stratified score test and accept a sampled patient-level factor distribution, but
+  REGAL's realized distribution is not public and still requires an explicit WP7 prior/sensitivity.
 
 ---
 
