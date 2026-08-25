@@ -38,6 +38,13 @@ SOURCE = SourceRecord(
     date(2026, 1, 1),
 )
 FIXED_LAG = ReportingLag("fixed", (0,), (1.0,))
+# Leaves substantial headroom above the absolute forecast-readiness ESS gate
+# across the synthetic fixture's tested seeds.
+DEFAULT_SYNTHETIC_IMPORTANCE_DRAWS = 1000
+
+
+class AuditNotReadyError(RuntimeError):
+    """The requested Monte Carlo sample size did not clear release gates."""
 
 
 def observation(identifier, cutoff, kind, count, lower, upper, *, accrual=False):
@@ -115,7 +122,7 @@ def synthetic_history():
     )
 
 
-def validate(nsim=600, seed=20260825):
+def validate(nsim=DEFAULT_SYNTHETIC_IMPORTANCE_DRAWS, seed=20260825):
     history = synthetic_history()
     enrollment = PiecewiseEnrollmentModel(
         total_enrollment=8,
@@ -159,9 +166,42 @@ def validate(nsim=600, seed=20260825):
         if not np.isfinite(result.log_p_public_history):
             raise AssertionError("a family history likelihood is not finite")
 
+    history_ess = tuple(
+        item.conditioning.history_effective_sample_size for item in projections
+    )
+    continuation_ess = tuple(
+        item.conditioning.continuation_effective_sample_size
+        for item in projections
+    )
+    history_weight_shares = tuple(
+        item.conditioning.maximum_history_weight_share for item in projections
+    )
+    minimum_history_ess = min(history_ess)
+    minimum_continuation_ess = min(continuation_ess)
+    maximum_history_share = max(history_weight_shares)
+
     forecasts = posterior_prior_sensitivity(projections)
     for forecast in forecasts:
         if not forecast.is_posterior_forecast:
+            diagnostics_are_finite = all(
+                np.isfinite(value)
+                for value in (
+                    *history_ess,
+                    *continuation_ess,
+                    *history_weight_shares,
+                )
+            )
+            if nsim < DEFAULT_SYNTHETIC_IMPORTANCE_DRAWS and diagnostics_are_finite:
+                raise AuditNotReadyError(
+                    "WP7 audit is not ready at the requested sample size "
+                    f"(nsim={nsim}); rerun with --nsim "
+                    f"{DEFAULT_SYNTHETIC_IMPORTANCE_DRAWS} or larger. "
+                    "Observed minimum history / continuation ESS and maximum "
+                    "history weight share: "
+                    f"{minimum_history_ess:.1f} / "
+                    f"{minimum_continuation_ess:.1f} / "
+                    f"{maximum_history_share:.3f}"
+                )
             raise AssertionError(
                 "complete model average failed readiness gates: "
                 + "; ".join(forecast.forecast_readiness_issues)
@@ -174,16 +214,6 @@ def validate(nsim=600, seed=20260825):
         if not np.isfinite(probability) or not 0.0 <= probability <= 1.0:
             raise AssertionError("posterior rejection probability is invalid")
 
-    minimum_history_ess = min(
-        item.conditioning.history_effective_sample_size for item in projections
-    )
-    minimum_continuation_ess = min(
-        item.conditioning.continuation_effective_sample_size
-        for item in projections
-    )
-    maximum_history_share = max(
-        item.conditioning.maximum_history_weight_share for item in projections
-    )
     print("WP7 effect-model averaging validation passed")
     print(f"  synthetic importance draws per family: {nsim:,}")
     print(f"  effect families: {len(projections)}")
@@ -206,14 +236,19 @@ def validate(nsim=600, seed=20260825):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nsim", type=int, default=600)
+    parser.add_argument(
+        "--nsim", type=int, default=DEFAULT_SYNTHETIC_IMPORTANCE_DRAWS
+    )
     parser.add_argument("--seed", type=int, default=20260825)
     args = parser.parse_args()
     if args.nsim < 1:
         parser.error("--nsim must be positive")
     if args.seed < 0:
         parser.error("--seed must be non-negative")
-    validate(args.nsim, args.seed)
+    try:
+        validate(args.nsim, args.seed)
+    except AuditNotReadyError as error:
+        parser.error(str(error))
 
 
 if __name__ == "__main__":

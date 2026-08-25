@@ -2824,9 +2824,12 @@ def _max_weight_share(log_weights):
 def _conditional_probability(numerator, denominator):
     if not denominator:
         return float("nan")
+    log_denominator = _logsumexp(denominator)
+    if not isfinite(log_denominator):
+        return float("nan")
     return _unit_probability(
         _probability_from_log(
-            _logsumexp(numerator) - _logsumexp(denominator)
+            _logsumexp(numerator) - log_denominator
         ),
         "conditional probability",
     )
@@ -3049,27 +3052,62 @@ class PosteriorForecastResult:
             issues.append("model average does not contain every required family")
         for item in self.family_results:
             result = item.conditioning
-            if (
-                not isfinite(result.history_effective_sample_size)
-                or result.history_effective_sample_size
+            if not isfinite(result.log_p_public_history):
+                issues.append(
+                    f"{item.family.value} public-history log evidence is not finite"
+                )
+            conditional_probabilities = (
+                (
+                    "continuation",
+                    result.p_continue_given_public_history,
+                ),
+                (
+                    "final rejection",
+                    result.p_final_rejection_given_public_history_and_continuation,
+                ),
+                (
+                    "final reach",
+                    result.p_final_reached_given_public_history_and_continuation,
+                ),
+            )
+            nonfinite_conditionals = tuple(
+                name
+                for name, probability in conditional_probabilities
+                if not isfinite(probability)
+            )
+            if nonfinite_conditionals:
+                issues.append(
+                    f"{item.family.value} has non-finite conditional probabilities: "
+                    + ", ".join(nonfinite_conditionals)
+                )
+            if not isfinite(result.history_effective_sample_size):
+                issues.append(f"{item.family.value} history ESS is not finite")
+            elif (
+                result.history_effective_sample_size
                 < MINIMUM_POSTERIOR_FORECAST_ESS
             ):
                 issues.append(
                     f"{item.family.value} history ESS is below "
                     f"{MINIMUM_POSTERIOR_FORECAST_ESS:g}"
                 )
-            if (
-                not isfinite(result.continuation_effective_sample_size)
-                or result.continuation_effective_sample_size
+            if not isfinite(result.continuation_effective_sample_size):
+                issues.append(
+                    f"{item.family.value} continuation ESS is not finite"
+                )
+            elif (
+                result.continuation_effective_sample_size
                 < MINIMUM_POSTERIOR_FORECAST_ESS
             ):
                 issues.append(
                     f"{item.family.value} continuation ESS is below "
                     f"{MINIMUM_POSTERIOR_FORECAST_ESS:g}"
                 )
-            if (
-                not isfinite(result.maximum_history_weight_share)
-                or result.maximum_history_weight_share
+            if not isfinite(result.maximum_history_weight_share):
+                issues.append(
+                    f"{item.family.value} maximum history weight share is not finite"
+                )
+            elif (
+                result.maximum_history_weight_share
                 > MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
             ):
                 issues.append(

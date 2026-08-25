@@ -37,6 +37,7 @@ from posterior import (  # noqa: E402
     default_regal_enrollment_prior,
     posterior_model_average,
     posterior_prior_sensitivity,
+    _conditional_probability,
 )
 from trial_design import TrialDecisionDesign  # noqa: E402
 from tests.test_posterior import small_enrollment_model, small_history  # noqa: E402
@@ -378,6 +379,68 @@ class PosteriorModelAverageTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "final-reach probability"):
             posterior_model_average(projections)
+
+    def test_zero_finite_denominator_mass_remains_a_readiness_diagnostic(self):
+        self.assertTrue(
+            np.isnan(_conditional_probability([], [float("-inf")]))
+        )
+        self.assertTrue(
+            np.isnan(
+                _conditional_probability(
+                    [float("-inf")], [float("-inf")]
+                )
+            )
+        )
+        self.assertEqual(
+            _conditional_probability([float("-inf")], [0.0]), 0.0
+        )
+
+        projections = list(family_projections())
+        first = projections[0]
+        degenerate_conditioning = replace(
+            first.conditioning,
+            log_p_public_history=float("-inf"),
+            p_continue_given_public_history=float("nan"),
+            p_final_rejection_given_public_history_and_continuation=float("nan"),
+            p_final_reached_given_public_history_and_continuation=float("nan"),
+            history_effective_sample_size=float("nan"),
+            continuation_effective_sample_size=float("nan"),
+            maximum_history_weight_share=float("nan"),
+        )
+        projections[0] = replace(
+            first,
+            conditioning=degenerate_conditioning,
+        )
+        result = posterior_model_average(projections)
+        self.assertFalse(result.is_posterior_forecast)
+        issues = result.forecast_readiness_issues
+        self.assertTrue(
+            any("public-history log evidence is not finite" in item for item in issues)
+        )
+        self.assertTrue(
+            any("non-finite conditional probabilities" in item for item in issues)
+        )
+        self.assertTrue(any("history ESS is not finite" in item for item in issues))
+        self.assertTrue(
+            any("continuation ESS is not finite" in item for item in issues)
+        )
+        self.assertTrue(
+            any("maximum history weight share is not finite" in item for item in issues)
+        )
+
+        all_degenerate = tuple(
+            replace(
+                projection,
+                conditioning=replace(
+                    degenerate_conditioning,
+                    scenario_name=projection.conditioning.scenario_name,
+                    design=projection.conditioning.design,
+                ),
+            )
+            for projection in projections
+        )
+        with self.assertRaisesRegex(ValueError, "zero history/continuation evidence"):
+            posterior_model_average(all_degenerate)
 
     def test_forecast_label_requires_monte_carlo_readiness_in_every_family(self):
         projections = list(family_projections())
