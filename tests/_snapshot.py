@@ -20,21 +20,26 @@ import regal_explorer as R  # noqa: E402
 PRESETS = ["base", "low", "dom", "bear", "bull"]
 NSIM = 400   # fixed MC budget for reproducible scenario rates; mc() seeds deterministically
 
-# The real presets only land in State C or — at the weak-BAT corners (bull, low) — State A,
-# and none reliably exercises State B. These synthetic configs — a base scenario with only
-# the blinded milestones swapped — deliberately drive the fit to each status, pinning the
+# Under gamma-frailty eligibility selection the real presets all land in State A (the
+# frailty-mixed responder curve already carries a heavy tail, so the free shape runs to its
+# light edge), and none exercises State B or C. These synthetic configs — a base scenario with
+# only the blinded milestones swapped — deliberately drive the fit to each status, pinning the
 # categorical A/B/C logic. Each sits well clear of its flip boundary:
 #   A_upper_boundary — milestones stall, so the bounded Weibull runs to its median cap
 #                      and heavy-tail edge (legacy cureReq=True subtype).
 #   A_light_edge    — bunched milestones want an ever-lighter (increasing-hazard) tail,
 #                     so sG pins at the light edge (non-identified, cureReq=False).
 #   B_inconsistent  — a burst to the 2nd milestone then a hard late stall no single Weibull
-#                     tail can hit: the best fit stays interior (sG~0.8) yet the residual
+#                     tail can hit: the best fit stays interior (sG~0.85) yet the residual
 #                     clears the tolerance (inconsistent).
+#   C_interior      — a milestone set the bounded alternative fits cleanly in the interior
+#                     (sG~0.83, residual well inside tolerance), so State C stays covered now
+#                     that no preset reaches it.
 VERDICT_FIXTURES = {
     "A_upper_boundary": {"ev_counts": [70, 72, 73]},
     "A_light_edge": {"ev_dates": [(2024, 12, 10), (2025, 3, 26), (2025, 5, 11)]},
-    "B_inconsistent": {"ev_counts": [52, 74, 75]},
+    "B_inconsistent": {"ev_counts": [60, 61, 72]},
+    "C_interior": {"ev_counts": [57, 68, 70]},
 }
 
 
