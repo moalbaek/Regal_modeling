@@ -128,8 +128,9 @@ the registry opening and enrollment-close window as support but does not use the
 counts as prior centers. Forecast labeling additionally requires history and continuation ESS of at
 least 100 in every family and no family history weight above 5%; failing diagnostics remain visible
 on the complete model-average result.
-The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON wire schema, complete family and
-sensitivity grids, serialized gate constants and min-ESS/max-weight summaries for every row, the rule
+The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON wire schema, separate
+numerical-run and bundle-serialization revisions, complete family and sensitivity grids, serialized
+gate constants and min-ESS/max-weight summaries for every row, the rule
 that a failed readiness gate forces the release headline to `null`, safe HTML embedding, and exact
 equality between the checked-in JSON and the bundle consumed by the self-contained browser. The
 browser reads its gate labels and margins from that bundle, formats the Python outputs, and performs

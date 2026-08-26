@@ -33,6 +33,7 @@ from regal_data import load_regal_data_snapshot  # noqa: E402
 from report import (  # noqa: E402
     AnalysisRunMetadata,
     PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
+    RESULT_BUNDLE_SCHEMA_VERSION,
     RESULT_BUNDLE_END,
     RESULT_BUNDLE_START,
     _family_worker,
@@ -157,6 +158,7 @@ class ResultBundleTest(unittest.TestCase):
             generated_at=datetime(2026, 8, 25, 12, 30, tzinfo=timezone.utc),
             source_revision="abc1234",
             seed=20260825,
+            serialization_revision="def5678",
         )
 
     def ready_bundle(self):
@@ -334,6 +336,24 @@ class ResultBundleTest(unittest.TestCase):
         serialized = canonical_result_json(bundle)
         self.assertEqual(json.loads(serialized), bundle)
 
+    def test_schema_three_separates_numerical_and_serialization_revisions(self):
+        bundle = self.ready_bundle()
+        self.assertEqual(RESULT_BUNDLE_SCHEMA_VERSION, 3)
+        self.assertEqual(bundle["schema_version"], 3)
+        self.assertEqual(bundle["source_revision"], "abc1234")
+        self.assertEqual(bundle["serialization_revision"], "def5678")
+
+        legacy = json.loads(canonical_result_json(bundle))
+        legacy["schema_version"] = 2
+        del legacy["serialization_revision"]
+        with self.assertRaisesRegex(ValueError, "unsupported result-bundle schema"):
+            validate_result_bundle(legacy)
+
+        missing = json.loads(canonical_result_json(bundle))
+        del missing["serialization_revision"]
+        with self.assertRaisesRegex(ValueError, "serialization_revision"):
+            validate_result_bundle(missing)
+
     def test_bundle_serializes_the_canonical_python_readiness_gates(self):
         expected = {
             "minimum_posterior_forecast_ess": MINIMUM_POSTERIOR_FORECAST_ESS,
@@ -345,6 +365,7 @@ class ResultBundleTest(unittest.TestCase):
         unpublished = build_unpublished_result_bundle(
             generated_at=self.metadata.generated_at,
             source_revision=self.metadata.source_revision,
+            serialization_revision=self.metadata.serialization_revision,
             data_snapshot=self.snapshot,
         )
         self.assertEqual(unpublished["gates"], expected)
@@ -455,6 +476,7 @@ class ResultBundleTest(unittest.TestCase):
         bundle = build_unpublished_result_bundle(
             generated_at=self.metadata.generated_at,
             source_revision=self.metadata.source_revision,
+            serialization_revision=self.metadata.serialization_revision,
             data_snapshot=self.snapshot,
         )
         self.assertEqual(bundle["release"]["status"], "not_run")
@@ -521,6 +543,8 @@ class ResultBundleTest(unittest.TestCase):
             with mock.patch(
                 "report.run_regal_forecast_analysis",
                 return_value=(prior_rows, futility_rows),
+            ), mock.patch(
+                "report._git_revision", return_value="serializer5678"
             ):
                 stderr = StringIO()
                 with redirect_stderr(stderr):
@@ -533,6 +557,10 @@ class ResultBundleTest(unittest.TestCase):
                 html_path=html_path,
             )
             self.assertEqual(persisted["release"]["status"], "withheld")
+            self.assertEqual(persisted["source_revision"], "abc1234")
+            self.assertEqual(
+                persisted["serialization_revision"], "serializer5678"
+            )
 
     def test_custom_futility_grid_fails_before_family_work_starts(self):
         with mock.patch("report._family_worker") as worker:

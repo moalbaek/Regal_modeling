@@ -709,8 +709,9 @@ observation summary. The browser does not keep a second hand-entered public-hist
 
 `report.py` requires three model-weight rows—skeptical, balanced, and cure-favoring—from identical
 family projections, plus the full paired futility grid (disabled and assumed interim HR thresholds
-0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-2 wire
-schema records the exact source revision, UTC generation time, seed, importance-draw count, public-
+0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-3 wire
+schema separately records the numerical-run source revision and the bundle-serialization revision,
+plus UTC generation time, seed, importance-draw count, public-
 data hash, trial boundaries, active within-family parameter priors, family prior/posterior weights,
 conditional probabilities, ESS, maximum history-weight share, and proposal diagnostics. Every prior
 and futility row includes its cross-family minimum history ESS, minimum continuation ESS, and maximum
@@ -734,9 +735,11 @@ The production build always persists a gated diagnostic bundle; `--require-ready
 nonzero if that bundle remains withheld. The HTML formats the bundle only; all legacy JavaScript
 calculations remain confined to the v1 section.
 
-The checked-in production artifact was generated on 2026-08-26 UTC from source revision
-`fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`, with seed `20260825`, the exact
-public-history-conditioned base proposal, and 150,000 importance draws per family. It is complete
+The checked-in production artifact's numerical run was generated on 2026-08-26 UTC from source
+revision `fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`, with seed `20260825`, the exact
+public-history-conditioned base proposal, and 150,000 importance draws per family. Its schema-3
+bundle was serialized by revision `79b0965208b908dcc43f13b346c25bba256227b2`; that metadata-only migration
+added no simulation output and did not change any numerical value. The artifact is complete
 and **release-ready**. In the balanced, no-futility baseline, history ESS ranges from 291.6 to
 9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight share from 0.032% to
 1.890%. The complete family set and every model-prior and futility sensitivity row clear the
