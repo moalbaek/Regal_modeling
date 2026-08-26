@@ -744,6 +744,9 @@ and **release-ready**. In the balanced, no-futility baseline, history ESS ranges
 `P(final rejection | public history, interim continuation) = 91.97%`. The JSON retains the full
 family, sensitivity, and proposal diagnostics for audit. Numerical gate clearance is a release
 safeguard, not by itself proof of Monte-Carlo convergence or model correctness.
+The tightest sensitivity is the assumed futility-HR 0.80 row, whose minimum continuation ESS is
+116.1—only 16.1 above the release floor. The browser displays that minimum and headroom directly.
+ESS is itself seed-specific, so a later production run must independently re-clear the gates.
 
 Compared with the earlier 10,000-draw tilted diagnostic run, the production base proposal improves
 history ESS per draw in every family. Continuation ESS per draw is materially lower for delayed cure
@@ -752,6 +755,13 @@ comes from clearing the absolute gate at 150,000 draws rather than from uniform 
 dominance. This does not contradict the rare-continuation WP6 audit: that audit deliberately creates
 a case with zero continuation draws under the 300-draw base run and 71 under the optional centered
 tilt, while its illustrative probabilities are not REGAL forecasts.
+The production CLI defaults to the empty base-proposal target tuple. Passing
+`--proposal-interim-z-targets auto` restores Z=0 plus design-derived futility tilts, and passing an
+explicit numeric list supplies fixed Z targets for proposal-only cross-checks. Automatic Git
+provenance appends `-dirty` when the worktree has tracked or untracked changes and
+`-state-unknown` when Git cannot verify its state. Empty weights deliberately produce ESS 0 but an
+undefined (`NaN`, serialized `null`) maximum share: zero information is defined, while no normalized
+weight distribution exists from which to take a maximum.
 
 ---
 

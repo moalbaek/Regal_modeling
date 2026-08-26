@@ -378,6 +378,9 @@ diagnostics. Every prior and futility row also carries the minimum history ESS, 
 ESS, and maximum history-weight share across its families, so its gate status remains independently
 checkable even when the futility row omits repeated family records. Non-finite diagnostic estimates
 serialize as JSON `null`; a release-ready result may not contain a null probability.
+The browser exposes each futility row's minimum continuation ESS and its margin over the 100 floor.
+The HR-0.80 row is tightest at 116.1, so that 16.1 margin is treated as seed-specific evidence to
+recheck on every production run, not as permanent clearance.
 
 The publisher writes `data/regal_v2_result_bundle.json` and replaces one marked
 `application/json` block in `regal_explorer.html`. The UI reads only that block. A ready primary row
@@ -400,6 +403,11 @@ diagnostic run, the base proposal improves history ESS per draw in every family,
 per draw is materially lower for delayed cure and waning/piecewise (and marginally lower for delayed
 proportional hazards). Those rows pass because the absolute 150,000-draw ESS clears the gate, not
 because the base proposal dominates the tilted mixture for every conditional estimand.
+For proposal-only exactness checks, `report.py build --proposal-interim-z-targets auto` restores the
+Z=0 plus design-derived tilted mixture, while an explicit numeric list supplies fixed Z targets; the
+canonical default remains the empty base-proposal tuple. Automatically detected Git revisions carry
+a `-dirty` suffix when tracked or untracked worktree changes are present and `-state-unknown` when
+Git cannot verify worktree state.
 
 ## Release gates
 

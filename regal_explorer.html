@@ -66,6 +66,8 @@
   .forecast-table-wrap{overflow-x:auto}
   .forecast-table-wrap h3{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
   .forecast-table-wrap table{min-width:420px}
+  .forecast-table-wrap table.futility-table{min-width:680px}
+  .forecast-ess-headroom{font-variant-numeric:tabular-nums;white-space:nowrap}
   .forecast-note{font-size:11.5px;color:var(--muted);margin-top:9px}
   [hidden]{display:none!important}
   @media(max-width:760px){.forecast-shell{padding:10px 12px 0}.forecast-grid,.forecast-tables{grid-template-columns:1fr}.forecast-meta{grid-template-columns:1fr}.forecast-big{font-size:32px}}
@@ -173,14 +175,14 @@
         </div>
         <div class="forecast-table-wrap">
           <h3>Assumed futility-rule sensitivity</h3>
-          <table><thead><tr><th scope="col">Interim HR stop</th><th scope="col">Final rejection</th><th scope="col">Final reached</th><th scope="col">Status</th></tr></thead><tbody id="v2FutilityRows"></tbody></table>
+          <table class="futility-table"><thead><tr><th scope="col">Interim HR stop</th><th scope="col">Final rejection</th><th scope="col">Final reached</th><th scope="col">Min continuation ESS (margin over 100)</th><th scope="col">Status</th></tr></thead><tbody id="v2FutilityRows"></tbody></table>
         </div>
       </div>
       <div class="forecast-table-wrap" style="margin-top:14px">
         <h3>Balanced-prior family weights and readiness</h3>
         <table><thead><tr><th scope="col">Effect family</th><th scope="col">Prior</th><th scope="col">Posterior</th><th scope="col">Family final rejection</th><th scope="col">History ESS</th><th scope="col">Continuation ESS</th><th scope="col">Max history weight</th></tr></thead><tbody id="v2FamilyRows"></tbody></table>
       </div>
-      <div class="forecast-note">“Disabled” is an explicit baseline sensitivity, not a reconstruction of REGAL's confidential futility rule. Rows that fail readiness remain diagnostic-only and do not display a probability as a forecast.</div>
+      <div class="forecast-note">“Disabled” is an explicit baseline sensitivity, not a reconstruction of REGAL's confidential futility rule. The ESS value is the minimum across families; its parenthetical margin is measured from the committed release floor of 100. Rows that fail readiness remain diagnostic-only and do not display a probability as a forecast.</div>
     </details>
     <noscript><div class="forecast-issues" style="margin-top:12px">JavaScript is required to render the embedded result bundle. The canonical JSON remains available at <a href="data/regal_v2_result_bundle.json">data/regal_v2_result_bundle.json</a>.</div></noscript>
   </div>
@@ -1781,7 +1783,7 @@ function renderV2Forecast(){
   const priorBody=clearRows("v2PriorRows");
   for(const item of priors){const row=document.createElement("tr"),publish=item.is_posterior_forecast===true,prob=item.probabilities||{};addCell(row,item.name||"—");addCell(row,publish?pct(prob.final_rejection_given_public_history_and_continuation):"withheld");addCell(row,publish?pct(prob.final_reached_given_public_history_and_continuation):"withheld");addCell(row,publish?"ready":"diagnostic only");priorBody.appendChild(row);}
   const futilityBody=clearRows("v2FutilityRows");
-  for(const item of futility){const row=document.createElement("tr"),publish=item.is_posterior_forecast===true,prob=item.probabilities||{},threshold=item.assumed_futility_hr_threshold;addCell(row,threshold===null?"Disabled":num(threshold,2));addCell(row,publish?pct(prob.final_rejection_given_public_history_and_continuation):"withheld");addCell(row,publish?pct(prob.final_reached_given_public_history_and_continuation):"withheld");addCell(row,publish?"ready":"diagnostic only");futilityBody.appendChild(row);}
+  for(const item of futility){const row=document.createElement("tr"),publish=item.is_posterior_forecast===true,prob=item.probabilities||{},diag=item.readiness_diagnostics||{},threshold=item.assumed_futility_hr_threshold,minContinuationEss=diag.minimum_continuation_effective_sample_size,essMargin=typeof minContinuationEss==="number"&&Number.isFinite(minContinuationEss)?minContinuationEss-100:null,essLabel=essMargin===null?"—":num(minContinuationEss,1)+" ("+(essMargin>=0?"+":"")+num(essMargin,1)+")";addCell(row,threshold===null?"Disabled":num(threshold,2));addCell(row,publish?pct(prob.final_rejection_given_public_history_and_continuation):"withheld");addCell(row,publish?pct(prob.final_reached_given_public_history_and_continuation):"withheld");addCell(row,essLabel,"forecast-ess-headroom");addCell(row,publish?"ready":"diagnostic only");futilityBody.appendChild(row);}
   const primary=priors.find(item=>item.name==="balanced"),familyBody=clearRows("v2FamilyRows");
   if(primary&&Array.isArray(primary.families)){for(const item of primary.families){const row=document.createElement("tr"),diag=item.diagnostics||{},prob=item.probabilities||{},publish=primary.is_posterior_forecast===true;addCell(row,item.label||item.family||"—");addCell(row,pct(item.prior_weight));addCell(row,publish?pct(item.posterior_weight):"diagnostic");addCell(row,publish?pct(prob.final_rejection_given_public_history_and_continuation):"withheld");addCell(row,num(diag.history_effective_sample_size,1));addCell(row,num(diag.continuation_effective_sample_size,1));addCell(row,pct(diag.maximum_history_weight_share));familyBody.appendChild(row);}}
 }

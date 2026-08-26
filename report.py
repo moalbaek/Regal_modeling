@@ -1016,13 +1016,19 @@ def validate_published_artifacts(
     return external
 
 
-def _family_worker(effect_prior, thresholds, nsim, seed):
+def _family_worker(
+    effect_prior,
+    thresholds,
+    nsim,
+    seed,
+    proposal_interim_z_targets=PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
+):
     return condition_effect_family_futility_sensitivity(
         effect_prior,
         thresholds=thresholds,
         nsim=nsim,
         seed=seed,
-        proposal_interim_z_targets=PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
+        proposal_interim_z_targets=proposal_interim_z_targets,
     )
 
 
@@ -1032,6 +1038,7 @@ def run_regal_forecast_analysis(
     seed=20260825,
     workers=1,
     thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+    proposal_interim_z_targets=PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
 ):
     """Run every family once and return prior and futility model averages."""
 
@@ -1049,17 +1056,39 @@ def run_regal_forecast_analysis(
         ) from error
     if thresholds != tuple(FUTILITY_HR_SENSITIVITY_GRID):
         raise ValueError("thresholds must contain the complete configured grid")
+    if proposal_interim_z_targets is not None:
+        try:
+            proposal_interim_z_targets = tuple(
+                float(value) for value in proposal_interim_z_targets
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "proposal_interim_z_targets must be numeric or None"
+            ) from error
+        if not all(isfinite(value) for value in proposal_interim_z_targets):
+            raise ValueError("proposal_interim_z_targets must be finite")
     by_family = {}
     if workers == 1:
         for prior in DEFAULT_EFFECT_FAMILY_PRIORS:
             by_family[prior.family] = _family_worker(
-                prior, thresholds, nsim, seed
+                prior,
+                thresholds,
+                nsim,
+                seed,
+                proposal_interim_z_targets,
             )
             print(f"completed {prior.family.value}", flush=True)
     else:
         with ProcessPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_family_worker, prior, thresholds, nsim, seed): prior.family
+                executor.submit(
+                    _family_worker,
+                    prior,
+                    thresholds,
+                    nsim,
+                    seed,
+                    proposal_interim_z_targets,
+                ): prior.family
                 for prior in DEFAULT_EFFECT_FAMILY_PRIORS
             }
             for future in as_completed(futures):
@@ -1086,7 +1115,7 @@ def _git_revision():
     if environment:
         return environment
     try:
-        return subprocess.check_output(
+        revision = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
             cwd=str(ROOT),
             text=True,
@@ -1094,6 +1123,36 @@ def _git_revision():
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+    try:
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=str(ROOT),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return revision + "-state-unknown"
+    return revision + ("-dirty" if status else "")
+
+
+def _parse_proposal_interim_z_targets(values):
+    """Resolve CLI proposal targets without changing the canonical default."""
+
+    if values is None:
+        return PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS
+    if len(values) == 1 and values[0].casefold() == "auto":
+        return None
+    if any(value.casefold() == "auto" for value in values):
+        raise ValueError("'auto' must be the only proposal target value")
+    try:
+        targets = tuple(float(value) for value in values)
+    except ValueError as error:
+        raise ValueError(
+            "proposal targets must be finite numbers or the single value 'auto'"
+        ) from error
+    if not all(isfinite(value) for value in targets):
+        raise ValueError("proposal targets must be finite")
+    return targets
 
 
 def _build_command(args):
@@ -1101,6 +1160,11 @@ def _build_command(args):
         nsim=args.nsim,
         seed=args.seed,
         workers=args.workers,
+        proposal_interim_z_targets=getattr(
+            args,
+            "proposal_interim_z_targets",
+            PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
+        ),
     )
     metadata = AnalysisRunMetadata(
         generated_at=datetime.now(timezone.utc),
@@ -1150,6 +1214,16 @@ def main(argv=None):
     )
     build_parser.add_argument("--source-revision")
     build_parser.add_argument(
+        "--proposal-interim-z-targets",
+        nargs="*",
+        metavar="Z",
+        help=(
+            "importance-proposal interim Z targets; omit for the canonical base "
+            "proposal, pass 'auto' alone for Z=0 plus design-derived futility "
+            "tilts, or provide an explicit numeric list"
+        ),
+    )
+    build_parser.add_argument(
         "--require-ready",
         action="store_true",
         help="write diagnostics, then exit nonzero unless the result is release-ready",
@@ -1170,6 +1244,12 @@ def main(argv=None):
             + ")"
         )
         return 0
+    try:
+        args.proposal_interim_z_targets = _parse_proposal_interim_z_targets(
+            args.proposal_interim_z_targets
+        )
+    except ValueError as error:
+        parser.error(str(error))
     return _build_command(args)
 
 

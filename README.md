@@ -22,6 +22,9 @@ maximum history-weight share is 0.032–1.890% across families, clearing the ≥
 concentration gates. The balanced no-futility headline is 91.97%. All model-prior and futility
 sensitivity rows also clear their numerical gates. These gates are release safeguards, not by
 themselves proof of Monte-Carlo convergence or model correctness.
+The tightest sensitivity is the assumed futility-HR 0.80 row: its minimum continuation ESS is 116.1,
+only 16.1 above the release floor. The browser now displays this row-level ESS margin explicitly;
+because ESS is seed-specific, every future production run must re-clear the same gates.
 
 The base proposal improved history ESS per draw in every family relative to the earlier 10,000-draw
 tilted diagnostic run. Continuation ESS per draw fell materially for delayed cure and
@@ -141,6 +144,9 @@ python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect fam
 python3 report.py validate                 # validate the committed WP8 JSON + embedded HTML
 # Production build (expensive; always persists the gated bundle; --require-ready exits nonzero if withheld):
 python3 report.py build --nsim 150000 --seed 20260825 --workers 7 --require-ready
+# Optional proposal-only flags for a scratch build with separate --output-json/--html paths:
+#   --proposal-interim-z-targets auto       # Z=0 plus design-derived futility tilts
+#   --proposal-interim-z-targets 0 1.25     # explicit Z targets
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 
