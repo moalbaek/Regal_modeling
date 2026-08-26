@@ -734,8 +734,8 @@ The production build always persists a gated diagnostic bundle; `--require-ready
 nonzero if that bundle remains withheld. The HTML formats the bundle only; all legacy JavaScript
 calculations remain confined to the v1 section.
 
-The checked-in production artifact was generated on 2026-08-25 UTC from source revision
-`d236afbe899f188bae515ff696312da8989d0995`, with seed `20260825`, the exact
+The checked-in production artifact was generated on 2026-08-26 UTC from source revision
+`fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`, with seed `20260825`, the exact
 public-history-conditioned base proposal, and 150,000 importance draws per family. It is complete
 and **release-ready**. In the balanced, no-futility baseline, history ESS ranges from 291.6 to
 9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight share from 0.032% to

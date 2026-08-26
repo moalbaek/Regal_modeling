@@ -390,7 +390,7 @@ against the committed public-history source. A production build always persists 
 
 The current production artifact uses 150,000 importance draws per family, seed `20260825`, the exact
 public-history-conditioned base proposal, and source revision
-`d236afbe899f188bae515ff696312da8989d0995`. Across the balanced no-futility baseline, family history
+`fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`. Across the balanced no-futility baseline, family history
 ESS ranges from 291.6 to 9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight
 share from 0.032% to 1.890%. The complete seven-family result and every model-prior and futility row
 clear all three committed gates. The release status is therefore **ready**, and the balanced
