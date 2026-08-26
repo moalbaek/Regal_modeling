@@ -16,11 +16,12 @@ complete remission.
 > on the observed decision to continue after the 60-event interim. The separation is tracked in
 > [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md).
 
-The checked-in production bundle uses 10,000 importance draws per family and seed `20260825`. Its
-release status is currently **withheld**: history ESS is 5.9–109.4, continuation ESS is 11.2–56.7,
-and maximum history-weight share is 2.3–37.6% across families, so the complete primary result does
-not clear the ≥100 ESS / ≤5% concentration gates. The interface therefore publishes no headline
-probability; raw numerical estimates remain diagnostic-only in the JSON for audit.
+The checked-in production bundle uses 150,000 importance draws per family and seed `20260825`. Its
+release status is **ready**: history ESS is 291.6–9,053.6, continuation ESS is 129.7–1,147.4, and
+maximum history-weight share is 0.032–1.890% across families, clearing the ≥100 ESS / ≤5%
+concentration gates. The balanced no-futility headline is 91.97%. All model-prior and futility
+sensitivity rows also clear their numerical gates. These gates are release safeguards, not by
+themselves proof of Monte-Carlo convergence or model correctness.
 
 The blinded death-event milestones (60/72/78) constrain only the *pooled* survival trajectory, so the
 split between arms is an explicit assumption. The tool calibrates assumed pooled curve families to
@@ -130,7 +131,7 @@ python3 audit/v2_interim_conditioning_validation.py  # validate WP6 latent-histo
 python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect families/model averaging
 python3 report.py validate                 # validate the committed WP8 JSON + embedded HTML
 # Production build (expensive; always persists the gated bundle; --require-ready exits nonzero if withheld):
-python3 report.py build --nsim 10000 --seed 20260825 --workers 4 --require-ready
+python3 report.py build --nsim 150000 --seed 20260825 --workers 7 --require-ready
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 

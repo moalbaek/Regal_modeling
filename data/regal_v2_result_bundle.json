@@ -14,262 +14,140 @@
   "futility_sensitivity": [
     {
       "assumed_futility_hr_threshold": null,
-      "estimate_status": "diagnostic_only",
-      "is_posterior_forecast": false,
+      "estimate_status": "posterior_forecast",
+      "is_posterior_forecast": true,
       "name": "balanced",
       "probabilities": {
-        "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.9211749179253186,
-        "public_history_and_continuation": 2.1924326058859347e-07
+        "final_reached_given_public_history_and_continuation": 0.9999999999999996,
+        "final_rejection_given_public_history_and_continuation": 0.9196891926876637,
+        "public_history_and_continuation": 2.1051463323005936e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     },
     {
       "assumed_futility_hr_threshold": 0.8,
-      "estimate_status": "diagnostic_only",
-      "is_posterior_forecast": false,
+      "estimate_status": "posterior_forecast",
+      "is_posterior_forecast": true,
       "name": "balanced",
       "probabilities": {
         "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.9485180165979346,
-        "public_history_and_continuation": 2.0945832941149054e-07
+        "final_rejection_given_public_history_and_continuation": 0.9464853531888973,
+        "public_history_and_continuation": 2.015599939491881e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     },
     {
       "assumed_futility_hr_threshold": 0.9,
-      "estimate_status": "diagnostic_only",
-      "is_posterior_forecast": false,
+      "estimate_status": "posterior_forecast",
+      "is_posterior_forecast": true,
       "name": "balanced",
       "probabilities": {
         "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.9294478449751149,
-        "public_history_and_continuation": 2.1642999446013396e-07
+        "final_rejection_given_public_history_and_continuation": 0.9315466651682034,
+        "public_history_and_continuation": 2.0729984663993253e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     },
     {
       "assumed_futility_hr_threshold": 1.0,
-      "estimate_status": "diagnostic_only",
-      "is_posterior_forecast": false,
+      "estimate_status": "posterior_forecast",
+      "is_posterior_forecast": true,
       "name": "balanced",
       "probabilities": {
-        "final_reached_given_public_history_and_continuation": 0.9999999999999992,
-        "final_rejection_given_public_history_and_continuation": 0.9229410852923182,
-        "public_history_and_continuation": 2.188229115788465e-07
+        "final_reached_given_public_history_and_continuation": 0.9999999999999998,
+        "final_rejection_given_public_history_and_continuation": 0.9230647374539229,
+        "public_history_and_continuation": 2.0969548041960516e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     },
     {
       "assumed_futility_hr_threshold": 1.1,
-      "estimate_status": "diagnostic_only",
-      "is_posterior_forecast": false,
+      "estimate_status": "posterior_forecast",
+      "is_posterior_forecast": true,
       "name": "balanced",
       "probabilities": {
         "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.9215161329245793,
-        "public_history_and_continuation": 2.1916208014413154e-07
+        "final_rejection_given_public_history_and_continuation": 0.92095053535232,
+        "public_history_and_continuation": 2.1022506684593002e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     },
     {
       "assumed_futility_hr_threshold": 1.2,
-      "estimate_status": "diagnostic_only",
-      "is_posterior_forecast": false,
+      "estimate_status": "posterior_forecast",
+      "is_posterior_forecast": true,
       "name": "balanced",
       "probabilities": {
-        "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.92124844580751,
-        "public_history_and_continuation": 2.192257620596038e-07
+        "final_reached_given_public_history_and_continuation": 0.9999999999999993,
+        "final_rejection_given_public_history_and_continuation": 0.9199132816677406,
+        "public_history_and_continuation": 2.1046335229913694e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     }
   ],
-  "generated_at": "2026-08-25T14:54:13Z",
+  "generated_at": "2026-08-25T23:11:56Z",
   "model_version": "v2",
   "prior_sensitivity": [
     {
       "assumed_futility_hr_threshold": null,
-      "estimate_status": "diagnostic_only",
+      "estimate_status": "posterior_forecast",
       "families": [
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8368,
-            "continuation_effective_sample_size": 28.52089802893648,
+            "continuation_compatible_draws": 146122,
+            "continuation_effective_sample_size": 457.7582104614567,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 7615,
+            "final_non_rejection_draws": 143787,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 753,
-            "history_compatible_draws": 9857,
-            "history_effective_sample_size": 28.728241430100795,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1489,
+            "final_rejection_draws": 2335,
+            "history_compatible_draws": 147601,
+            "history_effective_sample_size": 462.7588655413839,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 1479,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.1478901437075231,
-            "maximum_tilt_error": 9.991355298666349e-09,
-            "mean_tilt_iterations": 6.094233333333333,
+            "maximum_history_weight_share": 0.018897669769160793,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
           "family": "no_effect",
           "label": "No effect",
           "parameter_priors": {},
-          "posterior_weight": 1.3138164564667685e-07,
+          "posterior_weight": 1.9818513947562753e-07,
           "prior_weight": 0.4,
           "probabilities": {
-            "continuation_given_public_history": 0.9963714679547985,
+            "continuation_given_public_history": 0.9881596951556957,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.04632638834954986,
-            "public_history": 3.576472417372888e-14,
-            "public_history_and_continuation": 3.563495072597671e-14
+            "final_rejection_given_public_history_and_continuation": 0.019696920653565545,
+            "public_history": 5.1325327457073717e-14,
+            "public_history_and_continuation": 5.071761993374822e-14
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 7724,
-            "continuation_effective_sample_size": 41.25549161308441,
+            "continuation_compatible_draws": 108831,
+            "continuation_effective_sample_size": 859.0881884341889,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6210,
+            "final_non_rejection_draws": 89116,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 1514,
-            "history_compatible_draws": 9842,
-            "history_effective_sample_size": 86.04210032546194,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 2118,
+            "final_rejection_draws": 19715,
+            "history_compatible_draws": 147522,
+            "history_effective_sample_size": 1995.026427268683,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 38691,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.04809360982085829,
-            "maximum_tilt_error": 9.990810845295073e-09,
-            "mean_tilt_iterations": 6.1758,
+            "maximum_history_weight_share": 0.005762795368134623,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -282,43 +160,36 @@
               "upper": 1.1
             }
           },
-          "posterior_weight": 0.014614732450430552,
+          "posterior_weight": 0.013673203089659242,
           "prior_weight": 0.15,
           "probabilities": {
-            "continuation_given_public_history": 0.4207995740085409,
+            "continuation_given_public_history": 0.3869609381003219,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.47965976599698024,
-            "public_history": 2.51203551533295e-08,
-            "public_history_and_continuation": 1.0570634747464289e-08
+            "final_rejection_given_public_history_and_continuation": 0.5684675991322207,
+            "public_history": 2.4113466479361497e-08,
+            "public_history_and_continuation": 9.330969609704392e-09
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8334,
-            "continuation_effective_sample_size": 21.08035456664869,
+            "continuation_compatible_draws": 135233,
+            "continuation_effective_sample_size": 309.6418830751194,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6681,
+            "final_non_rejection_draws": 116038,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 1653,
-            "history_compatible_draws": 9828,
-            "history_effective_sample_size": 28.976185146690685,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1494,
+            "final_rejection_draws": 19195,
+            "history_compatible_draws": 147492,
+            "history_effective_sample_size": 463.2138622064025,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 12259,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.09732992224844705,
-            "maximum_tilt_error": 9.995710925636558e-09,
-            "mean_tilt_iterations": 6.3025,
+            "maximum_history_weight_share": 0.012757340685084313,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -336,43 +207,36 @@
               "upper": 1.05
             }
           },
-          "posterior_weight": 0.0018404273688980282,
+          "posterior_weight": 0.001763687594766995,
           "prior_weight": 0.15,
           "probabilities": {
-            "continuation_given_public_history": 0.8063682703802281,
+            "continuation_given_public_history": 0.7272594686566791,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.22873198557620505,
-            "public_history": 1.650803762390434e-09,
-            "public_history_and_continuation": 1.3311557746159474e-09
+            "final_rejection_given_public_history_and_continuation": 0.48635839260336594,
+            "public_history": 1.654964896594085e-09,
+            "public_history_and_continuation": 1.20358889134247e-09
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8026,
-            "continuation_effective_sample_size": 33.130300152563954,
+            "continuation_compatible_draws": 90973,
+            "continuation_effective_sample_size": 984.2892520684867,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 4786,
+            "final_non_rejection_draws": 64745,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 3240,
-            "history_compatible_draws": 9846,
-            "history_effective_sample_size": 109.39284680415258,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1820,
+            "final_rejection_draws": 26228,
+            "history_compatible_draws": 147532,
+            "history_effective_sample_size": 9038.653285705735,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 56559,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.02313289789941542,
-            "maximum_tilt_error": 9.995388516870207e-09,
-            "mean_tilt_iterations": 6.486583333333333,
+            "maximum_history_weight_share": 0.0003221934520608517,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -385,43 +249,36 @@
               "upper": 0.6
             }
           },
-          "posterior_weight": 0.7048652003454878,
+          "posterior_weight": 0.6335519374366101,
           "prior_weight": 0.08,
           "probabilities": {
-            "continuation_given_public_history": 0.10904590189353626,
+            "continuation_given_public_history": 0.09800330420352371,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.9418819348562275,
-            "public_history": 8.766135723992409e-06,
-            "public_history_and_continuation": 9.559111761438998e-07
+            "final_rejection_given_public_history_and_continuation": 0.9234161139551205,
+            "public_history": 8.271785950483915e-06,
+            "public_history_and_continuation": 8.106623548117079e-07
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8494,
-            "continuation_effective_sample_size": 11.16699764315586,
+            "continuation_compatible_draws": 123636,
+            "continuation_effective_sample_size": 145.3879575242247,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6031,
+            "final_non_rejection_draws": 90112,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 2463,
-            "history_compatible_draws": 9833,
-            "history_effective_sample_size": 5.93444073988569,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1339,
+            "final_rejection_draws": 33524,
+            "history_compatible_draws": 147572,
+            "history_effective_sample_size": 291.6444711231791,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 23936,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.3755965489837411,
-            "maximum_tilt_error": 9.999540750982305e-09,
-            "mean_tilt_iterations": 6.61455,
+            "maximum_history_weight_share": 0.014496347403178123,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -439,43 +296,36 @@
               "upper": 0.6
             }
           },
-          "posterior_weight": 0.02076030306537303,
+          "posterior_weight": 0.036792700440215806,
           "prior_weight": 0.08,
           "probabilities": {
-            "continuation_given_public_history": 0.24339757939140577,
+            "continuation_given_public_history": 0.5382531181620577,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.9000603572488927,
-            "public_history": 1.1567217557345705e-07,
-            "public_history_and_continuation": 2.815432753751714e-08
+            "final_rejection_given_public_history_and_continuation": 0.7739399386478012,
+            "public_history": 8.746471647039934e-08,
+            "public_history_and_continuation": 4.707815636935273e-08
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 7286,
-            "continuation_effective_sample_size": 51.45006944652272,
+            "continuation_compatible_draws": 109296,
+            "continuation_effective_sample_size": 129.65227556724645,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6426,
+            "final_non_rejection_draws": 97619,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 860,
-            "history_compatible_draws": 9829,
-            "history_effective_sample_size": 25.184939527573775,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 2543,
+            "final_rejection_draws": 11677,
+            "history_compatible_draws": 147454,
+            "history_effective_sample_size": 552.5434649229487,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 38158,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.0997813551556789,
-            "maximum_tilt_error": 9.995643424076661e-09,
-            "mean_tilt_iterations": 5.927333333333333,
+            "maximum_history_weight_share": 0.013748330104749813,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -498,43 +348,36 @@
               "upper": 1.15
             }
           },
-          "posterior_weight": 0.0006628350675013536,
+          "posterior_weight": 0.0009009160035040321,
           "prior_weight": 0.1,
           "probabilities": {
-            "continuation_given_public_history": 0.19063627732884814,
+            "continuation_given_public_history": 0.25005080089813947,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.44798325271640554,
-            "public_history": 3.7722579691933705e-09,
-            "public_history_and_continuation": 7.191292163711037e-10
+            "final_rejection_given_public_history_and_continuation": 0.44992861466087125,
+            "public_history": 3.6881096229513097e-09,
+            "public_history_and_continuation": 9.222147650191109e-10
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8321,
-            "continuation_effective_sample_size": 56.72521569135637,
+            "continuation_compatible_draws": 100546,
+            "continuation_effective_sample_size": 1147.3657032624164,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 4980,
+            "final_non_rejection_draws": 73002,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 3341,
-            "history_compatible_draws": 9842,
-            "history_effective_sample_size": 95.91298253340483,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1521,
+            "final_rejection_draws": 27544,
+            "history_compatible_draws": 147539,
+            "history_effective_sample_size": 9053.589463587186,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 46993,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.04094188666357206,
-            "maximum_tilt_error": 9.999722383469134e-09,
-            "mean_tilt_iterations": 6.47335,
+            "maximum_history_weight_share": 0.0003535837044989369,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -552,118 +395,86 @@
               "upper": 0.95
             }
           },
-          "posterior_weight": 0.25725637032066484,
+          "posterior_weight": 0.31331735725010357,
           "prior_weight": 0.04,
           "probabilities": {
-            "continuation_given_public_history": 0.11612149039932025,
+            "continuation_given_public_history": 0.11843491550305647,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.8924032520831421,
-            "public_history": 6.008900348203788e-06,
-            "public_history_and_continuation": 6.977624640944177e-07
+            "final_rejection_given_public_history_and_continuation": 0.9345206026577604,
+            "public_history": 6.770059388073604e-06,
+            "public_history_and_continuation": 8.018114115771715e-07
           }
         }
       ],
-      "is_posterior_forecast": false,
+      "is_posterior_forecast": true,
       "name": "skeptical",
       "probabilities": {
-        "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.9198897548507816,
-        "public_history_and_continuation": 1.0849293461221924e-07
+        "final_reached_given_public_history_and_continuation": 0.9999999999999992,
+        "final_rejection_given_public_history_and_continuation": 0.9153448428878339,
+        "public_history_and_continuation": 1.0236412289627868e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     },
     {
       "assumed_futility_hr_threshold": null,
-      "estimate_status": "diagnostic_only",
+      "estimate_status": "posterior_forecast",
       "families": [
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8368,
-            "continuation_effective_sample_size": 28.52089802893648,
+            "continuation_compatible_draws": 146122,
+            "continuation_effective_sample_size": 457.7582104614567,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 7615,
+            "final_non_rejection_draws": 143787,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 753,
-            "history_compatible_draws": 9857,
-            "history_effective_sample_size": 28.728241430100795,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1489,
+            "final_rejection_draws": 2335,
+            "history_compatible_draws": 147601,
+            "history_effective_sample_size": 462.7588655413839,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 1479,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.1478901437075231,
-            "maximum_tilt_error": 9.991355298666349e-09,
-            "mean_tilt_iterations": 6.094233333333333,
+            "maximum_history_weight_share": 0.018897669769160793,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
           "family": "no_effect",
           "label": "No effect",
           "parameter_priors": {},
-          "posterior_weight": 3.250722565456194e-08,
+          "posterior_weight": 4.818441279407116e-08,
           "prior_weight": 0.2,
           "probabilities": {
-            "continuation_given_public_history": 0.9963714679547985,
+            "continuation_given_public_history": 0.9881596951556957,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.04632638834954986,
-            "public_history": 3.576472417372888e-14,
-            "public_history_and_continuation": 3.563495072597671e-14
+            "final_rejection_given_public_history_and_continuation": 0.019696920653565545,
+            "public_history": 5.1325327457073717e-14,
+            "public_history_and_continuation": 5.071761993374822e-14
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 7724,
-            "continuation_effective_sample_size": 41.25549161308441,
+            "continuation_compatible_draws": 108831,
+            "continuation_effective_sample_size": 859.0881884341889,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6210,
+            "final_non_rejection_draws": 89116,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 1514,
-            "history_compatible_draws": 9842,
-            "history_effective_sample_size": 86.04210032546194,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 2118,
+            "final_rejection_draws": 19715,
+            "history_compatible_draws": 147522,
+            "history_effective_sample_size": 1995.026427268683,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 38691,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.04809360982085829,
-            "maximum_tilt_error": 9.990810845295073e-09,
-            "mean_tilt_iterations": 6.1758,
+            "maximum_history_weight_share": 0.005762795368134623,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -676,43 +487,36 @@
               "upper": 1.1
             }
           },
-          "posterior_weight": 0.00723212749100181,
+          "posterior_weight": 0.006648684796776403,
           "prior_weight": 0.15,
           "probabilities": {
-            "continuation_given_public_history": 0.4207995740085409,
+            "continuation_given_public_history": 0.3869609381003219,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.47965976599698024,
-            "public_history": 2.51203551533295e-08,
-            "public_history_and_continuation": 1.0570634747464289e-08
+            "final_rejection_given_public_history_and_continuation": 0.5684675991322207,
+            "public_history": 2.4113466479361497e-08,
+            "public_history_and_continuation": 9.330969609704392e-09
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8334,
-            "continuation_effective_sample_size": 21.08035456664869,
+            "continuation_compatible_draws": 135233,
+            "continuation_effective_sample_size": 309.6418830751194,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6681,
+            "final_non_rejection_draws": 116038,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 1653,
-            "history_compatible_draws": 9828,
-            "history_effective_sample_size": 28.976185146690685,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1494,
+            "final_rejection_draws": 19195,
+            "history_compatible_draws": 147492,
+            "history_effective_sample_size": 463.2138622064025,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 12259,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.09732992224844705,
-            "maximum_tilt_error": 9.995710925636558e-09,
-            "mean_tilt_iterations": 6.3025,
+            "maximum_history_weight_share": 0.012757340685084313,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -730,43 +534,36 @@
               "upper": 1.05
             }
           },
-          "posterior_weight": 0.000910738900964789,
+          "posterior_weight": 0.0008576046754149906,
           "prior_weight": 0.15,
           "probabilities": {
-            "continuation_given_public_history": 0.8063682703802281,
+            "continuation_given_public_history": 0.7272594686566791,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.22873198557620505,
-            "public_history": 1.650803762390434e-09,
-            "public_history_and_continuation": 1.3311557746159474e-09
+            "final_rejection_given_public_history_and_continuation": 0.48635839260336594,
+            "public_history": 1.654964896594085e-09,
+            "public_history_and_continuation": 1.20358889134247e-09
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8026,
-            "continuation_effective_sample_size": 33.130300152563954,
+            "continuation_compatible_draws": 90973,
+            "continuation_effective_sample_size": 984.2892520684867,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 4786,
+            "final_non_rejection_draws": 64745,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 3240,
-            "history_compatible_draws": 9846,
-            "history_effective_sample_size": 109.39284680415258,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1820,
+            "final_rejection_draws": 26228,
+            "history_compatible_draws": 147532,
+            "history_effective_sample_size": 9038.653285705735,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 56559,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.02313289789941542,
-            "maximum_tilt_error": 9.995388516870207e-09,
-            "mean_tilt_iterations": 6.486583333333333,
+            "maximum_history_weight_share": 0.0003221934520608517,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -779,43 +576,36 @@
               "upper": 0.6
             }
           },
-          "posterior_weight": 0.654007224836196,
+          "posterior_weight": 0.5776289816816071,
           "prior_weight": 0.15,
           "probabilities": {
-            "continuation_given_public_history": 0.10904590189353626,
+            "continuation_given_public_history": 0.09800330420352371,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.9418819348562275,
-            "public_history": 8.766135723992409e-06,
-            "public_history_and_continuation": 9.559111761438998e-07
+            "final_rejection_given_public_history_and_continuation": 0.9234161139551205,
+            "public_history": 8.271785950483915e-06,
+            "public_history_and_continuation": 8.106623548117079e-07
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8494,
-            "continuation_effective_sample_size": 11.16699764315586,
+            "continuation_compatible_draws": 123636,
+            "continuation_effective_sample_size": 145.3879575242247,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6031,
+            "final_non_rejection_draws": 90112,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 2463,
-            "history_compatible_draws": 9833,
-            "history_effective_sample_size": 5.93444073988569,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1339,
+            "final_rejection_draws": 33524,
+            "history_compatible_draws": 147572,
+            "history_effective_sample_size": 291.6444711231791,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 23936,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.3755965489837411,
-            "maximum_tilt_error": 9.999540750982305e-09,
-            "mean_tilt_iterations": 6.61455,
+            "maximum_history_weight_share": 0.014496347403178123,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -833,43 +623,36 @@
               "upper": 0.6
             }
           },
-          "posterior_weight": 0.019262389727692637,
+          "posterior_weight": 0.033545047900235846,
           "prior_weight": 0.15,
           "probabilities": {
-            "continuation_given_public_history": 0.24339757939140577,
+            "continuation_given_public_history": 0.5382531181620577,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.9000603572488927,
-            "public_history": 1.1567217557345705e-07,
-            "public_history_and_continuation": 2.815432753751714e-08
+            "final_rejection_given_public_history_and_continuation": 0.7739399386478012,
+            "public_history": 8.746471647039934e-08,
+            "public_history_and_continuation": 4.707815636935273e-08
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 7286,
-            "continuation_effective_sample_size": 51.45006944652272,
+            "continuation_compatible_draws": 109296,
+            "continuation_effective_sample_size": 129.65227556724645,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6426,
+            "final_non_rejection_draws": 97619,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 860,
-            "history_compatible_draws": 9829,
-            "history_effective_sample_size": 25.184939527573775,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 2543,
+            "final_rejection_draws": 11677,
+            "history_compatible_draws": 147454,
+            "history_effective_sample_size": 552.5434649229487,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 38158,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.0997813551556789,
-            "maximum_tilt_error": 9.995643424076661e-09,
-            "mean_tilt_iterations": 5.927333333333333,
+            "maximum_history_weight_share": 0.013748330104749813,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -892,43 +675,36 @@
               "upper": 1.15
             }
           },
-          "posterior_weight": 0.00032800516396284463,
+          "posterior_weight": 0.00043807632318427684,
           "prior_weight": 0.1,
           "probabilities": {
-            "continuation_given_public_history": 0.19063627732884814,
+            "continuation_given_public_history": 0.25005080089813947,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.44798325271640554,
-            "public_history": 3.7722579691933705e-09,
-            "public_history_and_continuation": 7.191292163711037e-10
+            "final_rejection_given_public_history_and_continuation": 0.44992861466087125,
+            "public_history": 3.6881096229513097e-09,
+            "public_history_and_continuation": 9.222147650191109e-10
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8321,
-            "continuation_effective_sample_size": 56.72521569135637,
+            "continuation_compatible_draws": 100546,
+            "continuation_effective_sample_size": 1147.3657032624164,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 4980,
+            "final_non_rejection_draws": 73002,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 3341,
-            "history_compatible_draws": 9842,
-            "history_effective_sample_size": 95.91298253340483,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1521,
+            "final_rejection_draws": 27544,
+            "history_compatible_draws": 147539,
+            "history_effective_sample_size": 9053.589463587186,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 46993,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.04094188666357206,
-            "maximum_tilt_error": 9.999722383469134e-09,
-            "mean_tilt_iterations": 6.47335,
+            "maximum_history_weight_share": 0.0003535837044989369,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -946,118 +722,86 @@
               "upper": 0.95
             }
           },
-          "posterior_weight": 0.3182594813729564,
+          "posterior_weight": 0.38088155643836813,
           "prior_weight": 0.1,
           "probabilities": {
-            "continuation_given_public_history": 0.11612149039932025,
+            "continuation_given_public_history": 0.11843491550305647,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.8924032520831421,
-            "public_history": 6.008900348203788e-06,
-            "public_history_and_continuation": 6.977624640944177e-07
+            "final_rejection_given_public_history_and_continuation": 0.9345206026577604,
+            "public_history": 6.770059388073604e-06,
+            "public_history_and_continuation": 8.018114115771715e-07
           }
         }
       ],
-      "is_posterior_forecast": false,
+      "is_posterior_forecast": true,
       "name": "balanced",
       "probabilities": {
-        "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.9211749179253186,
-        "public_history_and_continuation": 2.1924326058859347e-07
+        "final_reached_given_public_history_and_continuation": 0.9999999999999996,
+        "final_rejection_given_public_history_and_continuation": 0.9196891926876637,
+        "public_history_and_continuation": 2.1051463323005936e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     },
     {
       "assumed_futility_hr_threshold": null,
-      "estimate_status": "diagnostic_only",
+      "estimate_status": "posterior_forecast",
       "families": [
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8368,
-            "continuation_effective_sample_size": 28.52089802893648,
+            "continuation_compatible_draws": 146122,
+            "continuation_effective_sample_size": 457.7582104614567,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 7615,
+            "final_non_rejection_draws": 143787,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 753,
-            "history_compatible_draws": 9857,
-            "history_effective_sample_size": 28.728241430100795,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1489,
+            "final_rejection_draws": 2335,
+            "history_compatible_draws": 147601,
+            "history_effective_sample_size": 462.7588655413839,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 1479,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.1478901437075231,
-            "maximum_tilt_error": 9.991355298666349e-09,
-            "mean_tilt_iterations": 6.094233333333333,
+            "maximum_history_weight_share": 0.018897669769160793,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
           "family": "no_effect",
           "label": "No effect",
           "parameter_priors": {},
-          "posterior_weight": 1.0554510745773868e-08,
+          "posterior_weight": 1.5227952578134503e-08,
           "prior_weight": 0.1,
           "probabilities": {
-            "continuation_given_public_history": 0.9963714679547985,
+            "continuation_given_public_history": 0.9881596951556957,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.04632638834954986,
-            "public_history": 3.576472417372888e-14,
-            "public_history_and_continuation": 3.563495072597671e-14
+            "final_rejection_given_public_history_and_continuation": 0.019696920653565545,
+            "public_history": 5.1325327457073717e-14,
+            "public_history_and_continuation": 5.071761993374822e-14
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 7724,
-            "continuation_effective_sample_size": 41.25549161308441,
+            "continuation_compatible_draws": 108831,
+            "continuation_effective_sample_size": 859.0881884341889,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6210,
+            "final_non_rejection_draws": 89116,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 1514,
-            "history_compatible_draws": 9842,
-            "history_effective_sample_size": 86.04210032546194,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 2118,
+            "final_rejection_draws": 19715,
+            "history_compatible_draws": 147522,
+            "history_effective_sample_size": 1995.026427268683,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 38691,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.04809360982085829,
-            "maximum_tilt_error": 9.990810845295073e-09,
-            "mean_tilt_iterations": 6.1758,
+            "maximum_history_weight_share": 0.005762795368134623,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -1070,43 +814,36 @@
               "upper": 1.1
             }
           },
-          "posterior_weight": 0.0031308554034405653,
+          "posterior_weight": 0.002801621269101445,
           "prior_weight": 0.1,
           "probabilities": {
-            "continuation_given_public_history": 0.4207995740085409,
+            "continuation_given_public_history": 0.3869609381003219,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.47965976599698024,
-            "public_history": 2.51203551533295e-08,
-            "public_history_and_continuation": 1.0570634747464289e-08
+            "final_rejection_given_public_history_and_continuation": 0.5684675991322207,
+            "public_history": 2.4113466479361497e-08,
+            "public_history_and_continuation": 9.330969609704392e-09
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8334,
-            "continuation_effective_sample_size": 21.08035456664869,
+            "continuation_compatible_draws": 135233,
+            "continuation_effective_sample_size": 309.6418830751194,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6681,
+            "final_non_rejection_draws": 116038,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 1653,
-            "history_compatible_draws": 9828,
-            "history_effective_sample_size": 28.976185146690685,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1494,
+            "final_rejection_draws": 19195,
+            "history_compatible_draws": 147492,
+            "history_effective_sample_size": 463.2138622064025,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 12259,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.09732992224844705,
-            "maximum_tilt_error": 9.995710925636558e-09,
-            "mean_tilt_iterations": 6.3025,
+            "maximum_history_weight_share": 0.012757340685084313,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -1124,43 +861,36 @@
               "upper": 1.05
             }
           },
-          "posterior_weight": 0.0003942673594674339,
+          "posterior_weight": 0.0003613772607010043,
           "prior_weight": 0.1,
           "probabilities": {
-            "continuation_given_public_history": 0.8063682703802281,
+            "continuation_given_public_history": 0.7272594686566791,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.22873198557620505,
-            "public_history": 1.650803762390434e-09,
-            "public_history_and_continuation": 1.3311557746159474e-09
+            "final_rejection_given_public_history_and_continuation": 0.48635839260336594,
+            "public_history": 1.654964896594085e-09,
+            "public_history_and_continuation": 1.20358889134247e-09
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8026,
-            "continuation_effective_sample_size": 33.130300152563954,
+            "continuation_compatible_draws": 90973,
+            "continuation_effective_sample_size": 984.2892520684867,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 4786,
+            "final_non_rejection_draws": 64745,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 3240,
-            "history_compatible_draws": 9846,
-            "history_effective_sample_size": 109.39284680415258,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1820,
+            "final_rejection_draws": 26228,
+            "history_compatible_draws": 147532,
+            "history_effective_sample_size": 9038.653285705735,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 56559,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.02313289789941542,
-            "maximum_tilt_error": 9.995388516870207e-09,
-            "mean_tilt_iterations": 6.486583333333333,
+            "maximum_history_weight_share": 0.0003221934520608517,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -1173,43 +903,36 @@
               "upper": 0.6
             }
           },
-          "posterior_weight": 0.56625164761412,
+          "posterior_weight": 0.48680233465518674,
           "prior_weight": 0.2,
           "probabilities": {
-            "continuation_given_public_history": 0.10904590189353626,
+            "continuation_given_public_history": 0.09800330420352371,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.9418819348562275,
-            "public_history": 8.766135723992409e-06,
-            "public_history_and_continuation": 9.559111761438998e-07
+            "final_rejection_given_public_history_and_continuation": 0.9234161139551205,
+            "public_history": 8.271785950483915e-06,
+            "public_history_and_continuation": 8.106623548117079e-07
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8494,
-            "continuation_effective_sample_size": 11.16699764315586,
+            "continuation_compatible_draws": 123636,
+            "continuation_effective_sample_size": 145.3879575242247,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6031,
+            "final_non_rejection_draws": 90112,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 2463,
-            "history_compatible_draws": 9833,
-            "history_effective_sample_size": 5.93444073988569,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1339,
+            "final_rejection_draws": 33524,
+            "history_compatible_draws": 147572,
+            "history_effective_sample_size": 291.6444711231791,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 23936,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.3755965489837411,
-            "maximum_tilt_error": 9.999540750982305e-09,
-            "mean_tilt_iterations": 6.61455,
+            "maximum_history_weight_share": 0.014496347403178123,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -1227,43 +950,36 @@
               "upper": 0.6
             }
           },
-          "posterior_weight": 0.01667773612596276,
+          "posterior_weight": 0.028270409123889752,
           "prior_weight": 0.2,
           "probabilities": {
-            "continuation_given_public_history": 0.24339757939140577,
+            "continuation_given_public_history": 0.5382531181620577,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.9000603572488927,
-            "public_history": 1.1567217557345705e-07,
-            "public_history_and_continuation": 2.815432753751714e-08
+            "final_rejection_given_public_history_and_continuation": 0.7739399386478012,
+            "public_history": 8.746471647039934e-08,
+            "public_history_and_continuation": 4.707815636935273e-08
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 7286,
-            "continuation_effective_sample_size": 51.45006944652272,
+            "continuation_compatible_draws": 109296,
+            "continuation_effective_sample_size": 129.65227556724645,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 6426,
+            "final_non_rejection_draws": 97619,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 860,
-            "history_compatible_draws": 9829,
-            "history_effective_sample_size": 25.184939527573775,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 2543,
+            "final_rejection_draws": 11677,
+            "history_compatible_draws": 147454,
+            "history_effective_sample_size": 552.5434649229487,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 38158,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.0997813551556789,
-            "maximum_tilt_error": 9.995643424076661e-09,
-            "mean_tilt_iterations": 5.927333333333333,
+            "maximum_history_weight_share": 0.013748330104749813,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -1286,43 +1002,36 @@
               "upper": 1.15
             }
           },
-          "posterior_weight": 0.00021299473935446897,
+          "posterior_weight": 0.0002768947503236788,
           "prior_weight": 0.1,
           "probabilities": {
-            "continuation_given_public_history": 0.19063627732884814,
+            "continuation_given_public_history": 0.25005080089813947,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.44798325271640554,
-            "public_history": 3.7722579691933705e-09,
-            "public_history_and_continuation": 7.191292163711037e-10
+            "final_rejection_given_public_history_and_continuation": 0.44992861466087125,
+            "public_history": 3.6881096229513097e-09,
+            "public_history_and_continuation": 9.222147650191109e-10
           }
         },
         {
           "diagnostics": {
-            "continuation_compatible_draws": 8321,
-            "continuation_effective_sample_size": 56.72521569135637,
+            "continuation_compatible_draws": 100546,
+            "continuation_effective_sample_size": 1147.3657032624164,
             "draws_with_tilt_fallback": 0,
-            "final_non_rejection_draws": 4980,
+            "final_non_rejection_draws": 73002,
             "final_not_reached_draws": 0,
-            "final_rejection_draws": 3341,
-            "history_compatible_draws": 9842,
-            "history_effective_sample_size": 95.91298253340483,
-            "importance_draws": 10000,
-            "interim_efficacy_draws": 1521,
+            "final_rejection_draws": 27544,
+            "history_compatible_draws": 147539,
+            "history_effective_sample_size": 9053.589463587186,
+            "importance_draws": 150000,
+            "interim_efficacy_draws": 46993,
             "interim_futility_draws": 0,
-            "maximum_history_weight_share": 0.04094188666357206,
-            "maximum_tilt_error": 9.999722383469134e-09,
-            "mean_tilt_iterations": 6.47335,
+            "maximum_history_weight_share": 0.0003535837044989369,
+            "maximum_tilt_error": null,
+            "mean_tilt_iterations": null,
             "non_estimable_interim_draws": 0,
             "proposal_infeasible_draws": 0,
-            "proposal_interim_z_targets": [
-              0.0,
-              1.6019712936431072,
-              1.3738854258616435,
-              1.16985566461635,
-              0.9852882950632575,
-              0.8167914880575521
-            ],
-            "tilt_attempts": 60000,
+            "proposal_interim_z_targets": [],
+            "tilt_attempts": 0,
             "tilt_fallbacks": 0,
             "valid_disclosure_lag_mass": 1.0
           },
@@ -1340,43 +1049,25 @@
               "upper": 0.95
             }
           },
-          "posterior_weight": 0.4133324882031443,
+          "posterior_weight": 0.4814873477128443,
           "prior_weight": 0.2,
           "probabilities": {
-            "continuation_given_public_history": 0.11612149039932025,
+            "continuation_given_public_history": 0.11843491550305647,
             "final_reached_given_public_history_and_continuation": 1.0,
-            "final_rejection_given_public_history_and_continuation": 0.8924032520831421,
-            "public_history": 6.008900348203788e-06,
-            "public_history_and_continuation": 6.977624640944177e-07
+            "final_rejection_given_public_history_and_continuation": 0.9345206026577604,
+            "public_history": 6.770059388073604e-06,
+            "public_history_and_continuation": 8.018114115771715e-07
           }
         }
       ],
-      "is_posterior_forecast": false,
+      "is_posterior_forecast": true,
       "name": "cure_favoring",
       "probabilities": {
-        "final_reached_given_public_history_and_continuation": 1.0,
-        "final_rejection_given_public_history_and_continuation": 0.9188997687613172,
-        "public_history_and_continuation": 3.376276890925073e-07
+        "final_reached_given_public_history_and_continuation": 0.9999999999999994,
+        "final_rejection_given_public_history_and_continuation": 0.9232535381426835,
+        "public_history_and_continuation": 3.3305606695001544e-07
       },
-      "readiness_issues": [
-        "no_effect history ESS is below 100",
-        "no_effect continuation ESS is below 100",
-        "no_effect maximum history weight share exceeds 0.05",
-        "proportional_hazards history ESS is below 100",
-        "proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards history ESS is below 100",
-        "delayed_proportional_hazards continuation ESS is below 100",
-        "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-        "cure_fraction_difference continuation ESS is below 100",
-        "delayed_cure history ESS is below 100",
-        "delayed_cure continuation ESS is below 100",
-        "delayed_cure maximum history weight share exceeds 0.05",
-        "waning_piecewise history ESS is below 100",
-        "waning_piecewise continuation ESS is below 100",
-        "waning_piecewise maximum history weight share exceeds 0.05",
-        "responder_cure_exploratory history ESS is below 100",
-        "responder_cure_exploratory continuation ESS is below 100"
-      ]
+      "readiness_issues": []
     }
   ],
   "public_data": {
@@ -1593,37 +1284,25 @@
     "target_enrollment": 126
   },
   "release": {
-    "disclosure": "No headline probability is published because the primary result did not clear every numerical readiness gate.",
-    "headline": null,
-    "is_posterior_forecast": false,
-    "readiness_issues": [
-      "no_effect history ESS is below 100",
-      "no_effect continuation ESS is below 100",
-      "no_effect maximum history weight share exceeds 0.05",
-      "proportional_hazards history ESS is below 100",
-      "proportional_hazards continuation ESS is below 100",
-      "delayed_proportional_hazards history ESS is below 100",
-      "delayed_proportional_hazards continuation ESS is below 100",
-      "delayed_proportional_hazards maximum history weight share exceeds 0.05",
-      "cure_fraction_difference continuation ESS is below 100",
-      "delayed_cure history ESS is below 100",
-      "delayed_cure continuation ESS is below 100",
-      "delayed_cure maximum history weight share exceeds 0.05",
-      "waning_piecewise history ESS is below 100",
-      "waning_piecewise continuation ESS is below 100",
-      "waning_piecewise maximum history weight share exceeds 0.05",
-      "responder_cure_exploratory history ESS is below 100",
-      "responder_cure_exploratory continuation ESS is below 100"
-    ],
-    "status": "withheld"
+    "disclosure": "The headline is a continuation-conditioned posterior model average under explicit analyst priors and the displayed futility assumption.",
+    "headline": {
+      "assumed_futility_hr_threshold": null,
+      "label": "P(final rejection | public history, interim continuation)",
+      "metric": "final_rejection_given_public_history_and_continuation",
+      "model_weight_sensitivity": "balanced",
+      "value": 0.9196891926876637
+    },
+    "is_posterior_forecast": true,
+    "readiness_issues": [],
+    "status": "ready"
   },
   "run": {
     "effect_family_count": 7,
-    "importance_draws_per_family": 10000,
+    "importance_draws_per_family": 150000,
     "primary_futility_assumption": "disabled; actual rule unpublished",
     "primary_model_weight_sensitivity": "balanced",
     "seed": 20260825
   },
   "schema_version": 1,
-  "source_revision": "c2774331ffe034a98369c9478e81a8bdc8ca808e"
+  "source_revision": "d236afbe899f188bae515ff696312da8989d0995"
 }

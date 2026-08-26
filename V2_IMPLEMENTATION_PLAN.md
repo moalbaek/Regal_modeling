@@ -384,13 +384,14 @@ embedded bundle, schema, release invariants, exact parsed equality, and the full
 against the committed public-history source. A production build always persists its gated bundle;
 `--require-ready` returns a nonzero status after writing when the result remains withheld.
 
-The first production artifact uses 10,000 importance draws per family, seed `20260825`, and source
-revision `c2774331ffe034a98369c9478e81a8bdc8ca808e`. It is a complete seven-family result with all
-model-prior and futility rows, but the release status is **withheld**. Across the balanced baseline,
-family history ESS ranges from 5.9 to 109.4, continuation ESS from 11.2 to 56.7, and maximum history
-weight share from 2.3% to 37.6%. No family set clears all three committed gates, so the bundle's
-headline remains `null` and the interface says “Not published.” The underlying numerical estimates
-are retained only as explicitly marked diagnostic fields for audit and proposal improvement.
+The current production artifact uses 150,000 importance draws per family, seed `20260825`, the exact
+public-history-conditioned base proposal, and source revision
+`d236afbe899f188bae515ff696312da8989d0995`. Across the balanced no-futility baseline, family history
+ESS ranges from 291.6 to 9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight
+share from 0.032% to 1.890%. The complete seven-family result and every model-prior and futility row
+clear all three committed gates. The release status is therefore **ready**, and the balanced
+no-futility headline is 91.97%. The earlier 10,000-draw diagnostic artifact was correctly withheld;
+the larger run was accepted only after the unchanged gates were evaluated.
 
 ## Release gates
 
@@ -400,10 +401,9 @@ are retained only as explicitly marked diagnostic fields for audit and proposal 
   and posterior model averaging.
 - **v2-publication infrastructure — complete:** strict result bundle, self-contained frontend,
   readiness-gated headline, prior/futility diagnostics, and Python/HTML parity validation.
-- **v2 production integration — complete but withheld:** the pinned 10,000-draw run is published as
-  a diagnostic artifact and fails the numerical release gates above. A v2 headline forecast remains
-  unreleased until a future run clears them; increasing raw draws or improving the importance
-  proposal must be validated rather than assumed sufficient.
+- **v2 production integration — complete and ready:** the pinned 150,000-draw base-proposal run
+  clears every numerical release gate, publishes the gated headline, and retains complete family,
+  prior, futility, and proposal diagnostics for audit.
 
 Only a complete, numerically ready `PosteriorForecastResult` may be described as the v2 posterior
 forecast. Legacy scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete

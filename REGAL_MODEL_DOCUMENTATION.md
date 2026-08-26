@@ -732,15 +732,16 @@ The production build always persists a gated diagnostic bundle; `--require-ready
 nonzero if that bundle remains withheld. The HTML formats the bundle only; all legacy JavaScript
 calculations remain confined to the v1 section.
 
-The checked-in production artifact was generated on 2026-08-25 from source revision
-`c2774331ffe034a98369c9478e81a8bdc8ca808e`, with seed `20260825` and 10,000 importance draws per
-family. It is complete but **not release-ready**. In the balanced, no-futility baseline, history ESS
-ranges from 5.9 to 109.4, continuation ESS from 11.2 to 56.7, and maximum history-weight share from
-2.3% to 37.6%. No complete family set clears the ≥100/≥100/≤5% gates. The release headline is
-therefore `null`, the interface says “Not published,” and sensitivity probabilities are withheld in
-the rendered tables. The JSON retains the raw rows with `estimate_status = diagnostic_only` so the
-importance proposal and any future larger run can be audited without presenting those estimates as
-REGAL's probability of success.
+The checked-in production artifact was generated on 2026-08-25 UTC from source revision
+`d236afbe899f188bae515ff696312da8989d0995`, with seed `20260825`, the exact
+public-history-conditioned base proposal, and 150,000 importance draws per family. It is complete
+and **release-ready**. In the balanced, no-futility baseline, history ESS ranges from 291.6 to
+9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight share from 0.032% to
+1.890%. The complete family set and every model-prior and futility sensitivity row clear the
+≥100/≥100/≤5% gates. The release headline is therefore
+`P(final rejection | public history, interim continuation) = 91.97%`. The JSON retains the full
+family, sensitivity, and proposal diagnostics for audit. Numerical gate clearance is a release
+safeguard, not by itself proof of Monte-Carlo convergence or model correctness.
 
 ---
 
