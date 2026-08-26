@@ -2808,6 +2808,7 @@ def draw_history_importance_sample(
 
 
 def _effective_sample_size(log_weights):
+    # An empty sample contains zero information, so its ESS is exactly zero.
     if not log_weights:
         return 0.0
     numerator = 2.0 * _logsumexp(log_weights)
@@ -2816,6 +2817,8 @@ def _effective_sample_size(log_weights):
 
 
 def _max_weight_share(log_weights):
+    # With no normalized weights there is no maximum share. Keep that distinct
+    # from a genuine zero share; NaN serializes to null and fails readiness.
     if not log_weights:
         return float("nan")
     return exp(max(log_weights) - _logsumexp(log_weights))

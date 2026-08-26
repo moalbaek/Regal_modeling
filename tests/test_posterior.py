@@ -277,6 +277,10 @@ class HistoryBranchTest(unittest.TestCase):
 
 
 class ProposalRobustnessTest(unittest.TestCase):
+    def test_empty_weight_diagnostics_distinguish_zero_ess_from_undefined_share(self):
+        self.assertEqual(posterior_module._effective_sample_size(()), 0.0)
+        self.assertTrue(np.isnan(posterior_module._max_weight_share(())))
+
     def test_tilt_support_uses_exact_positivity_not_numeric_tolerance(self):
         history = small_history()
         constraints = public_history_constraint_branches(history)[0].event_constraints
