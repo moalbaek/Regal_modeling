@@ -209,6 +209,39 @@ class ResultBundleTest(unittest.TestCase):
         serialized = canonical_result_json(bundle)
         self.assertEqual(json.loads(serialized), bundle)
 
+    def test_every_sensitivity_row_serializes_its_numerical_gate_summary(self):
+        bundle = self.ready_bundle()
+        expected = {
+            "minimum_history_effective_sample_size": 400.0,
+            "minimum_continuation_effective_sample_size": 250.0,
+            "maximum_history_weight_share": 0.01,
+        }
+        rows = bundle["prior_sensitivity"] + bundle["futility_sensitivity"]
+        for row in rows:
+            with self.subTest(
+                row=row["name"],
+                threshold=row["assumed_futility_hr_threshold"],
+            ):
+                self.assertEqual(row["readiness_diagnostics"], expected)
+        for row in bundle["futility_sensitivity"]:
+            self.assertNotIn("families", row)
+
+    def test_wire_validator_enforces_futility_row_gate_summaries(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        bundle["futility_sensitivity"][0]["readiness_diagnostics"][
+            "minimum_continuation_effective_sample_size"
+        ] = 99.0
+        with self.assertRaisesRegex(ValueError, "minimum continuation ESS gate"):
+            validate_result_bundle(bundle)
+
+    def test_wire_validator_rejects_prior_gate_summary_drift(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        bundle["prior_sensitivity"][0]["readiness_diagnostics"][
+            "minimum_history_effective_sample_size"
+        ] = 399.0
+        with self.assertRaisesRegex(ValueError, "differ from family diagnostics"):
+            validate_result_bundle(bundle)
+
     def test_failed_readiness_gate_withholds_the_headline_but_keeps_diagnostics(self):
         prior_rows, futility_rows = sensitivity_results(history_ess=99.0)
         bundle = build_result_bundle(

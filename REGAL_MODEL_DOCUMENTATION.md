@@ -709,12 +709,14 @@ observation summary. The browser does not keep a second hand-entered public-hist
 
 `report.py` requires three model-weight rows—skeptical, balanced, and cure-favoring—from identical
 family projections, plus the full paired futility grid (disabled and assumed interim HR thresholds
-0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-1 wire
+0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-2 wire
 schema records the exact source revision, UTC generation time, seed, importance-draw count, public-
 data hash, trial boundaries, active within-family parameter priors, family prior/posterior weights,
-conditional probabilities, ESS, maximum history-weight share, and proposal diagnostics. JSON NaN and
-infinity are forbidden: unavailable non-ready diagnostics become `null`, while a release-ready row
-may not contain a null probability.
+conditional probabilities, ESS, maximum history-weight share, and proposal diagnostics. Every prior
+and futility row includes its cross-family minimum history ESS, minimum continuation ESS, and maximum
+history-weight share, allowing the validator to enforce its gates even when repeated futility-family
+records are omitted. JSON NaN and infinity are forbidden: unavailable non-ready diagnostics become
+`null`, while a release-ready row may not contain a null probability.
 
 The release object is the browser's sole authority. If the balanced no-futility result has
 `is_posterior_forecast = true`, its headline is exactly
@@ -742,6 +744,14 @@ and **release-ready**. In the balanced, no-futility baseline, history ESS ranges
 `P(final rejection | public history, interim continuation) = 91.97%`. The JSON retains the full
 family, sensitivity, and proposal diagnostics for audit. Numerical gate clearance is a release
 safeguard, not by itself proof of Monte-Carlo convergence or model correctness.
+
+Compared with the earlier 10,000-draw tilted diagnostic run, the production base proposal improves
+history ESS per draw in every family. Continuation ESS per draw is materially lower for delayed cure
+and waning/piecewise (and marginally lower for delayed proportional hazards), so their readiness
+comes from clearing the absolute gate at 150,000 draws rather than from uniform proposal-efficiency
+dominance. This does not contradict the rare-continuation WP6 audit: that audit deliberately creates
+a case with zero continuation draws under the 300-draw base run and 71 under the optional centered
+tilt, while its illustrative probabilities are not REGAL forecasts.
 
 ---
 

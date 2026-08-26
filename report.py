@@ -49,13 +49,13 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULT_BUNDLE_PATH = ROOT / "data" / "regal_v2_result_bundle.json"
 DEFAULT_HTML_PATH = ROOT / "regal_explorer.html"
 
-RESULT_BUNDLE_SCHEMA_VERSION = 1
+RESULT_BUNDLE_SCHEMA_VERSION = 2
 RESULT_BUNDLE_TYPE = "regal_v2_posterior_forecast"
 MODEL_VERSION = "v2"
 PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
 # The production release is gated on the no-futility baseline.  Use the exact
 # public-history-conditioned base proposal instead of spending proposal mass
-# on continuation-score tilts for five unpublished futility sensitivities.
+# on the Z=0 centering component and five futility-design tilts.
 # All six designs are still evaluated on the same draws; changing this tuple
 # changes sampling efficiency only, never a target estimand.
 PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS = ()
@@ -213,6 +213,29 @@ def _conditioning_diagnostics(conditioning):
     }
 
 
+def _forecast_readiness_diagnostics(forecast):
+    """Serialize the numerical gates even when per-family rows are omitted."""
+
+    def finite_extreme(values, operation):
+        values = tuple(float(value) for value in values)
+        if not values or any(not isfinite(value) for value in values):
+            return None
+        return operation(values)
+
+    conditioning = tuple(item.conditioning for item in forecast.family_results)
+    return {
+        "minimum_history_effective_sample_size": finite_extreme(
+            (item.history_effective_sample_size for item in conditioning), min
+        ),
+        "minimum_continuation_effective_sample_size": finite_extreme(
+            (item.continuation_effective_sample_size for item in conditioning), min
+        ),
+        "maximum_history_weight_share": finite_extreme(
+            (item.maximum_history_weight_share for item in conditioning), max
+        ),
+    }
+
+
 def _family_record(item):
     conditioning = item.conditioning
     return {
@@ -251,6 +274,7 @@ def _forecast_record(forecast, include_families=True):
             else "diagnostic_only"
         ),
         "readiness_issues": list(forecast.forecast_readiness_issues),
+        "readiness_diagnostics": _forecast_readiness_diagnostics(forecast),
         "probabilities": {
             "public_history_and_continuation": _json_number(
                 forecast.p_public_history_and_continuation
@@ -498,6 +522,66 @@ def _assert_json_finite(value, path="bundle"):
         raise ValueError(f"{path} contains a non-finite JSON number")
 
 
+def _nonnegative_number(value, name, allow_none=False):
+    if value is None and allow_none:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be numeric")
+    number = float(value)
+    if not isfinite(number) or number < 0.0:
+        raise ValueError(f"{name} must be finite and non-negative")
+    return number
+
+
+def _validate_readiness_diagnostics(record):
+    diagnostics = record.get("readiness_diagnostics")
+    if not isinstance(diagnostics, dict):
+        raise ValueError("forecast readiness diagnostics must be an object")
+    required = {
+        "minimum_history_effective_sample_size",
+        "minimum_continuation_effective_sample_size",
+        "maximum_history_weight_share",
+    }
+    if not required.issubset(diagnostics):
+        raise ValueError("forecast readiness diagnostics are incomplete")
+    history_ess = _nonnegative_number(
+        diagnostics["minimum_history_effective_sample_size"],
+        "minimum history ESS",
+        allow_none=True,
+    )
+    continuation_ess = _nonnegative_number(
+        diagnostics["minimum_continuation_effective_sample_size"],
+        "minimum continuation ESS",
+        allow_none=True,
+    )
+    maximum_share = _probability(
+        diagnostics["maximum_history_weight_share"],
+        "maximum history weight share",
+        allow_none=True,
+    )
+    if record["is_posterior_forecast"]:
+        if history_ess is None or history_ess < MINIMUM_POSTERIOR_FORECAST_ESS:
+            raise ValueError("a ready forecast must clear the minimum history ESS gate")
+        if (
+            continuation_ess is None
+            or continuation_ess < MINIMUM_POSTERIOR_FORECAST_ESS
+        ):
+            raise ValueError(
+                "a ready forecast must clear the minimum continuation ESS gate"
+            )
+        if maximum_share is None or maximum_share > (
+            MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+        ):
+            raise ValueError(
+                "a ready forecast must clear the maximum history-weight gate"
+            )
+    return {
+        "minimum_history_effective_sample_size": history_ess,
+        "minimum_continuation_effective_sample_size": continuation_ess,
+        "maximum_history_weight_share": maximum_share,
+    }
+
+
 def _validate_forecast_record(record, *, families_required):
     if not isinstance(record, dict):
         raise ValueError("forecast records must be objects")
@@ -519,6 +603,7 @@ def _validate_forecast_record(record, *, families_required):
         raise ValueError("a ready forecast cannot retain readiness issues")
     if not record["is_posterior_forecast"] and not issues:
         raise ValueError("a diagnostic-only forecast must state its readiness issues")
+    readiness_diagnostics = _validate_readiness_diagnostics(record)
     probabilities = record.get("probabilities")
     if not isinstance(probabilities, dict):
         raise ValueError("forecast probabilities must be an object")
@@ -537,6 +622,9 @@ def _validate_forecast_record(record, *, families_required):
             raise ValueError("forecast families must cover every required effect family")
         prior_weights = []
         posterior_weights = []
+        history_effective_sample_sizes = []
+        continuation_effective_sample_sizes = []
+        maximum_history_weight_shares = []
         for item in families:
             try:
                 family = GPSEffectFamily(item["family"])
@@ -581,12 +669,25 @@ def _validate_forecast_record(record, *, families_required):
                 count = diagnostics.get(count_name)
                 if isinstance(count, bool) or not isinstance(count, int) or count < 0:
                     raise ValueError(f"family diagnostic {count_name} must be non-negative")
+            history_ess = _nonnegative_number(
+                diagnostics.get("history_effective_sample_size"),
+                "family history ESS",
+                allow_none=not record["is_posterior_forecast"],
+            )
+            continuation_ess = _nonnegative_number(
+                diagnostics.get("continuation_effective_sample_size"),
+                "family continuation ESS",
+                allow_none=not record["is_posterior_forecast"],
+            )
+            maximum_share = _probability(
+                diagnostics.get("maximum_history_weight_share"),
+                "family maximum history weight share",
+                allow_none=not record["is_posterior_forecast"],
+            )
+            history_effective_sample_sizes.append(history_ess)
+            continuation_effective_sample_sizes.append(continuation_ess)
+            maximum_history_weight_shares.append(maximum_share)
             if record["is_posterior_forecast"]:
-                history_ess = diagnostics.get("history_effective_sample_size")
-                continuation_ess = diagnostics.get(
-                    "continuation_effective_sample_size"
-                )
-                maximum_share = diagnostics.get("maximum_history_weight_share")
                 if history_ess is None or float(history_ess) < MINIMUM_POSTERIOR_FORECAST_ESS:
                     raise ValueError("a ready family must clear the history ESS gate")
                 if continuation_ess is None or (
@@ -603,6 +704,27 @@ def _validate_forecast_record(record, *, families_required):
             sum(posterior_weights) - 1.0
         ) > 1e-12:
             raise ValueError("forecast family weights must sum to one")
+        expected_readiness_diagnostics = {
+            "minimum_history_effective_sample_size": (
+                None
+                if any(value is None for value in history_effective_sample_sizes)
+                else min(history_effective_sample_sizes)
+            ),
+            "minimum_continuation_effective_sample_size": (
+                None
+                if any(value is None for value in continuation_effective_sample_sizes)
+                else min(continuation_effective_sample_sizes)
+            ),
+            "maximum_history_weight_share": (
+                None
+                if any(value is None for value in maximum_history_weight_shares)
+                else max(maximum_history_weight_shares)
+            ),
+        }
+        if readiness_diagnostics != expected_readiness_diagnostics:
+            raise ValueError(
+                "forecast readiness diagnostics differ from family diagnostics"
+            )
     elif families is not None:
         raise ValueError("futility sensitivity rows must not duplicate family records")
 

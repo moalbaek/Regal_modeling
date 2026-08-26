@@ -271,9 +271,11 @@ truth.
 scenario where the exact-count base proposal produced no continuation draws in the pinned
 300-draw run. Adding the continuation-centered component produced 71 raw continuation draws
 (weighted ESS 3.89) while giving a consistent public-history compatibility estimate. This validates
-rare-branch access; none of those illustrative probabilities is a REGAL forecast. WP6 itself still
-operates under one fixed scenario (or one supplied prior-predictive family) at a time. WP7 now
-supplies effect-family and parameter draws and averages those conditional projections.
+rare-branch access; none of those illustrative probabilities is a REGAL forecast. The production
+integration has adequate base-proposal continuation support at its 150,000-draw budget, whereas the
+audit intentionally constructs a much rarer continuation case to exercise the optional tilt. WP6
+itself still operates under one fixed scenario (or one supplied prior-predictive family) at a time.
+WP7 now supplies effect-family and parameter draws and averages those conditional projections.
 
 ### 7. Average across GPS effect structures
 
@@ -372,8 +374,10 @@ a second likelihood. `report.py` serializes `PosteriorForecastResult` values, re
 model-weight prior rows and the full paired futility grid, and refuses drift between the balanced
 no-futility rows. Every family carries its active parameter prior, prior/posterior weight,
 within-family conditional probabilities, ESS, maximum history-weight share, and proposal
-diagnostics. Non-finite diagnostic estimates serialize as JSON `null`; a release-ready result may
-not contain a null probability.
+diagnostics. Every prior and futility row also carries the minimum history ESS, minimum continuation
+ESS, and maximum history-weight share across its families, so its gate status remains independently
+checkable even when the futility row omits repeated family records. Non-finite diagnostic estimates
+serialize as JSON `null`; a release-ready result may not contain a null probability.
 
 The publisher writes `data/regal_v2_result_bundle.json` and replaces one marked
 `application/json` block in `regal_explorer.html`. The UI reads only that block. A ready primary row
@@ -391,7 +395,11 @@ ESS ranges from 291.6 to 9,053.6, continuation ESS from 129.7 to 1,147.4, and ma
 share from 0.032% to 1.890%. The complete seven-family result and every model-prior and futility row
 clear all three committed gates. The release status is therefore **ready**, and the balanced
 no-futility headline is 91.97%. The earlier 10,000-draw diagnostic artifact was correctly withheld;
-the larger run was accepted only after the unchanged gates were evaluated.
+the larger run was accepted only after the unchanged gates were evaluated. Relative to that tilted
+diagnostic run, the base proposal improves history ESS per draw in every family, but continuation ESS
+per draw is materially lower for delayed cure and waning/piecewise (and marginally lower for delayed
+proportional hazards). Those rows pass because the absolute 150,000-draw ESS clears the gate, not
+because the base proposal dominates the tilted mixture for every conditional estimand.
 
 ## Release gates
 

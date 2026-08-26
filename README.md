@@ -23,6 +23,12 @@ concentration gates. The balanced no-futility headline is 91.97%. All model-prio
 sensitivity rows also clear their numerical gates. These gates are release safeguards, not by
 themselves proof of Monte-Carlo convergence or model correctness.
 
+The base proposal improved history ESS per draw in every family relative to the earlier 10,000-draw
+tilted diagnostic run. Continuation ESS per draw fell materially for delayed cure and
+waning/piecewise (and marginally for delayed proportional hazards), so those rows clear the absolute
+ESS gate through the 150,000-draw budget—not because the base proposal is uniformly more efficient
+for every conditional estimand.
+
 The blinded death-event milestones (60/72/78) constrain only the *pooled* survival trajectory, so the
 split between arms is an explicit assumption. The tool calibrates assumed pooled curve families to
 the milestones, decomposes them into arms under user-controlled assumptions, and simulates the
@@ -104,7 +110,10 @@ and proposal-infeasible-draw counts expose a poorly supported fixed-scenario pro
 hiding it behind a raw draw count. Structurally infeasible proposal pairs remain counted zero-weight
 draws, while numerical underflow in a mathematically positive quota probability raises instead of
 silently discarding weight. Tilt iteration/error summaries are `None` when no tilt converged. Direct
-tilt callers can catch the exported `TiltProposalError`.
+tilt callers can catch the exported `TiltProposalError`. The rare-continuation audit deliberately
+uses a stress scenario in which the 300-draw base run has no continuation draws; it demonstrates why
+the optional tilt remains available and is not representative of the adequately supported 150,000-
+draw production integration.
 The WP7 tests additionally pin piecewise and delayed-cure event-time inversion, scale-aware
 population hazards, exact nesting of PH=1 inside no effect, protocol-factor-stratified randomization,
 complete coverage of the six required effect structures plus the exploratory responder/cure family,
@@ -117,10 +126,10 @@ counts as prior centers. Forecast labeling additionally requires history and con
 least 100 in every family and no family history weight above 5%; failing diagnostics remain visible
 on the complete model-average result.
 The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON wire schema, complete family and
-sensitivity grids, the rule that a failed readiness gate forces the release headline to `null`, safe
-HTML embedding, and exact equality between the checked-in JSON and the bundle consumed by the
-self-contained browser. The browser formats these Python outputs and performs no posterior
-calculation of its own.
+sensitivity grids, serialized min-ESS/max-weight gate summaries for every row, the rule that a failed
+readiness gate forces the release headline to `null`, safe HTML embedding, and exact equality between
+the checked-in JSON and the bundle consumed by the self-contained browser. The browser formats these
+Python outputs and performs no posterior calculation of its own.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
