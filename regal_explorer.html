@@ -1774,8 +1774,9 @@ function renderV2Forecast(){
     ["Evidence through",data.as_of_date||"—"],
     ["Public-data fingerprint",data.source&&data.source.sha256?data.source.sha256.slice(0,12)+"…":"—"],
     ["Importance draws / family",typeof run.importance_draws_per_family==="number"?run.importance_draws_per_family.toLocaleString():"Not run"],
-    ["Generated",bundle.generated_at?bundle.generated_at.replace("T"," ").replace("Z"," UTC"):"—"],
-    ["Engine revision",bundle.source_revision||"—"],
+    ["Numerical run generated",bundle.generated_at?bundle.generated_at.replace("T"," ").replace("Z"," UTC"):"—"],
+    ["Numerical run revision",bundle.source_revision||"—"],
+    ["Bundle serializer revision",bundle.serialization_revision||"—"],
     ["Model / bundle schema",(bundle.model_version||"—")+" / "+(bundle.schema_version||"—")],
     ["Futility baseline",run.primary_futility_assumption||"—"],
   ];

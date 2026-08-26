@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from typing import Optional
 
 from posterior import (
     BALANCED_MODEL_FAMILY_PRIOR,
@@ -49,7 +50,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULT_BUNDLE_PATH = ROOT / "data" / "regal_v2_result_bundle.json"
 DEFAULT_HTML_PATH = ROOT / "regal_explorer.html"
 
-RESULT_BUNDLE_SCHEMA_VERSION = 2
+RESULT_BUNDLE_SCHEMA_VERSION = 3
 RESULT_BUNDLE_TYPE = "regal_v2_posterior_forecast"
 MODEL_VERSION = "v2"
 PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
@@ -117,6 +118,7 @@ class AnalysisRunMetadata:
     generated_at: datetime
     source_revision: str
     seed: int
+    serialization_revision: Optional[str] = None
 
     def __post_init__(self):
         generated_at = self.generated_at
@@ -126,10 +128,18 @@ class AnalysisRunMetadata:
         revision = str(self.source_revision).strip()
         if not revision:
             raise ValueError("source_revision must be non-empty")
+        serialization_revision = (
+            revision
+            if self.serialization_revision is None
+            else str(self.serialization_revision).strip()
+        )
+        if not serialization_revision:
+            raise ValueError("serialization_revision must be non-empty")
         if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
             raise ValueError("seed must be a non-negative integer")
         object.__setattr__(self, "generated_at", generated_at)
         object.__setattr__(self, "source_revision", revision)
+        object.__setattr__(self, "serialization_revision", serialization_revision)
 
     @property
     def generated_at_iso(self):
@@ -434,6 +444,7 @@ def build_result_bundle(
         "model_version": MODEL_VERSION,
         "generated_at": metadata.generated_at_iso,
         "source_revision": metadata.source_revision,
+        "serialization_revision": metadata.serialization_revision,
         "gates": _readiness_gate_record(),
         "public_data": dict(data_snapshot.to_mapping()),
         "design": _design_record(primary.family_results[0].conditioning.design),
@@ -474,6 +485,7 @@ def build_unpublished_result_bundle(
     *,
     generated_at,
     source_revision="unpublished",
+    serialization_revision=None,
     data_snapshot=None,
 ):
     """Build a schema-valid placeholder that cannot expose a headline value."""
@@ -483,6 +495,12 @@ def build_unpublished_result_bundle(
     generated_at_iso = generated_at.astimezone(timezone.utc).isoformat(
         timespec="seconds"
     ).replace("+00:00", "Z")
+    source_revision = str(source_revision).strip() or "unpublished"
+    if serialization_revision is None:
+        serialization_revision = source_revision
+    serialization_revision = str(serialization_revision).strip()
+    if not serialization_revision:
+        raise ValueError("serialization_revision must be non-empty")
     if data_snapshot is None:
         data_snapshot = load_regal_data_snapshot()
     bundle = {
@@ -490,7 +508,8 @@ def build_unpublished_result_bundle(
         "bundle_type": RESULT_BUNDLE_TYPE,
         "model_version": MODEL_VERSION,
         "generated_at": generated_at_iso,
-        "source_revision": str(source_revision).strip() or "unpublished",
+        "source_revision": source_revision,
+        "serialization_revision": serialization_revision,
         "gates": _readiness_gate_record(),
         "public_data": dict(data_snapshot.to_mapping()),
         "design": _design_record(
@@ -768,6 +787,10 @@ def validate_result_bundle(bundle):
         "source_revision"
     ].strip():
         raise ValueError("source_revision must be non-empty")
+    if not isinstance(bundle.get("serialization_revision"), str) or not bundle[
+        "serialization_revision"
+    ].strip():
+        raise ValueError("serialization_revision must be non-empty")
 
     gates = bundle.get("gates")
     expected_gates = _readiness_gate_record()
@@ -1217,10 +1240,12 @@ def _build_command(args):
             PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
         ),
     )
+    serialization_revision = _git_revision()
     metadata = AnalysisRunMetadata(
         generated_at=datetime.now(timezone.utc),
-        source_revision=args.source_revision or _git_revision(),
+        source_revision=args.source_revision or serialization_revision,
         seed=args.seed,
+        serialization_revision=serialization_revision,
     )
     bundle = build_result_bundle(prior, futility, metadata=metadata)
     write_published_artifacts(
@@ -1263,7 +1288,13 @@ def main(argv=None):
     build_parser.add_argument(
         "--workers", type=int, default=max(1, min(os.cpu_count() or 1, 4))
     )
-    build_parser.add_argument("--source-revision")
+    build_parser.add_argument(
+        "--source-revision",
+        help=(
+            "numerical-run source revision; defaults to the current Git revision, "
+            "which is also recorded separately as the serialization revision"
+        ),
+    )
     build_parser.add_argument(
         "--proposal-interim-z-targets",
         nargs="*",
