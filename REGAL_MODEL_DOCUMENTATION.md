@@ -757,8 +757,12 @@ a case with zero continuation draws under the 300-draw base run and 71 under the
 tilt, while its illustrative probabilities are not REGAL forecasts.
 The production CLI defaults to the empty base-proposal target tuple. Passing
 `--proposal-interim-z-targets auto` restores Z=0 plus design-derived futility tilts, and passing an
-explicit numeric list supplies fixed Z targets for proposal-only cross-checks. Automatic Git
-provenance appends `-dirty` when the worktree has tracked or untracked changes and
+explicit numeric list supplies fixed Z targets for proposal-only cross-checks. A noncanonical
+proposal is rejected before simulation unless both `--output-json` and `--html` point away from the
+committed release artifacts. The bundle serializes the minimum ESS and maximum history-weight gates;
+the validator requires exact agreement with the Python constants, and the browser derives its ESS
+label and margin from those serialized values. Automatic Git provenance appends `-dirty` when the
+worktree has tracked or untracked changes and
 `-state-unknown` when Git cannot verify its state. Empty weights deliberately produce ESS 0 but an
 undefined (`NaN`, serialized `null`) maximum share: zero information is defined, while no normalized
 weight distribution exists from which to take a maximum.

@@ -72,6 +72,18 @@ FAMILY_LABELS = {
     GPSEffectFamily.RESPONDER_CURE: "Responder / cure exploratory",
 }
 
+
+def _readiness_gate_record():
+    """Return the release gates serialized into every result bundle."""
+
+    return {
+        "minimum_posterior_forecast_ess": MINIMUM_POSTERIOR_FORECAST_ESS,
+        "maximum_history_weight_share": (
+            MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+        ),
+    }
+
+
 ACTIVE_PRIOR_FIELDS = {
     GPSEffectFamily.NO_EFFECT: (),
     GPSEffectFamily.PROPORTIONAL_HAZARDS: ("hazard_ratio",),
@@ -422,6 +434,7 @@ def build_result_bundle(
         "model_version": MODEL_VERSION,
         "generated_at": metadata.generated_at_iso,
         "source_revision": metadata.source_revision,
+        "gates": _readiness_gate_record(),
         "public_data": dict(data_snapshot.to_mapping()),
         "design": _design_record(primary.family_results[0].conditioning.design),
         "run": {
@@ -478,6 +491,7 @@ def build_unpublished_result_bundle(
         "model_version": MODEL_VERSION,
         "generated_at": generated_at_iso,
         "source_revision": str(source_revision).strip() or "unpublished",
+        "gates": _readiness_gate_record(),
         "public_data": dict(data_snapshot.to_mapping()),
         "design": _design_record(
             TrialDecisionDesign(
@@ -754,6 +768,25 @@ def validate_result_bundle(bundle):
         "source_revision"
     ].strip():
         raise ValueError("source_revision must be non-empty")
+
+    gates = bundle.get("gates")
+    expected_gates = _readiness_gate_record()
+    if not isinstance(gates, dict) or set(gates) != set(expected_gates):
+        raise ValueError("bundle readiness gates are incomplete or unsupported")
+    minimum_ess = _nonnegative_number(
+        gates["minimum_posterior_forecast_ess"],
+        "minimum posterior forecast ESS gate",
+    )
+    maximum_share = _probability(
+        gates["maximum_history_weight_share"],
+        "maximum history weight share gate",
+    )
+    if minimum_ess != MINIMUM_POSTERIOR_FORECAST_ESS or maximum_share != (
+        MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+    ):
+        raise ValueError(
+            "bundle readiness gates differ from the canonical Python constants"
+        )
 
     public_data = bundle.get("public_data")
     if not isinstance(public_data, dict):
@@ -1155,6 +1188,24 @@ def _parse_proposal_interim_z_targets(values):
     return targets
 
 
+def _validate_proposal_output_paths(args):
+    """Keep proposal-only cross-checks away from committed release artifacts."""
+
+    if args.proposal_interim_z_targets == PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS:
+        return
+    protected = []
+    if Path(args.output_json).resolve() == DEFAULT_RESULT_BUNDLE_PATH.resolve():
+        protected.append("--output-json")
+    if Path(args.html).resolve() == DEFAULT_HTML_PATH.resolve():
+        protected.append("--html")
+    if protected:
+        raise ValueError(
+            "noncanonical proposal cross-checks require scratch paths for both "
+            "--output-json and --html; committed release path still selected for "
+            + ", ".join(protected)
+        )
+
+
 def _build_command(args):
     prior, futility = run_regal_forecast_analysis(
         nsim=args.nsim,
@@ -1220,7 +1271,8 @@ def main(argv=None):
         help=(
             "importance-proposal interim Z targets; omit for the canonical base "
             "proposal, pass 'auto' alone for Z=0 plus design-derived futility "
-            "tilts, or provide an explicit numeric list"
+            "tilts, or provide an explicit numeric list; noncanonical targets "
+            "require scratch paths for both output options"
         ),
     )
     build_parser.add_argument(
@@ -1248,6 +1300,7 @@ def main(argv=None):
         args.proposal_interim_z_targets = _parse_proposal_interim_z_targets(
             args.proposal_interim_z_targets
         )
+        _validate_proposal_output_paths(args)
     except ValueError as error:
         parser.error(str(error))
     return _build_command(args)

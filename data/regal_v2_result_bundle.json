@@ -115,6 +115,10 @@
       "readiness_issues": []
     }
   ],
+  "gates": {
+    "maximum_history_weight_share": 0.05,
+    "minimum_posterior_forecast_ess": 100.0
+  },
   "generated_at": "2026-08-26T08:05:12Z",
   "model_version": "v2",
   "prior_sensitivity": [

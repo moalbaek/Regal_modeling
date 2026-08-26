@@ -405,9 +405,13 @@ proportional hazards). Those rows pass because the absolute 150,000-draw ESS cle
 because the base proposal dominates the tilted mixture for every conditional estimand.
 For proposal-only exactness checks, `report.py build --proposal-interim-z-targets auto` restores the
 Z=0 plus design-derived tilted mixture, while an explicit numeric list supplies fixed Z targets; the
-canonical default remains the empty base-proposal tuple. Automatically detected Git revisions carry
-a `-dirty` suffix when tracked or untracked worktree changes are present and `-state-unknown` when
-Git cannot verify worktree state.
+canonical default remains the empty base-proposal tuple. Noncanonical proposals must send both the
+JSON and HTML to scratch paths; the CLI rejects either committed release path before starting the
+simulation. The bundle is also the sole source of truth for the minimum ESS and maximum
+history-weight gates: validation cross-checks them against the Python constants and the browser uses
+the serialized minimum ESS for its header and margin arithmetic. Automatically detected Git
+revisions carry a `-dirty` suffix when tracked or untracked worktree changes are present and
+`-state-unknown` when Git cannot verify worktree state.
 
 ## Release gates
 

@@ -129,10 +129,11 @@ counts as prior centers. Forecast labeling additionally requires history and con
 least 100 in every family and no family history weight above 5%; failing diagnostics remain visible
 on the complete model-average result.
 The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON wire schema, complete family and
-sensitivity grids, serialized min-ESS/max-weight gate summaries for every row, the rule that a failed
-readiness gate forces the release headline to `null`, safe HTML embedding, and exact equality between
-the checked-in JSON and the bundle consumed by the self-contained browser. The browser formats these
-Python outputs and performs no posterior calculation of its own.
+sensitivity grids, serialized gate constants and min-ESS/max-weight summaries for every row, the rule
+that a failed readiness gate forces the release headline to `null`, safe HTML embedding, and exact
+equality between the checked-in JSON and the bundle consumed by the self-contained browser. The
+browser reads its gate labels and margins from that bundle, formats the Python outputs, and performs
+no posterior calculation of its own.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
@@ -144,9 +145,12 @@ python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect fam
 python3 report.py validate                 # validate the committed WP8 JSON + embedded HTML
 # Production build (expensive; always persists the gated bundle; --require-ready exits nonzero if withheld):
 python3 report.py build --nsim 150000 --seed 20260825 --workers 7 --require-ready
-# Optional proposal-only flags for a scratch build with separate --output-json/--html paths:
-#   --proposal-interim-z-targets auto       # Z=0 plus design-derived futility tilts
-#   --proposal-interim-z-targets 0 1.25     # explicit Z targets
+# Proposal-only cross-checks are refused unless BOTH outputs use scratch paths:
+cp regal_explorer.html /tmp/regal_explorer_auto.html
+python3 report.py build --nsim 2000 --seed 4242 --workers 7 \
+  --proposal-interim-z-targets auto \
+  --output-json /tmp/regal_v2_auto.json --html /tmp/regal_explorer_auto.html
+# An explicit numeric list such as --proposal-interim-z-targets 0 1.25 is also supported.
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 

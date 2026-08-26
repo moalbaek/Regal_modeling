@@ -24,6 +24,8 @@ from posterior import (  # noqa: E402
     ConditioningResult,
     EffectFamilyProjection,
     GPSEffectFamily,
+    MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE,
+    MINIMUM_POSTERIOR_FORECAST_ESS,
     posterior_model_average,
     posterior_prior_sensitivity,
 )
@@ -211,10 +213,28 @@ class ResultBundleTest(unittest.TestCase):
         )
 
     def test_build_cli_parses_automatic_and_explicit_proposal_targets(self):
+        scratch_outputs = [
+            "--output-json",
+            str(ROOT / "scratch" / "proposal.json"),
+            "--html",
+            str(ROOT / "scratch" / "proposal.html"),
+        ]
         cases = (
             ([], ()),
-            (["--proposal-interim-z-targets", "auto"], None),
-            (["--proposal-interim-z-targets", "0", "1.25"], (0.0, 1.25)),
+            (["--proposal-interim-z-targets"], ()),
+            (
+                ["--proposal-interim-z-targets", "auto", *scratch_outputs],
+                None,
+            ),
+            (
+                [
+                    "--proposal-interim-z-targets",
+                    "0",
+                    "1.25",
+                    *scratch_outputs,
+                ],
+                (0.0, 1.25),
+            ),
         )
         for extra, expected in cases:
             with self.subTest(extra=extra), mock.patch(
@@ -237,6 +257,44 @@ class ResultBundleTest(unittest.TestCase):
                         ["build", "--proposal-interim-z-targets", *values]
                     )
                 self.assertEqual(raised.exception.code, 2)
+                self.assertNotIn("Traceback", stderr.getvalue())
+                build.assert_not_called()
+
+    def test_noncanonical_proposal_build_requires_two_scratch_output_paths(self):
+        scratch_json = str(ROOT / "scratch" / "proposal.json")
+        scratch_html = str(ROOT / "scratch" / "proposal.html")
+        cases = (
+            (["--proposal-interim-z-targets", "auto"], "--output-json, --html"),
+            (
+                [
+                    "--proposal-interim-z-targets",
+                    "auto",
+                    "--output-json",
+                    scratch_json,
+                ],
+                "--html",
+            ),
+            (
+                [
+                    "--proposal-interim-z-targets",
+                    "0",
+                    "--html",
+                    scratch_html,
+                ],
+                "--output-json",
+            ),
+        )
+        for argv, protected in cases:
+            with self.subTest(argv=argv), mock.patch("report._build_command") as build:
+                stderr = StringIO()
+                with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                    report_main(["build", *argv])
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn(
+                    "noncanonical proposal cross-checks require scratch paths",
+                    stderr.getvalue(),
+                )
+                self.assertIn(protected, stderr.getvalue())
                 self.assertNotIn("Traceback", stderr.getvalue())
                 build.assert_not_called()
 
@@ -275,6 +333,32 @@ class ResultBundleTest(unittest.TestCase):
         )
         serialized = canonical_result_json(bundle)
         self.assertEqual(json.loads(serialized), bundle)
+
+    def test_bundle_serializes_the_canonical_python_readiness_gates(self):
+        expected = {
+            "minimum_posterior_forecast_ess": MINIMUM_POSTERIOR_FORECAST_ESS,
+            "maximum_history_weight_share": (
+                MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+            ),
+        }
+        self.assertEqual(self.ready_bundle()["gates"], expected)
+        unpublished = build_unpublished_result_bundle(
+            generated_at=self.metadata.generated_at,
+            source_revision=self.metadata.source_revision,
+            data_snapshot=self.snapshot,
+        )
+        self.assertEqual(unpublished["gates"], expected)
+
+    def test_wire_validator_rejects_readiness_gate_constant_drift(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        bundle["gates"]["minimum_posterior_forecast_ess"] = 99.0
+        with self.assertRaisesRegex(ValueError, "canonical Python constants"):
+            validate_result_bundle(bundle)
+
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        del bundle["gates"]["maximum_history_weight_share"]
+        with self.assertRaisesRegex(ValueError, "incomplete or unsupported"):
+            validate_result_bundle(bundle)
 
     def test_every_sensitivity_row_serializes_its_numerical_gate_summary(self):
         bundle = self.ready_bundle()
@@ -393,7 +477,10 @@ class ResultBundleTest(unittest.TestCase):
         html = (ROOT / "regal_explorer.html").read_text(encoding="utf-8")
         self.assertIn("renderV2Forecast()", html)
         self.assertIn("release.is_posterior_forecast===true", html)
-        self.assertIn("Min continuation ESS (margin over 100)", html)
+        self.assertIn('id="v2FutilityEssHeader"', html)
+        self.assertIn("gates.minimum_posterior_forecast_ess", html)
+        self.assertNotIn("margin over 100", html)
+        self.assertNotIn("minContinuationEss-100", html)
         self.assertIn("minimum_continuation_effective_sample_size", html)
         self.assertEqual(extract_embedded_result_bundle(html), bundle)
 
