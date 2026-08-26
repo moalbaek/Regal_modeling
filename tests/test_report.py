@@ -501,6 +501,8 @@ class ResultBundleTest(unittest.TestCase):
         self.assertIn("release.is_posterior_forecast===true", html)
         self.assertIn('id="v2FutilityEssHeader"', html)
         self.assertIn("gates.minimum_posterior_forecast_ess", html)
+        self.assertIn("Bundle serializer revision", html)
+        self.assertIn("bundle.serialization_revision", html)
         self.assertNotIn("margin over 100", html)
         self.assertNotIn("minContinuationEss-100", html)
         self.assertIn("minimum_continuation_effective_sample_size", html)
