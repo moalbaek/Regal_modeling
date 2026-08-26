@@ -29,8 +29,10 @@ from posterior import (  # noqa: E402
 from regal_data import load_regal_data_snapshot  # noqa: E402
 from report import (  # noqa: E402
     AnalysisRunMetadata,
+    PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
     RESULT_BUNDLE_END,
     RESULT_BUNDLE_START,
+    _family_worker,
     build_result_bundle,
     build_unpublished_result_bundle,
     _build_command,
@@ -159,6 +161,28 @@ class ResultBundleTest(unittest.TestCase):
             futility_rows,
             metadata=self.metadata,
             data_snapshot=self.snapshot,
+        )
+
+    def test_production_worker_uses_the_auditable_base_proposal(self):
+        prior = DEFAULT_EFFECT_FAMILY_PRIORS[0]
+        with mock.patch(
+            "report.condition_effect_family_futility_sensitivity",
+            return_value=("projection",),
+        ) as run_family:
+            result = _family_worker(
+                prior,
+                FUTILITY_HR_SENSITIVITY_GRID,
+                123,
+                20260825,
+            )
+        self.assertEqual(result, ("projection",))
+        self.assertEqual(PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS, ())
+        run_family.assert_called_once_with(
+            prior,
+            thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+            nsim=123,
+            seed=20260825,
+            proposal_interim_z_targets=(),
         )
 
     def test_ready_bundle_exposes_only_the_primary_release_headline(self):

@@ -53,6 +53,12 @@ RESULT_BUNDLE_SCHEMA_VERSION = 1
 RESULT_BUNDLE_TYPE = "regal_v2_posterior_forecast"
 MODEL_VERSION = "v2"
 PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
+# The production release is gated on the no-futility baseline.  Use the exact
+# public-history-conditioned base proposal instead of spending proposal mass
+# on continuation-score tilts for five unpublished futility sensitivities.
+# All six designs are still evaluated on the same draws; changing this tuple
+# changes sampling efficiency only, never a target estimand.
+PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS = ()
 RESULT_BUNDLE_START = "<!-- REGAL_V2_RESULT_BUNDLE_START -->"
 RESULT_BUNDLE_END = "<!-- REGAL_V2_RESULT_BUNDLE_END -->"
 
@@ -894,6 +900,7 @@ def _family_worker(effect_prior, thresholds, nsim, seed):
         thresholds=thresholds,
         nsim=nsim,
         seed=seed,
+        proposal_interim_z_targets=PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
     )
 
 
