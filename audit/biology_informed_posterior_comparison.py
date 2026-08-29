@@ -21,20 +21,25 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
-from biology_informed_posterior import (
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from biology_informed_posterior import (  # noqa: E402
     BIOLOGY_INFORMED_EFFECT_FAMILY_PRIORS,
     BIOLOGY_INFORMED_MECHANISM_FAVORING_SURVIVAL_PRIORS,
     BIOLOGY_INFORMED_SKEPTICAL_SURVIVAL_PRIORS,
     RESPONSE_EVIDENCE_ONLY_EFFECT_FAMILY_PRIORS,
 )
-from biology_priors import (
+from biology_priors import (  # noqa: E402
     POOLED_GPS_RESPONSE_POSTERIOR,
     WT1_RESPONDER_DURABLE_PRIOR_BALANCED,
     WT1_RESPONDER_DURABLE_PRIOR_MECHANISM_FAVORING,
     WT1_RESPONDER_DURABLE_PRIOR_SKEPTICAL,
 )
-from posterior import (
+from posterior import (  # noqa: E402
     BALANCED_MODEL_FAMILY_PRIOR,
     DEFAULT_EFFECT_FAMILY_PRIORS,
     GPSEffectFamily,
@@ -42,7 +47,7 @@ from posterior import (
     condition_effect_family_futility_sensitivity,
     posterior_model_average,
 )
-from simulation import FUTILITY_HR_SENSITIVITY_GRID
+from simulation import FUTILITY_HR_SENSITIVITY_GRID  # noqa: E402
 
 
 def _responder_prior(priors):
