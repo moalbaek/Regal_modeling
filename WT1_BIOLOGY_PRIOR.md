@@ -132,7 +132,7 @@ Mixture sensitivities:
 | Mechanism-favoring | 30% | 50% | 20% | **38.5%** |
 
 All three are below the legacy flat prior's 52.5% mean. This is intentional. The
-new biological evidence narrows the immune-response rate upward, but the clinical
+new biological evidence narrows the immune-response rate, but the clinical
 literature argues for **more skepticism about how often an immune response becomes
 a truly durable survival state**.
 
@@ -149,6 +149,19 @@ These are prior-predictive quantities before conditioning on REGAL's blinded
 60/72/78-event history and interim continuation. The public trial history remains
 responsible for deciding whether such responder-tail models gain or lose
 posterior weight.
+
+The side-by-side audit runner is:
+
+```bash
+python audit/biology_informed_posterior_comparison.py \
+  --nsim 10000 \
+  --output data/biology_informed_posterior_comparison.json
+```
+
+It integrates the default non-responder families once, recomputes only the
+responder family for each biology prior on the same family-specific random seed,
+and reports posterior rejection probability across the complete futility-HR
+sensitivity grid.
 
 ## What this prior does not claim
 
