@@ -1,9 +1,11 @@
 # WT1 biology-informed responder prior
 
-This note documents the external biological evidence used by the optional REGAL
-responder/cure prior in `biology_priors.py` and `biology_informed_posterior.py`.
-It is deliberately kept separate from the blinded REGAL public-history
-likelihood.
+This note documents the immunogenicity and responder-survival evidence used by
+the optional REGAL responder/cure prior in `biology_priors.py` and
+`biology_informed_posterior.py`. This includes a public REGAL interim
+immunogenicity disclosure, but keeps that distinct endpoint-level update
+separate from the blinded REGAL event-count likelihood rather than treating it
+as survival-event evidence.
 
 ## Two separate questions
 
@@ -169,17 +171,23 @@ The side-by-side audit runner is:
 
 ```bash
 python audit/biology_informed_posterior_comparison.py \
-  --nsim 10000 \
+  --nsim 150000 \
+  --workers 7 \
   --output data/biology_informed_posterior_comparison.json
 ```
 
-It integrates the default non-responder families once, recomputes only the
-responder family for each biology prior on the same family-specific random seed,
-and reports posterior rejection probability across the complete futility-HR
-sensitivity grid. By default the CLI refuses to print or write results if any
-forecast-readiness gate fails. `--allow-diagnostic-output` may be used to inspect
-such a run, but the table and JSON are then explicitly marked `diagnostic_only`
-and retain the readiness failures and ESS/weight diagnostics.
+The default 150,000-draw budget matches the production publisher and is sized to
+clear the same ESS and weight-concentration gates; seven worker processes run
+the independent family integrations concurrently. The runner integrates each
+default non-responder family once and recomputes only the responder family for
+each biology prior on the same family-specific random seed. Alongside the pooled
+response and three survival-prior rows, it runs phase-2-only,
+REGAL-interim-only, and pooled-denominator n=5/n=20 forecast variants across the
+complete futility-HR grid. By default the CLI refuses to print or write results
+if any forecast-readiness gate fails. `--allow-diagnostic-output` may be used to
+inspect a smaller run, but the table and JSON are then explicitly marked
+`diagnostic_only`. The JSON records each variant's exact prior distributions and
+retains the readiness failures and ESS/weight diagnostics.
 
 ## What this prior does not claim
 

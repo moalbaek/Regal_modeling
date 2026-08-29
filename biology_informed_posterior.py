@@ -4,10 +4,11 @@ This module is deliberately additive: it leaves the validated WP7 core defaults
 unchanged and exposes alternative effect-prior tuples that callers can pass to
 ``condition_effect_families_on_public_history`` or the posterior forecast helpers.
 That makes biology-informed runs directly comparable with the existing balanced
-analysis and prevents external immunology evidence from silently contaminating
-the blinded public-history likelihood.
+analysis and prevents the distinct immunogenicity endpoint—including REGAL's
+public interim disclosure—from silently entering the blinded event-count
+likelihood as survival evidence.
 
-Two independent external-evidence updates are available:
+Two endpoint-specific evidence updates are available:
 
 * response probability: beta-binomial evidence from GPS phase 2 plus the REGAL
   interim immune substudy;
@@ -37,11 +38,14 @@ from posterior import (
     DEFAULT_EFFECT_FAMILY_PRIORS,
     EffectFamilyPrior,
     GPSEffectFamily,
-    UniformPriorRange,
 )
 
 
-DEFAULT_RESPONSE_ONLY_CURE_PRIOR = UniformPriorRange(0.20, 0.85)
+DEFAULT_RESPONSE_ONLY_CURE_PRIOR = next(
+    prior.responder_cure_probability
+    for prior in DEFAULT_EFFECT_FAMILY_PRIORS
+    if prior.family is GPSEffectFamily.RESPONDER_CURE
+)
 
 
 class BiologyInformedResponderEffectPrior(EffectFamilyPrior):
@@ -70,8 +74,18 @@ class BiologyInformedResponderEffectPrior(EffectFamilyPrior):
             response_probability=response_beta_prior,
             responder_cure_probability=responder_cure_prior,
         )
-        object.__setattr__(self, "response_beta_prior", response_beta_prior)
-        object.__setattr__(self, "responder_cure_prior", responder_cure_prior)
+
+    @property
+    def response_beta_prior(self):
+        """Backward-compatible alias for the stored response prior."""
+
+        return self.response_probability
+
+    @property
+    def responder_cure_prior(self):
+        """Backward-compatible alias for the stored durable-state prior."""
+
+        return self.responder_cure_probability
 
 
 def _replace_responder_prior(responder):

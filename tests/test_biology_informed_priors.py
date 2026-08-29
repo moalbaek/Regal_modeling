@@ -1,20 +1,29 @@
 from datetime import date
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 import numpy as np
 
 from audit.biology_informed_posterior_comparison import (
+    AUDIT_PROPOSAL_INTERIM_Z_TARGETS,
     AuditNotReadyError,
+    DEFAULT_AUDIT_IMPORTANCE_DRAWS,
+    DEFAULT_AUDIT_WORKERS,
+    _comparison_variants,
     _comparison_readiness_issues,
+    _family_worker,
     _forecast_summary,
     _require_ready_output,
+    _variant_prior_records,
+    main as audit_main,
 )
 from biology_informed_posterior import (
     BIOLOGY_INFORMED_EFFECT_FAMILY_PRIORS,
     BIOLOGY_INFORMED_MECHANISM_FAVORING_SURVIVAL_PRIORS,
     BIOLOGY_INFORMED_SKEPTICAL_SURVIVAL_PRIORS,
     BiologyInformedResponderEffectPrior,
+    DEFAULT_RESPONSE_ONLY_CURE_PRIOR,
     PHASE2_ONLY_EFFECT_FAMILY_PRIORS,
     REGAL_INTERIM_ONLY_EFFECT_FAMILY_PRIORS,
     RESPONSE_EVIDENCE_ONLY_EFFECT_FAMILY_PRIORS,
@@ -188,9 +197,10 @@ class BiologyInformedPriorTest(unittest.TestCase):
 
     def test_response_only_prior_preserves_legacy_cure_range(self):
         prior = _responder_prior(RESPONSE_EVIDENCE_ONLY_EFFECT_FAMILY_PRIORS)
+        canonical = _responder_prior(DEFAULT_EFFECT_FAMILY_PRIORS)
         self.assertIsInstance(prior.responder_cure_prior, UniformPriorRange)
-        self.assertEqual(prior.responder_cure_prior.lower, 0.20)
-        self.assertEqual(prior.responder_cure_prior.upper, 0.85)
+        self.assertIs(DEFAULT_RESPONSE_ONLY_CURE_PRIOR, canonical.responder_cure_probability)
+        self.assertIs(prior.responder_cure_prior, canonical.responder_cure_probability)
 
         rng = np.random.default_rng(20260830)
         draws = [prior.sample(rng) for _ in range(30_000)]
@@ -263,6 +273,93 @@ class BiologyInformedPriorTest(unittest.TestCase):
         self.assertTrue(np.isclose(regal.response_beta_prior.mean, 9.0 / 12.0))
         self.assertIsInstance(phase2.responder_cure_prior, UniformPriorRange)
         self.assertIsInstance(regal.responder_cure_prior, UniformPriorRange)
+
+    def test_audit_runs_source_and_denominator_sensitivity_forecast_variants(self):
+        variants = _comparison_variants()
+        self.assertEqual(
+            tuple(variants),
+            (
+                "baseline_wp7",
+                "response_evidence_only",
+                "response_phase2_only",
+                "response_regal_interim_only",
+                "biology_skeptical_survival",
+                "biology_balanced_survival",
+                "biology_balanced_regal_assumed_n5",
+                "biology_balanced_regal_assumed_n20",
+                "biology_mechanism_favoring_survival",
+            ),
+        )
+        n5 = _responder_prior(variants["biology_balanced_regal_assumed_n5"])
+        n20 = _responder_prior(variants["biology_balanced_regal_assumed_n20"])
+        self.assertIs(
+            n5.response_probability,
+            POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY[5],
+        )
+        self.assertIs(
+            n20.response_probability,
+            POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY[20],
+        )
+        self.assertLess(n5.response_probability.mean, n20.response_probability.mean)
+        records = _variant_prior_records(variants)
+        self.assertEqual(
+            (
+                records["biology_balanced_regal_assumed_n5"][
+                    "response_probability"
+                ]["alpha"],
+                records["biology_balanced_regal_assumed_n5"][
+                    "response_probability"
+                ]["beta"],
+            ),
+            (14.0, 7.0),
+        )
+        self.assertEqual(
+            (
+                records["biology_balanced_regal_assumed_n20"][
+                    "response_probability"
+                ]["alpha"],
+                records["biology_balanced_regal_assumed_n20"][
+                    "response_probability"
+                ]["beta"],
+            ),
+            (26.0, 10.0),
+        )
+
+    def test_audit_worker_uses_production_base_proposal(self):
+        prior = _responder_prior(DEFAULT_EFFECT_FAMILY_PRIORS)
+        with mock.patch(
+            "audit.biology_informed_posterior_comparison."
+            "condition_effect_family_futility_sensitivity",
+            return_value=("projection",),
+        ) as condition:
+            result = _family_worker(prior, (None,), 123, 20260825)
+        self.assertEqual(result, ("projection",))
+        self.assertEqual(AUDIT_PROPOSAL_INTERIM_Z_TARGETS, ())
+        condition.assert_called_once_with(
+            prior,
+            thresholds=(None,),
+            nsim=123,
+            seed=20260825,
+            proposal_interim_z_targets=(),
+        )
+
+    def test_audit_cli_defaults_can_clear_the_enforced_readiness_budget(self):
+        ready = {"is_posterior_forecast": True, "readiness_issues": []}
+        with mock.patch(
+            "audit.biology_informed_posterior_comparison.run_comparison",
+            return_value=ready,
+        ) as run, mock.patch(
+            "audit.biology_informed_posterior_comparison._print_table"
+        ):
+            self.assertIsNone(audit_main([]))
+        run.assert_called_once_with(
+            nsim=DEFAULT_AUDIT_IMPORTANCE_DRAWS,
+            seed=20260825,
+            workers=DEFAULT_AUDIT_WORKERS,
+            progress=True,
+        )
+        self.assertEqual(DEFAULT_AUDIT_IMPORTANCE_DRAWS, 150_000)
+        self.assertEqual(DEFAULT_AUDIT_WORKERS, 7)
 
     def test_audit_summary_preserves_and_enforces_readiness_status(self):
         conditioning = SimpleNamespace(

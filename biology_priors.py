@@ -1,7 +1,9 @@
 """Biology-informed priors for REGAL exploratory responder models.
 
-This module keeps external biological evidence separate from the blinded REGAL
-public-history likelihood. Two distinct questions are represented:
+This module keeps immunogenicity evidence as an explicit endpoint-level update
+separate from the blinded REGAL event-count likelihood. The evidence includes a
+public REGAL interim immunogenicity disclosure, but that distinct endpoint is
+not reused as survival-event evidence. Two questions are represented:
 
 1. How often does GPS generate a measurable WT1-specific immune response?
 2. Conditional on being an immune responder, how plausible is a durable
@@ -103,6 +105,8 @@ class BetaPrior:
         beta = float(self.beta)
         if not isfinite(alpha) or not isfinite(beta) or alpha <= 0.0 or beta <= 0.0:
             raise ValueError("beta prior parameters must be finite and positive")
+        if not isinstance(self.label, str):
+            raise ValueError("beta prior label must be a string")
         object.__setattr__(self, "alpha", alpha)
         object.__setattr__(self, "beta", beta)
 
@@ -123,6 +127,17 @@ class BetaPrior:
         if not isfinite(value) or not 0.0 <= value <= 1.0:
             raise ValueError("rng.beta must return a finite draw in [0, 1]")
         return value
+
+    def describe(self):
+        """Return an auditable structural description of this prior."""
+
+        return {
+            "distribution": "beta",
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "label": self.label,
+            "mean": self.mean,
+        }
 
     def update(self, *evidence: BinomialEvidence, label: str | None = None) -> "BetaPrior":
         alpha = self.alpha + sum(item.responders for item in evidence)
@@ -194,6 +209,19 @@ class BetaMixturePrior:
             if selector < cumulative or index == len(self.components) - 1:
                 return prior.sample(rng)
         raise RuntimeError("beta-mixture component selection failed")
+
+    def describe(self):
+        """Return an auditable structural description of this prior."""
+
+        return {
+            "distribution": "beta_mixture",
+            "label": self.label,
+            "mean": self.mean,
+            "components": [
+                {"weight": weight, "prior": prior.describe()}
+                for weight, prior in self.components
+            ],
+        }
 
 
 @dataclass(frozen=True)

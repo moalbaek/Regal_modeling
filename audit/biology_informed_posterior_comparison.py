@@ -9,7 +9,8 @@ seed and futility-threshold grid.
 Examples
 --------
     python audit/biology_informed_posterior_comparison.py
-    python audit/biology_informed_posterior_comparison.py --nsim 20000 \
+    python audit/biology_informed_posterior_comparison.py --nsim 150000 \
+        --workers 7 \
         --output data/biology_informed_posterior_comparison.json
 
 The output is a sensitivity analysis, not an unblinded estimate of REGAL's arm
@@ -21,8 +22,10 @@ unqualified output when any posterior-forecast readiness gate fails; use
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
 from math import isfinite
+from numbers import Integral
 from pathlib import Path
 import sys
 
@@ -34,7 +37,10 @@ from biology_informed_posterior import (  # noqa: E402
     BIOLOGY_INFORMED_EFFECT_FAMILY_PRIORS,
     BIOLOGY_INFORMED_MECHANISM_FAVORING_SURVIVAL_PRIORS,
     BIOLOGY_INFORMED_SKEPTICAL_SURVIVAL_PRIORS,
+    PHASE2_ONLY_EFFECT_FAMILY_PRIORS,
+    REGAL_INTERIM_ONLY_EFFECT_FAMILY_PRIORS,
     RESPONSE_EVIDENCE_ONLY_EFFECT_FAMILY_PRIORS,
+    effect_priors_with_biology,
 )
 from biology_priors import (  # noqa: E402
     POOLED_GPS_RESPONSE_POSTERIOR,
@@ -50,11 +56,18 @@ from posterior import (  # noqa: E402
     BALANCED_MODEL_FAMILY_PRIOR,
     DEFAULT_EFFECT_FAMILY_PRIORS,
     GPSEffectFamily,
-    condition_effect_families_futility_sensitivity_grid,
+    REQUIRED_EFFECT_FAMILIES,
     condition_effect_family_futility_sensitivity,
     posterior_model_average,
 )
 from simulation import FUTILITY_HR_SENSITIVITY_GRID  # noqa: E402
+
+
+DEFAULT_AUDIT_IMPORTANCE_DRAWS = 150_000
+DEFAULT_AUDIT_WORKERS = 7
+# Match the production publisher's exact public-history-conditioned base
+# proposal. This affects Monte Carlo efficiency, not the target estimand.
+AUDIT_PROPOSAL_INTERIM_Z_TARGETS = ()
 
 
 class AuditNotReadyError(RuntimeError):
@@ -155,35 +168,141 @@ def _require_ready_output(result):
     )
 
 
-def run_comparison(nsim=10_000, seed=20260825):
-    thresholds = tuple(FUTILITY_HR_SENSITIVITY_GRID)
-    baseline_rows = condition_effect_families_futility_sensitivity_grid(
-        DEFAULT_EFFECT_FAMILY_PRIORS,
-        thresholds=thresholds,
-        nsim=nsim,
-        seed=seed,
-    )
+def _positive_integer(value, name):
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return int(value)
 
-    variants = {
+
+def _comparison_variants():
+    """Return ordered responder-prior comparisons used by the audit."""
+
+    return {
         "baseline_wp7": DEFAULT_EFFECT_FAMILY_PRIORS,
         "response_evidence_only": RESPONSE_EVIDENCE_ONLY_EFFECT_FAMILY_PRIORS,
+        "response_phase2_only": PHASE2_ONLY_EFFECT_FAMILY_PRIORS,
+        "response_regal_interim_only": REGAL_INTERIM_ONLY_EFFECT_FAMILY_PRIORS,
         "biology_skeptical_survival": BIOLOGY_INFORMED_SKEPTICAL_SURVIVAL_PRIORS,
         "biology_balanced_survival": BIOLOGY_INFORMED_EFFECT_FAMILY_PRIORS,
+        "biology_balanced_regal_assumed_n5": effect_priors_with_biology(
+            response_beta_prior=POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY[5],
+            responder_cure_prior=WT1_RESPONDER_DURABLE_PRIOR_BALANCED,
+        ),
+        "biology_balanced_regal_assumed_n20": effect_priors_with_biology(
+            response_beta_prior=POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY[20],
+            responder_cure_prior=WT1_RESPONDER_DURABLE_PRIOR_BALANCED,
+        ),
         "biology_mechanism_favoring_survival": (
             BIOLOGY_INFORMED_MECHANISM_FAVORING_SURVIVAL_PRIORS
         ),
     }
 
-    responder_rows = {}
+
+def _family_worker(prior, thresholds, nsim, seed):
+    return condition_effect_family_futility_sensitivity(
+        prior,
+        thresholds=thresholds,
+        nsim=nsim,
+        seed=seed,
+        proposal_interim_z_targets=AUDIT_PROPOSAL_INTERIM_Z_TARGETS,
+    )
+
+
+def _integration_tasks(variants):
+    tasks = [
+        (f"baseline::{prior.family.value}", prior)
+        for prior in DEFAULT_EFFECT_FAMILY_PRIORS
+    ]
+    tasks.extend(
+        (f"variant::{name}", _responder_prior(priors))
+        for name, priors in variants.items()
+        if name != "baseline_wp7"
+    )
+    return tuple(tasks)
+
+
+def _variant_prior_records(variants):
+    records = {}
     for name, priors in variants.items():
-        if name == "baseline_wp7":
-            continue
-        responder_rows[name] = condition_effect_family_futility_sensitivity(
-            _responder_prior(priors),
-            thresholds=thresholds,
-            nsim=nsim,
-            seed=seed,
-        )
+        responder = _responder_prior(priors)
+        records[name] = {
+            "response_probability": dict(
+                responder.response_probability.describe()
+            ),
+            "responder_durable_probability": dict(
+                responder.responder_cure_probability.describe()
+            ),
+        }
+    return records
+
+
+def _integrate_tasks(tasks, *, thresholds, nsim, seed, workers, progress=False):
+    """Integrate independent family priors, optionally across processes."""
+
+    tasks = tuple(tasks)
+    workers = _positive_integer(workers, "workers")
+    results = {}
+    if workers == 1:
+        for name, prior in tasks:
+            results[name] = _family_worker(prior, thresholds, nsim, seed)
+            if progress:
+                print(f"completed {name}", flush=True)
+        return results
+
+    with ProcessPoolExecutor(max_workers=min(workers, len(tasks))) as executor:
+        futures = {
+            executor.submit(_family_worker, prior, thresholds, nsim, seed): name
+            for name, prior in tasks
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            results[name] = future.result()
+            if progress:
+                print(f"completed {name}", flush=True)
+    return results
+
+
+def _baseline_rows(integrations, thresholds):
+    family_rows = tuple(
+        integrations[f"baseline::{family.value}"]
+        for family in REQUIRED_EFFECT_FAMILIES
+    )
+    if any(len(rows) != len(thresholds) for rows in family_rows):
+        raise RuntimeError("effect-family futility grids are misaligned")
+    return tuple(
+        tuple(rows[index] for rows in family_rows)
+        for index in range(len(thresholds))
+    )
+
+
+def run_comparison(
+    nsim=DEFAULT_AUDIT_IMPORTANCE_DRAWS,
+    seed=20260825,
+    workers=DEFAULT_AUDIT_WORKERS,
+    *,
+    progress=False,
+):
+    nsim = _positive_integer(nsim, "nsim")
+    workers = _positive_integer(workers, "workers")
+    if isinstance(seed, bool) or not isinstance(seed, Integral) or seed < 0:
+        raise ValueError("seed must be a non-negative integer")
+    seed = int(seed)
+    thresholds = tuple(FUTILITY_HR_SENSITIVITY_GRID)
+    variants = _comparison_variants()
+    integrations = _integrate_tasks(
+        _integration_tasks(variants),
+        thresholds=thresholds,
+        nsim=nsim,
+        seed=seed,
+        workers=workers,
+        progress=progress,
+    )
+    baseline_rows = _baseline_rows(integrations, thresholds)
+    responder_rows = {
+        name: integrations[f"variant::{name}"]
+        for name in variants
+        if name != "baseline_wp7"
+    }
 
     results = {}
     for name in variants:
@@ -212,10 +331,13 @@ def run_comparison(nsim=10_000, seed=20260825):
         "readiness_issues": list(readiness_issues),
         "nsim_per_family": int(nsim),
         "seed": int(seed),
+        "workers": int(workers),
+        "proposal_interim_z_targets": list(AUDIT_PROPOSAL_INTERIM_Z_TARGETS),
         "model_family_prior": BALANCED_MODEL_FAMILY_PRIOR.name,
         "futility_hr_thresholds": [
             None if value is None else float(value) for value in thresholds
         ],
+        "forecast_variant_priors": _variant_prior_records(variants),
         "biology_prior_summary": {
             "pooled_immune_response_mean": response_mean,
             "regal_interim_response_evidence": {
@@ -260,7 +382,10 @@ def _print_table(result):
     thresholds = result["futility_hr_thresholds"]
     names = tuple(result["forecasts"])
     print("REGAL biology-informed posterior comparison")
-    print(f"nsim/family={result['nsim_per_family']:,} seed={result['seed']}")
+    print(
+        f"nsim/family={result['nsim_per_family']:,} seed={result['seed']} "
+        f"workers={result['workers']}"
+    )
     print(f"estimate status: {result['estimate_status']}")
     if not result["is_posterior_forecast"]:
         print(
@@ -285,8 +410,11 @@ def _print_table(result):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nsim", type=int, default=10_000)
+    parser.add_argument(
+        "--nsim", type=int, default=DEFAULT_AUDIT_IMPORTANCE_DRAWS
+    )
     parser.add_argument("--seed", type=int, default=20260825)
+    parser.add_argument("--workers", type=int, default=DEFAULT_AUDIT_WORKERS)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--allow-diagnostic-output",
@@ -299,8 +427,17 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.nsim <= 0:
         parser.error("--nsim must be positive")
+    if args.seed < 0:
+        parser.error("--seed must be non-negative")
+    if args.workers <= 0:
+        parser.error("--workers must be positive")
 
-    result = run_comparison(nsim=args.nsim, seed=args.seed)
+    result = run_comparison(
+        nsim=args.nsim,
+        seed=args.seed,
+        workers=args.workers,
+        progress=True,
+    )
     if not args.allow_diagnostic_output:
         try:
             _require_ready_output(result)

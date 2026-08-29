@@ -1076,13 +1076,28 @@ class UniformPriorRange:
             return exp(log(self.lower) + draw * (log(self.upper) - log(self.lower)))
         return self.lower + draw * (self.upper - self.lower)
 
+    def describe(self) -> Mapping[str, object]:
+        """Return the prior's versioned-reporting vocabulary record."""
+
+        if self.is_point_mass:
+            distribution = "point_mass"
+        elif self.log_scale:
+            distribution = "log_uniform"
+        else:
+            distribution = "uniform"
+        return {
+            "distribution": distribution,
+            "lower": self.lower,
+            "upper": self.upper,
+        }
+
 
 POINT_ZERO_PRIOR = UniformPriorRange(0.0, 0.0)
 POINT_ONE_PRIOR = UniformPriorRange(1.0, 1.0, log_scale=True)
 
 
 class ScalarPrior(Protocol):
-    """Structural contract for a bounded scalar parameter prior."""
+    """Structural contract for a bounded, auditable scalar parameter prior."""
 
     @property
     def lower(self) -> float:
@@ -1093,6 +1108,9 @@ class ScalarPrior(Protocol):
         ...
 
     def sample(self, rng) -> float:
+        ...
+
+    def describe(self) -> Mapping[str, object]:
         ...
 
 
@@ -1227,7 +1245,13 @@ class EffectFamilyPrior:
             prior = ranges[name]
             if not callable(getattr(prior, "sample", None)):
                 raise ValueError(f"{name} prior must provide sample(rng)")
+            if not callable(getattr(prior, "describe", None)):
+                raise ValueError(f"{name} prior must provide describe()")
             try:
+                if isinstance(prior.lower, (bool, np.bool_)) or isinstance(
+                    prior.upper, (bool, np.bool_)
+                ):
+                    raise TypeError
                 lower = float(prior.lower)
                 upper = float(prior.upper)
             except (AttributeError, TypeError, ValueError) as error:

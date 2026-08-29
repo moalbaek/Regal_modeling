@@ -14,6 +14,7 @@ while the headline is set to ``null``.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,7 +28,6 @@ import sys
 import tempfile
 from typing import Optional
 
-from biology_priors import BetaMixturePrior, BetaPrior
 from posterior import (
     BALANCED_MODEL_FAMILY_PRIOR,
     DEFAULT_EFFECT_FAMILY_PRIORS,
@@ -38,7 +38,6 @@ from posterior import (
     MINIMUM_POSTERIOR_FORECAST_ESS,
     PosteriorForecastResult,
     REQUIRED_EFFECT_FAMILIES,
-    UniformPriorRange,
     condition_effect_family_futility_sensitivity,
     posterior_model_average,
     posterior_prior_sensitivity,
@@ -52,7 +51,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULT_BUNDLE_PATH = ROOT / "data" / "regal_v2_result_bundle.json"
 DEFAULT_HTML_PATH = ROOT / "regal_explorer.html"
 
-RESULT_BUNDLE_SCHEMA_VERSION = 3
+RESULT_BUNDLE_SCHEMA_VERSION = 4
 RESULT_BUNDLE_TYPE = "regal_v2_posterior_forecast"
 MODEL_VERSION = "v2"
 PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
@@ -64,6 +63,9 @@ PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
 PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS = ()
 RESULT_BUNDLE_START = "<!-- REGAL_V2_RESULT_BUNDLE_START -->"
 RESULT_BUNDLE_END = "<!-- REGAL_V2_RESULT_BUNDLE_END -->"
+EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS = frozenset(
+    {"point_mass", "uniform", "log_uniform", "beta", "beta_mixture"}
+)
 
 FAMILY_LABELS = {
     GPSEffectFamily.NO_EFFECT: "No effect",
@@ -167,40 +169,18 @@ def _probability(value, name, allow_none=False):
 
 
 def _prior_range_record(prior_range):
-    if isinstance(prior_range, BetaPrior):
-        return {
-            "distribution": "beta",
-            "alpha": prior_range.alpha,
-            "beta": prior_range.beta,
-            "label": prior_range.label,
-            "mean": prior_range.mean,
-        }
-    if isinstance(prior_range, BetaMixturePrior):
-        return {
-            "distribution": "beta_mixture",
-            "label": prior_range.label,
-            "mean": prior_range.mean,
-            "components": [
-                {
-                    "weight": weight,
-                    "prior": _prior_range_record(component),
-                }
-                for weight, component in prior_range.components
-            ],
-        }
-    if not isinstance(prior_range, UniformPriorRange):
-        raise ValueError("effect parameter prior has an unsupported distribution")
-    if prior_range.is_point_mass:
-        distribution = "point_mass"
-    elif prior_range.log_scale:
-        distribution = "log_uniform"
-    else:
-        distribution = "uniform"
-    return {
-        "distribution": distribution,
-        "lower": prior_range.lower,
-        "upper": prior_range.upper,
-    }
+    describe = getattr(prior_range, "describe", None)
+    if not callable(describe):
+        raise ValueError("effect parameter prior must provide describe()")
+    try:
+        record = describe()
+    except Exception as error:
+        raise ValueError("effect parameter prior could not be described") from error
+    if not isinstance(record, Mapping):
+        raise ValueError("effect parameter prior description must be an object")
+    record = dict(record)
+    _validate_parameter_prior_record(record)
+    return record
 
 
 def _effect_prior_record(prior):
@@ -591,6 +571,82 @@ def _nonnegative_number(value, name, allow_none=False):
     return number
 
 
+def _finite_number(value, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be numeric")
+    number = float(value)
+    if not isfinite(number):
+        raise ValueError(f"{name} must be finite")
+    return number
+
+
+def _validate_parameter_prior_record(record):
+    """Validate one schema-v4 active-parameter prior description."""
+
+    if not isinstance(record, dict):
+        raise ValueError("effect parameter prior record must be an object")
+    distribution = record.get("distribution")
+    if distribution not in EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS:
+        raise ValueError("effect parameter prior has an unsupported distribution")
+
+    if distribution in {"point_mass", "uniform", "log_uniform"}:
+        if set(record) != {"distribution", "lower", "upper"}:
+            raise ValueError(f"{distribution} prior record has unsupported fields")
+        lower = _finite_number(record["lower"], f"{distribution} prior lower bound")
+        upper = _finite_number(record["upper"], f"{distribution} prior upper bound")
+        if lower > upper:
+            raise ValueError(f"{distribution} prior bounds must be ordered")
+        if distribution == "point_mass" and lower != upper:
+            raise ValueError("point-mass prior bounds must be equal")
+        if distribution != "point_mass" and lower >= upper:
+            raise ValueError(f"{distribution} prior bounds must be distinct")
+        if distribution == "log_uniform" and lower <= 0.0:
+            raise ValueError("log-uniform prior bounds must be positive")
+        return record
+
+    if distribution == "beta":
+        if set(record) != {"distribution", "alpha", "beta", "label", "mean"}:
+            raise ValueError("beta prior record has unsupported fields")
+        alpha = _finite_number(record["alpha"], "beta prior alpha")
+        beta = _finite_number(record["beta"], "beta prior beta")
+        if alpha <= 0.0 or beta <= 0.0:
+            raise ValueError("beta prior parameters must be positive")
+        if not isinstance(record["label"], str):
+            raise ValueError("beta prior label must be a string")
+        mean = _probability(record["mean"], "beta prior mean")
+        if abs(mean - alpha / (alpha + beta)) > 1e-12:
+            raise ValueError("beta prior mean differs from its parameters")
+        return record
+
+    if set(record) != {"distribution", "label", "mean", "components"}:
+        raise ValueError("beta-mixture prior record has unsupported fields")
+    if not isinstance(record["label"], str) or not record["label"].strip():
+        raise ValueError("beta-mixture prior label must be non-empty")
+    mean = _probability(record["mean"], "beta-mixture prior mean")
+    components = record["components"]
+    if not isinstance(components, list) or not components:
+        raise ValueError("beta-mixture prior components must be a non-empty list")
+    total_weight = 0.0
+    expected_mean = 0.0
+    for component in components:
+        if not isinstance(component, dict) or set(component) != {"weight", "prior"}:
+            raise ValueError("beta-mixture components must contain weight and prior")
+        weight = _probability(component["weight"], "beta-mixture weight")
+        if weight <= 0.0:
+            raise ValueError("beta-mixture weights must be positive")
+        nested = component["prior"]
+        _validate_parameter_prior_record(nested)
+        if nested["distribution"] != "beta":
+            raise ValueError("beta-mixture components must be beta priors")
+        total_weight += weight
+        expected_mean += weight * float(nested["mean"])
+    if abs(total_weight - 1.0) > 1e-12:
+        raise ValueError("beta-mixture weights must sum to one")
+    if abs(mean - expected_mean) > 1e-12:
+        raise ValueError("beta-mixture mean differs from its components")
+    return record
+
+
 def _validate_readiness_diagnostics(record):
     diagnostics = record.get("readiness_diagnostics")
     if not isinstance(diagnostics, dict):
@@ -704,8 +760,15 @@ def _validate_forecast_record(record, *, families_required):
                     _probability(value, f"family probability {name}")
                 elif record["is_posterior_forecast"]:
                     raise ValueError("a ready family cannot contain null probabilities")
-            if not isinstance(item.get("parameter_priors"), dict):
+            parameter_priors = item.get("parameter_priors")
+            if not isinstance(parameter_priors, dict):
                 raise ValueError("family parameter priors must be an object")
+            if set(parameter_priors) != set(ACTIVE_PRIOR_FIELDS[family]):
+                raise ValueError(
+                    "family parameter priors differ from the active-parameter contract"
+                )
+            for prior_record in parameter_priors.values():
+                _validate_parameter_prior_record(prior_record)
             diagnostics = item.get("diagnostics")
             if not isinstance(diagnostics, dict):
                 raise ValueError("family diagnostics must be an object")
@@ -1370,6 +1433,7 @@ __all__ = (
     "AnalysisRunMetadata",
     "DEFAULT_HTML_PATH",
     "DEFAULT_RESULT_BUNDLE_PATH",
+    "EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS",
     "MODEL_VERSION",
     "RESULT_BUNDLE_SCHEMA_VERSION",
     "RESULT_BUNDLE_TYPE",
