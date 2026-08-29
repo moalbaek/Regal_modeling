@@ -1,24 +1,49 @@
 """Biology-informed priors for REGAL exploratory responder models.
 
 This module keeps external biological evidence separate from the blinded REGAL
-public-history likelihood.  It intentionally does not infer treatment efficacy
-from immune response.  Its first use is to replace an arbitrary flat prior on
-the probability that a GPS-treated patient mounts a measurable WT1-specific
-T-cell response with an explicit beta-binomial update.
+public-history likelihood. Two distinct questions are represented:
 
-Evidence currently encoded
---------------------------
+1. How often does GPS generate a measurable WT1-specific immune response?
+2. Conditional on being an immune responder, how plausible is a durable
+   remission / low-hazard tail attributable to that response?
+
+The first question is updated directly with beta-binomial data. The second is
+*not* treated as a formal meta-analysis because the available WT1 studies differ
+substantially in vaccine, disease setting, endpoint, age, transplant exposure,
+and responder definition. Instead, it is encoded as an explicit conservative
+mixture prior whose skeptical component retains substantial probability mass.
+
+Immune-response evidence currently encoded
+------------------------------------------
 * GPS phase 2 AML: 9 immune responders among 14 evaluable patients.
 * REGAL interim immune substudy: 8 responders among 10 randomly selected
   GPS-treated patients reported by SELLAS.
 
 With a Beta(1, 1) reference prior, pooling those observations yields
-Beta(18, 8): posterior mean 18 / 26 = 0.6923.  The model should sample from the
-full distribution, not hard-code the observed 8/10 = 80% point estimate.
+Beta(18, 8): posterior mean 18 / 26 = 0.6923. The model samples from the full
+posterior rather than hard-coding the observed REGAL 8/10 = 80% point estimate.
 
-The phase-2 and REGAL observations are exposed separately so sensitivity
-analyses can down-weight or omit the historical cohort if exchangeability is
-questioned.
+Responder-survival evidence map
+-------------------------------
+The durable-benefit prior deliberately does not plug small-study responder hazard
+ratios directly into REGAL. Its three components are interpretations of the
+literature, not fitted likelihoods:
+
+* skeptical: mean durable-remission probability 0.15. This receives the largest
+  or near-largest weight because randomized OCV-501 did not improve DFS or OS
+  overall despite post-hoc responder associations.
+* moderate: mean 0.40. This represents the recurring association between
+  WT1-specific immune response and longer remission/survival in GPS phase 2 and
+  independent WT1 vaccine platforms after severe shrinkage for confounding.
+* strong: mean 0.70. This represents a genuine durable-tail mechanism, but gets
+  little weight because the most dramatic evidence comes from very small,
+  non-randomized or post-transplant cohorts.
+
+The balanced mixture weights are 45% skeptical, 45% moderate, and 10% strong,
+for a prior mean of 0.3175. Skeptical and mechanism-favoring alternatives are
+also exposed for sensitivity analysis. The parameter remains the probability
+that an immune responder enters the responder/cure model's durable-remission
+state; it is not a literal clinical cure-rate estimate.
 """
 
 from __future__ import annotations
@@ -84,6 +109,80 @@ class BetaPrior:
         return BetaPrior(alpha, beta, self.label if label is None else label)
 
 
+@dataclass(frozen=True)
+class BetaMixturePrior:
+    """Finite mixture of beta distributions for a probability.
+
+    This is used for the responder durable-remission parameter because the
+    literature is heterogeneous enough that a single pseudo-count update would
+    imply false precision. Component weights must sum to one and remain visible
+    to callers for sensitivity/audit reporting.
+    """
+
+    label: str
+    components: tuple[tuple[float, BetaPrior], ...]
+
+    def __post_init__(self):
+        if not isinstance(self.label, str) or not self.label.strip():
+            raise ValueError("label must be a non-empty string")
+        try:
+            components = tuple(self.components)
+        except TypeError as error:
+            raise ValueError("components must contain (weight, BetaPrior) pairs") from error
+        if not components:
+            raise ValueError("components must not be empty")
+        normalized = []
+        total = 0.0
+        for item in components:
+            try:
+                weight, prior = item
+            except (TypeError, ValueError) as error:
+                raise ValueError("components must contain (weight, BetaPrior) pairs") from error
+            if isinstance(weight, bool):
+                raise ValueError("mixture weights must be numeric")
+            weight = float(weight)
+            if not isfinite(weight) or weight <= 0.0:
+                raise ValueError("mixture weights must be finite and positive")
+            if not isinstance(prior, BetaPrior):
+                raise ValueError("mixture components must be BetaPrior values")
+            total += weight
+            normalized.append((weight, prior))
+        if abs(total - 1.0) > 1e-12:
+            raise ValueError("mixture weights must sum to one")
+        object.__setattr__(self, "components", tuple(normalized))
+
+    @property
+    def mean(self) -> float:
+        return sum(weight * prior.mean for weight, prior in self.components)
+
+    def sample(self, rng) -> float:
+        selector = float(rng.random())
+        if not isfinite(selector) or not 0.0 <= selector < 1.0:
+            raise ValueError("rng.random must return a finite draw in [0, 1)")
+        cumulative = 0.0
+        for index, (weight, prior) in enumerate(self.components):
+            cumulative += weight
+            if selector < cumulative or index == len(self.components) - 1:
+                return prior.sample(rng)
+        raise RuntimeError("beta-mixture component selection failed")
+
+
+@dataclass(frozen=True)
+class SurvivalEvidenceAnchor:
+    """Human-readable evidence used to elicit the responder survival mixture."""
+
+    label: str
+    design: str
+    finding: str
+    interpretation: str
+
+    def __post_init__(self):
+        for name in ("label", "design", "finding", "interpretation"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+
+
 REFERENCE_RESPONSE_PRIOR = BetaPrior(1.0, 1.0, "reference_uniform")
 
 GPS_PHASE2_IMMUNE_EVIDENCE = BinomialEvidence(
@@ -115,7 +214,80 @@ POOLED_GPS_RESPONSE_POSTERIOR = REFERENCE_RESPONSE_PRIOR.update(
 )
 
 
+# The following anchors are deliberately descriptive. They explain the elicited
+# mixture but are not converted into pseudo-counts or treated as exchangeable
+# observations.
+WT1_RESPONDER_SURVIVAL_EVIDENCE = (
+    SurvivalEvidenceAnchor(
+        "OCV-501 randomized AML CR1 trial",
+        "randomized double-blind placebo-controlled phase 2",
+        "DFS HR 0.933 and OS HR 0.956 overall; immune responders did better post hoc",
+        "strong anchor against assuming that WT1 vaccination automatically creates survival benefit",
+    ),
+    SurvivalEvidenceAnchor(
+        "GPS phase 2 AML CR1 correlative cohort",
+        "single-arm phase 2 responder analysis",
+        "immune-responder DFS and OS medians not reached versus 15.6 and 35.8 months in nonresponders",
+        "supports a responder-survival association but receives strong shrinkage for small n and prognostic confounding",
+    ),
+    SurvivalEvidenceAnchor(
+        "WT1 mRNA dendritic-cell vaccine AML",
+        "single-arm phase 2 responder analysis",
+        "5-year OS 53.8% in responders versus 25.0% in nonresponders; CR1 5-year RFS 50% versus 7.7%",
+        "independent-platform support for a durable responder subset, discounted for non-randomized responder classification",
+    ),
+    SurvivalEvidenceAnchor(
+        "2026 pediatric post-allo-HSCT WT1 peptide study",
+        "single-arm phase 2 with week-6 immune landmark analysis",
+        "3-year OS 90.9% in immune responders versus 40.0% in nonresponders",
+        "strong mechanistic tail evidence but heavily discounted for pediatric post-transplant setting and very small n",
+    ),
+)
+
+
+# These component means are intentionally much less aggressive than the extreme
+# responder hazard ratios reported by some small studies. They describe the
+# probability of entering the responder/cure model's durable-remission state.
+WT1_DURABLE_SKEPTICAL_COMPONENT = BetaPrior(
+    1.5, 8.5, "wt1_durable_skeptical_mean_0.15"
+)
+WT1_DURABLE_MODERATE_COMPONENT = BetaPrior(
+    4.0, 6.0, "wt1_durable_moderate_mean_0.40"
+)
+WT1_DURABLE_STRONG_COMPONENT = BetaPrior(
+    7.0, 3.0, "wt1_durable_strong_mean_0.70"
+)
+
+WT1_RESPONDER_DURABLE_PRIOR_SKEPTICAL = BetaMixturePrior(
+    "wt1_responder_durable_skeptical",
+    (
+        (0.60, WT1_DURABLE_SKEPTICAL_COMPONENT),
+        (0.35, WT1_DURABLE_MODERATE_COMPONENT),
+        (0.05, WT1_DURABLE_STRONG_COMPONENT),
+    ),
+)
+
+WT1_RESPONDER_DURABLE_PRIOR_BALANCED = BetaMixturePrior(
+    "wt1_responder_durable_balanced",
+    (
+        (0.45, WT1_DURABLE_SKEPTICAL_COMPONENT),
+        (0.45, WT1_DURABLE_MODERATE_COMPONENT),
+        (0.10, WT1_DURABLE_STRONG_COMPONENT),
+    ),
+)
+
+WT1_RESPONDER_DURABLE_PRIOR_MECHANISM_FAVORING = BetaMixturePrior(
+    "wt1_responder_durable_mechanism_favoring",
+    (
+        (0.30, WT1_DURABLE_SKEPTICAL_COMPONENT),
+        (0.50, WT1_DURABLE_MODERATE_COMPONENT),
+        (0.20, WT1_DURABLE_STRONG_COMPONENT),
+    ),
+)
+
+
 __all__ = [
+    "BetaMixturePrior",
     "BetaPrior",
     "BinomialEvidence",
     "GPS_PHASE2_IMMUNE_EVIDENCE",
@@ -124,4 +296,12 @@ __all__ = [
     "REFERENCE_RESPONSE_PRIOR",
     "REGAL_INTERIM_IMMUNE_EVIDENCE",
     "REGAL_INTERIM_RESPONSE_POSTERIOR",
+    "SurvivalEvidenceAnchor",
+    "WT1_DURABLE_MODERATE_COMPONENT",
+    "WT1_DURABLE_SKEPTICAL_COMPONENT",
+    "WT1_DURABLE_STRONG_COMPONENT",
+    "WT1_RESPONDER_DURABLE_PRIOR_BALANCED",
+    "WT1_RESPONDER_DURABLE_PRIOR_MECHANISM_FAVORING",
+    "WT1_RESPONDER_DURABLE_PRIOR_SKEPTICAL",
+    "WT1_RESPONDER_SURVIVAL_EVIDENCE",
 ]
