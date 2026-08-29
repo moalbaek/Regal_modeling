@@ -132,14 +132,15 @@ the registry opening and enrollment-close window as support but does not use the
 counts as prior centers. Forecast labeling additionally requires history and continuation ESS of at
 least 100 in every family and no family history weight above 5%; failing diagnostics remain visible
 on the complete model-average result.
-The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON schema-v4 wire contract
+The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON schema-v4 writer contract
 (including point-mass, uniform, log-uniform, beta, and beta-mixture prior records), separate
 numerical-run and bundle-serialization revisions, complete family and sensitivity grids, serialized
 gate constants and min-ESS/max-weight summaries for every row, the rule
 that a failed readiness gate forces the release headline to `null`, safe HTML embedding, and exact
 equality between the checked-in JSON and the bundle consumed by the self-contained browser. The
 browser reads its gate labels and margins from that bundle, formats the Python outputs, and performs
-no posterior calculation of its own.
+no posterior calculation of its own. The Python validator retains read compatibility with schema-v3
+bundles while restricting them to their original point-mass/uniform/log-uniform vocabulary.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
@@ -148,6 +149,7 @@ python3 audit/v2_trial_decision_validation.py --nsim 200000  # validate v2 alpha
 python3 audit/v2_public_history_validation.py  # validate WP5 data/accrual/joint likelihood
 python3 audit/v2_interim_conditioning_validation.py  # validate WP6 latent-history/rare-continuation IS
 python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect families/model averaging
+# Production-scale biology audit (expensive: 15 family integrations × 150,000 draws):
 python3 audit/biology_informed_posterior_comparison.py --nsim 150000 --workers 7  # readiness-gated biology sensitivity
 python3 report.py validate                 # validate the committed WP8 JSON + embedded HTML
 # Production build (expensive; always persists the gated bundle; --require-ready exits nonzero if withheld):

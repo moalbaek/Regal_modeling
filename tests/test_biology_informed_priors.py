@@ -302,6 +302,12 @@ class BiologyInformedPriorTest(unittest.TestCase):
         )
         self.assertLess(n5.response_probability.mean, n20.response_probability.mean)
         records = _variant_prior_records(variants)
+        for name, record in records.items():
+            with self.subTest(variant=name):
+                self.assertEqual(
+                    set(record),
+                    {"response_probability", "responder_cure_probability"},
+                )
         self.assertEqual(
             (
                 records["biology_balanced_regal_assumed_n5"][

@@ -33,10 +33,12 @@ from regal_data import load_regal_data_snapshot  # noqa: E402
 from report import (  # noqa: E402
     AnalysisRunMetadata,
     EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
+    LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
     PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
     RESULT_BUNDLE_SCHEMA_VERSION,
     RESULT_BUNDLE_END,
     RESULT_BUNDLE_START,
+    SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS,
     _family_worker,
     _git_revision,
     _prior_range_record,
@@ -346,13 +348,38 @@ class ResultBundleTest(unittest.TestCase):
             EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
             {"point_mass", "uniform", "log_uniform", "beta", "beta_mixture"},
         )
+        self.assertEqual(
+            LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
+            {"point_mass", "uniform", "log_uniform"},
+        )
+        self.assertEqual(SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS, {3, 4})
         self.assertEqual(bundle["source_revision"], "abc1234")
         self.assertEqual(bundle["serialization_revision"], "def5678")
 
         legacy = json.loads(canonical_result_json(bundle))
         legacy["schema_version"] = 3
+        validate_result_bundle(legacy)
+
+        legacy_with_v4_prior = json.loads(canonical_result_json(legacy))
+        responder = next(
+            item
+            for item in legacy_with_v4_prior["prior_sensitivity"][0]["families"]
+            if item["family"] == GPSEffectFamily.RESPONDER_CURE.value
+        )
+        responder["parameter_priors"]["response_probability"] = {
+            "distribution": "beta",
+            "alpha": 2.0,
+            "beta": 3.0,
+            "label": "v4_only",
+            "mean": 0.4,
+        }
+        with self.assertRaisesRegex(ValueError, "unsupported distribution"):
+            validate_result_bundle(legacy_with_v4_prior)
+
+        future = json.loads(canonical_result_json(bundle))
+        future["schema_version"] = 5
         with self.assertRaisesRegex(ValueError, "unsupported result-bundle schema"):
-            validate_result_bundle(legacy)
+            validate_result_bundle(future)
 
         missing = json.loads(canonical_result_json(bundle))
         del missing["serialization_revision"]
@@ -375,6 +402,13 @@ class ResultBundleTest(unittest.TestCase):
         )
         report_source = (ROOT / "report.py").read_text(encoding="utf-8")
         self.assertNotIn("from biology_priors import", report_source)
+
+        class BrokenPrior:
+            def describe(self):
+                raise RuntimeError("broken prior implementation")
+
+        with self.assertRaisesRegex(RuntimeError, "broken prior implementation"):
+            _prior_range_record(BrokenPrior())
 
     def test_wire_validator_enforces_schema_four_prior_records(self):
         bundle = json.loads(canonical_result_json(self.ready_bundle()))

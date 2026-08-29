@@ -169,6 +169,9 @@ posterior weight.
 
 The side-by-side audit runner is:
 
+**Runtime note:** this is an expensive production-scale run comprising 15 family
+integrations with 150,000 importance draws each.
+
 ```bash
 python audit/biology_informed_posterior_comparison.py \
   --nsim 150000 \

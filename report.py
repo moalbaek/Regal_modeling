@@ -52,6 +52,7 @@ DEFAULT_RESULT_BUNDLE_PATH = ROOT / "data" / "regal_v2_result_bundle.json"
 DEFAULT_HTML_PATH = ROOT / "regal_explorer.html"
 
 RESULT_BUNDLE_SCHEMA_VERSION = 4
+SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS = frozenset({3, 4})
 RESULT_BUNDLE_TYPE = "regal_v2_posterior_forecast"
 MODEL_VERSION = "v2"
 PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
@@ -65,6 +66,9 @@ RESULT_BUNDLE_START = "<!-- REGAL_V2_RESULT_BUNDLE_START -->"
 RESULT_BUNDLE_END = "<!-- REGAL_V2_RESULT_BUNDLE_END -->"
 EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS = frozenset(
     {"point_mass", "uniform", "log_uniform", "beta", "beta_mixture"}
+)
+LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS = frozenset(
+    {"point_mass", "uniform", "log_uniform"}
 )
 
 FAMILY_LABELS = {
@@ -172,10 +176,7 @@ def _prior_range_record(prior_range):
     describe = getattr(prior_range, "describe", None)
     if not callable(describe):
         raise ValueError("effect parameter prior must provide describe()")
-    try:
-        record = describe()
-    except Exception as error:
-        raise ValueError("effect parameter prior could not be described") from error
+    record = describe()
     if not isinstance(record, Mapping):
         raise ValueError("effect parameter prior description must be an object")
     record = dict(record)
@@ -580,13 +581,20 @@ def _finite_number(value, name):
     return number
 
 
-def _validate_parameter_prior_record(record):
-    """Validate one schema-v4 active-parameter prior description."""
+def _validate_parameter_prior_record(
+    record, *, schema_version=RESULT_BUNDLE_SCHEMA_VERSION
+):
+    """Validate one version-aware active-parameter prior description."""
 
     if not isinstance(record, dict):
         raise ValueError("effect parameter prior record must be an object")
+    distributions = (
+        EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS
+        if schema_version >= 4
+        else LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS
+    )
     distribution = record.get("distribution")
-    if distribution not in EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS:
+    if distribution not in distributions:
         raise ValueError("effect parameter prior has an unsupported distribution")
 
     if distribution in {"point_mass", "uniform", "log_uniform"}:
@@ -635,7 +643,7 @@ def _validate_parameter_prior_record(record):
         if weight <= 0.0:
             raise ValueError("beta-mixture weights must be positive")
         nested = component["prior"]
-        _validate_parameter_prior_record(nested)
+        _validate_parameter_prior_record(nested, schema_version=schema_version)
         if nested["distribution"] != "beta":
             raise ValueError("beta-mixture components must be beta priors")
         total_weight += weight
@@ -696,7 +704,9 @@ def _validate_readiness_diagnostics(record):
     }
 
 
-def _validate_forecast_record(record, *, families_required):
+def _validate_forecast_record(
+    record, *, families_required, schema_version=RESULT_BUNDLE_SCHEMA_VERSION
+):
     if not isinstance(record, dict):
         raise ValueError("forecast records must be objects")
     if not isinstance(record.get("name"), str) or not record["name"]:
@@ -768,7 +778,9 @@ def _validate_forecast_record(record, *, families_required):
                     "family parameter priors differ from the active-parameter contract"
                 )
             for prior_record in parameter_priors.values():
-                _validate_parameter_prior_record(prior_record)
+                _validate_parameter_prior_record(
+                    prior_record, schema_version=schema_version
+                )
             diagnostics = item.get("diagnostics")
             if not isinstance(diagnostics, dict):
                 raise ValueError("family diagnostics must be an object")
@@ -856,7 +868,12 @@ def validate_result_bundle(bundle):
     if not isinstance(bundle, dict):
         raise ValueError("result bundle root must be an object")
     _assert_json_finite(bundle)
-    if bundle.get("schema_version") != RESULT_BUNDLE_SCHEMA_VERSION:
+    schema_version = bundle.get("schema_version")
+    if (
+        isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version not in SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS
+    ):
         raise ValueError("unsupported result-bundle schema version")
     if bundle.get("bundle_type") != RESULT_BUNDLE_TYPE:
         raise ValueError("unsupported result-bundle type")
@@ -987,14 +1004,18 @@ def validate_result_bundle(bundle):
     if [item.get("name") for item in prior_rows] != expected_prior_names:
         raise ValueError("prior sensitivity rows are incomplete or out of order")
     for row in prior_rows:
-        _validate_forecast_record(row, families_required=True)
+        _validate_forecast_record(
+            row, families_required=True, schema_version=schema_version
+        )
     observed_thresholds = [
         item.get("assumed_futility_hr_threshold") for item in futility_rows
     ]
     if observed_thresholds != list(FUTILITY_HR_SENSITIVITY_GRID):
         raise ValueError("futility sensitivity rows are incomplete or out of order")
     for row in futility_rows:
-        _validate_forecast_record(row, families_required=False)
+        _validate_forecast_record(
+            row, families_required=False, schema_version=schema_version
+        )
     primary = next(
         item for item in prior_rows if item["name"] == PRIMARY_MODEL_WEIGHT_SENSITIVITY
     )
@@ -1434,8 +1455,10 @@ __all__ = (
     "DEFAULT_HTML_PATH",
     "DEFAULT_RESULT_BUNDLE_PATH",
     "EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS",
+    "LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS",
     "MODEL_VERSION",
     "RESULT_BUNDLE_SCHEMA_VERSION",
+    "SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS",
     "RESULT_BUNDLE_TYPE",
     "build_result_bundle",
     "build_unpublished_result_bundle",

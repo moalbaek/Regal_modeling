@@ -25,7 +25,7 @@ BIOLOGY_DISCOVERY_FILES = (
     "README.md",
     "REGAL_MODEL_DOCUMENTATION.md",
     "docs.html",
-    "index.html",
+    "regal_explorer.html",
 )
 BIOLOGY_ARTIFACTS = (
     "biology_priors.py",

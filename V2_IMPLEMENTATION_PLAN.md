@@ -385,7 +385,8 @@ serialize as JSON `null`; a release-ready result may not contain a null probabil
 Schema 4 retains schema 3's separate numerical-run and bundle-serialization revisions and adds an
 explicit validated vocabulary for point-mass, uniform, log-uniform, beta, and beta-mixture active
 parameter priors. Metadata-only migrations therefore do not relabel which code produced the
-simulation values.
+simulation values. Writers emit schema 4; readers retain compatibility with schema 3 while limiting
+it to its original point-mass, uniform, and log-uniform prior records.
 The browser exposes each futility row's minimum continuation ESS and its margin over the 100 floor.
 The HR-0.80 row is tightest at 116.1, so that 16.1 margin is treated as seed-specific evidence to
 recheck on every production run, not as permanent clearance.

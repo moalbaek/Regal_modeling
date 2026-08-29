@@ -13,6 +13,10 @@ Examples
         --workers 7 \
         --output data/biology_informed_posterior_comparison.json
 
+The default is a production-scale, potentially expensive run: 15 independent
+family integrations with 150,000 draws each. Use a smaller ``--nsim`` together
+with ``--allow-diagnostic-output`` for a quick implementation smoke test.
+
 The output is a sensitivity analysis, not an unblinded estimate of REGAL's arm
 split or a claim that immune response causes survival benefit. The CLI withholds
 unqualified output when any posterior-forecast readiness gate fails; use
@@ -229,7 +233,7 @@ def _variant_prior_records(variants):
             "response_probability": dict(
                 responder.response_probability.describe()
             ),
-            "responder_durable_probability": dict(
+            "responder_cure_probability": dict(
                 responder.responder_cure_probability.describe()
             ),
         }

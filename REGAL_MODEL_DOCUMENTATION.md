@@ -719,7 +719,8 @@ canonical seven WP7 default prior values remain unchanged. The audit
 runner uses the production-sized 150,000 draws per family and seven workers by default, reuses each
 non-responder integration, and runs phase-2-only, REGAL-interim-only, pooled-response,
 skeptical/balanced/mechanism-favoring survival, and pooled-denominator n=5/n=20 responder forecasts on
-the same family seed. It withholds output unless every complete model average clears the canonical
+the same family seed. This is an expensive production-scale run comprising 15 family integrations.
+It withholds output unless every complete model average clears the canonical
 ESS and maximum-weight gates; smaller runs require explicit diagnostic-only labeling. Full sources,
 assumptions, and the command are recorded in `WT1_BIOLOGY_PRIOR.md`.
 
@@ -728,6 +729,9 @@ assumptions, and the command are recorded in `WT1_BIOLOGY_PRIOR.md`.
 Python remains the only v2 statistical engine. `regal_data.py` loads the same `PublicHistory` object
 used by WP5–WP7, fingerprints the raw source file with SHA-256, and emits the evidence dates and typed
 observation summary. The browser does not keep a second hand-entered public-history table.
+The publisher writes schema v4. The Python validator also reads legacy schema-v3 bundles, restricted
+to schema v3's original point-mass, uniform, and log-uniform prior vocabulary; beta and beta-mixture
+records require schema v4.
 
 `report.py` requires three model-weight rows—skeptical, balanced, and cure-favoring—from identical
 family projections, plus the full paired futility grid (disabled and assumed interim HR thresholds
