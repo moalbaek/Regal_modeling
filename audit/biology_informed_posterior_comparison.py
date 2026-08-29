@@ -13,13 +13,16 @@ Examples
         --output data/biology_informed_posterior_comparison.json
 
 The output is a sensitivity analysis, not an unblinded estimate of REGAL's arm
-split or a claim that immune response causes survival benefit.
+split or a claim that immune response causes survival benefit. The CLI withholds
+unqualified output when any posterior-forecast readiness gate fails; use
+``--allow-diagnostic-output`` only to inspect explicitly labeled diagnostics.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+from math import isfinite
 from pathlib import Path
 import sys
 
@@ -35,6 +38,10 @@ from biology_informed_posterior import (  # noqa: E402
 )
 from biology_priors import (  # noqa: E402
     POOLED_GPS_RESPONSE_POSTERIOR,
+    POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY,
+    REGAL_INTERIM_DEFAULT_ASSUMED_EVALUABLE,
+    REGAL_INTERIM_IMMUNE_SOURCE_URL,
+    REGAL_INTERIM_REPORTED_RESPONSE_RATE,
     WT1_RESPONDER_DURABLE_PRIOR_BALANCED,
     WT1_RESPONDER_DURABLE_PRIOR_MECHANISM_FAVORING,
     WT1_RESPONDER_DURABLE_PRIOR_SKEPTICAL,
@@ -48,6 +55,10 @@ from posterior import (  # noqa: E402
     posterior_model_average,
 )
 from simulation import FUTILITY_HR_SENSITIVITY_GRID  # noqa: E402
+
+
+class AuditNotReadyError(RuntimeError):
+    """The requested Monte Carlo run did not clear posterior-forecast gates."""
 
 
 def _responder_prior(priors):
@@ -70,7 +81,36 @@ def _threshold_label(value):
 
 
 def _forecast_summary(forecast):
+    conditioning = tuple(item.conditioning for item in forecast.family_results)
+
+    def finite_extreme(values, operation):
+        values = tuple(float(value) for value in values)
+        if not values or any(not isfinite(value) for value in values):
+            return None
+        return operation(values)
+
+    minimum_history_ess = finite_extreme(
+        (item.history_effective_sample_size for item in conditioning), min
+    )
+    minimum_continuation_ess = finite_extreme(
+        (item.continuation_effective_sample_size for item in conditioning), min
+    )
+    maximum_history_share = finite_extreme(
+        (item.maximum_history_weight_share for item in conditioning), max
+    )
     return {
+        "is_posterior_forecast": forecast.is_posterior_forecast,
+        "estimate_status": (
+            "posterior_forecast"
+            if forecast.is_posterior_forecast
+            else "diagnostic_only"
+        ),
+        "readiness_issues": list(forecast.forecast_readiness_issues),
+        "readiness_diagnostics": {
+            "minimum_history_effective_sample_size": minimum_history_ess,
+            "minimum_continuation_effective_sample_size": minimum_continuation_ess,
+            "maximum_history_weight_share": maximum_history_share,
+        },
         "p_final_rejection_given_history_and_continuation": (
             forecast.p_final_rejection_given_public_history_and_continuation
         ),
@@ -88,6 +128,31 @@ def _forecast_summary(forecast):
             for family, weight in forecast.model_posterior_weights.items()
         },
     }
+
+
+def _comparison_readiness_issues(forecasts):
+    issues = []
+    for variant, threshold_results in forecasts.items():
+        for threshold, summary in threshold_results.items():
+            if summary["is_posterior_forecast"]:
+                continue
+            for issue in summary["readiness_issues"]:
+                issues.append(f"{variant} futility={threshold}: {issue}")
+    return tuple(issues)
+
+
+def _require_ready_output(result):
+    if result["is_posterior_forecast"]:
+        return
+    issues = tuple(result["readiness_issues"])
+    preview = "; ".join(issues[:3])
+    remaining = len(issues) - min(len(issues), 3)
+    if remaining:
+        preview += f"; and {remaining} more readiness failures"
+    raise AuditNotReadyError(
+        "comparison is diagnostic-only and cannot be published as a posterior "
+        f"forecast: {preview}"
+    )
 
 
 def run_comparison(nsim=10_000, seed=20260825):
@@ -137,8 +202,14 @@ def run_comparison(nsim=10_000, seed=20260825):
             )
         results[name] = threshold_results
 
+    readiness_issues = _comparison_readiness_issues(results)
     response_mean = POOLED_GPS_RESPONSE_POSTERIOR.mean
     return {
+        "is_posterior_forecast": not readiness_issues,
+        "estimate_status": (
+            "posterior_forecast" if not readiness_issues else "diagnostic_only"
+        ),
+        "readiness_issues": list(readiness_issues),
         "nsim_per_family": int(nsim),
         "seed": int(seed),
         "model_family_prior": BALANCED_MODEL_FAMILY_PRIOR.name,
@@ -147,6 +218,20 @@ def run_comparison(nsim=10_000, seed=20260825):
         ],
         "biology_prior_summary": {
             "pooled_immune_response_mean": response_mean,
+            "regal_interim_response_evidence": {
+                "reported_response_rate": REGAL_INTERIM_REPORTED_RESPONSE_RATE,
+                "default_assumed_evaluable": (
+                    REGAL_INTERIM_DEFAULT_ASSUMED_EVALUABLE
+                ),
+                "denominator_status": "working_assumption_not_publicly_disclosed",
+                "source_url": REGAL_INTERIM_IMMUNE_SOURCE_URL,
+            },
+            "pooled_response_mean_by_assumed_regal_evaluable": {
+                str(evaluable): prior.mean
+                for evaluable, prior in (
+                    POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY.items()
+                )
+            },
             "durable_probability_means": {
                 "skeptical": WT1_RESPONDER_DURABLE_PRIOR_SKEPTICAL.mean,
                 "balanced": WT1_RESPONDER_DURABLE_PRIOR_BALANCED.mean,
@@ -176,6 +261,12 @@ def _print_table(result):
     names = tuple(result["forecasts"])
     print("REGAL biology-informed posterior comparison")
     print(f"nsim/family={result['nsim_per_family']:,} seed={result['seed']}")
+    print(f"estimate status: {result['estimate_status']}")
+    if not result["is_posterior_forecast"]:
+        print(
+            "WARNING: diagnostic-only output; one or more Monte Carlo readiness "
+            "gates failed."
+        )
     print()
     header = ["variant"] + [
         f"futility={_threshold_label(value)}" for value in thresholds
@@ -197,11 +288,27 @@ def main(argv=None):
     parser.add_argument("--nsim", type=int, default=10_000)
     parser.add_argument("--seed", type=int, default=20260825)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--allow-diagnostic-output",
+        action="store_true",
+        help=(
+            "print or write results that failed forecast-readiness gates, with "
+            "diagnostic-only labeling"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.nsim <= 0:
         parser.error("--nsim must be positive")
 
     result = run_comparison(nsim=args.nsim, seed=args.seed)
+    if not args.allow_diagnostic_output:
+        try:
+            _require_ready_output(result)
+        except AuditNotReadyError as error:
+            parser.error(
+                f"{error}. Rerun with more --nsim, or pass "
+                "--allow-diagnostic-output to inspect explicitly labeled diagnostics"
+            )
     _print_table(result)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)

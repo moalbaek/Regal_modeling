@@ -36,7 +36,6 @@ from biology_priors import (
 from posterior import (
     DEFAULT_EFFECT_FAMILY_PRIORS,
     EffectFamilyPrior,
-    EffectParameters,
     GPSEffectFamily,
     UniformPriorRange,
 )
@@ -68,21 +67,11 @@ class BiologyInformedResponderEffectPrior(EffectFamilyPrior):
             raise ValueError("responder_cure_prior must provide sample(rng)")
         super().__init__(
             GPSEffectFamily.RESPONDER_CURE,
-            response_probability=UniformPriorRange(0.0, 1.0),
-            responder_cure_probability=UniformPriorRange(0.0, 1.0),
+            response_probability=response_beta_prior,
+            responder_cure_probability=responder_cure_prior,
         )
         object.__setattr__(self, "response_beta_prior", response_beta_prior)
         object.__setattr__(self, "responder_cure_prior", responder_cure_prior)
-
-    def sample(self, rng):
-        cure_probability = float(self.responder_cure_prior.sample(rng))
-        if not 0.0 <= cure_probability <= 1.0:
-            raise ValueError("responder_cure_prior must sample in [0, 1]")
-        return EffectParameters(
-            family=GPSEffectFamily.RESPONDER_CURE,
-            response_probability=self.response_beta_prior.sample(rng),
-            responder_cure_probability=cure_probability,
-        )
 
 
 def _replace_responder_prior(responder):

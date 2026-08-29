@@ -16,12 +16,15 @@ mixture prior whose skeptical component retains substantial probability mass.
 Immune-response evidence currently encoded
 ------------------------------------------
 * GPS phase 2 AML: 9 immune responders among 14 evaluable patients.
-* REGAL interim immune substudy: 8 responders among 10 randomly selected
-  GPS-treated patients reported by SELLAS.
+* REGAL interim immune substudy: SELLAS reported an 80% response rate in a
+  randomly selected GPS-treated sample but did not publicly disclose its size.
+  The default 8/10 translation is therefore an explicit working assumption,
+  accompanied by denominator sensitivity.
 
-With a Beta(1, 1) reference prior, pooling those observations yields
-Beta(18, 8): posterior mean 18 / 26 = 0.6923. The model samples from the full
-posterior rather than hard-coding the observed REGAL 8/10 = 80% point estimate.
+With a Beta(1, 1) reference prior and the default assumed REGAL denominator of
+10, pooling those observations yields Beta(18, 8): posterior mean 18 / 26 =
+0.6923. The model samples from the full posterior and exposes alternative
+denominator assumptions rather than treating the unreported sample size as fact.
 
 Responder-survival evidence map
 -------------------------------
@@ -51,6 +54,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 from numbers import Integral
+from types import MappingProxyType
+
+
+REGAL_INTERIM_IMMUNE_SOURCE_URL = (
+    "https://www.sec.gov/Archives/edgar/data/1390478/"
+    "000110465925005648/tm254291d1_ex99-1.htm"
+)
+REGAL_INTERIM_REPORTED_RESPONSE_RATE = 0.80
+REGAL_INTERIM_DEFAULT_ASSUMED_EVALUABLE = 10
+REGAL_INTERIM_DENOMINATOR_SENSITIVITY = (5, 10, 15, 20)
 
 
 @dataclass(frozen=True)
@@ -96,6 +109,14 @@ class BetaPrior:
     @property
     def mean(self) -> float:
         return self.alpha / (self.alpha + self.beta)
+
+    @property
+    def lower(self) -> float:
+        return 0.0
+
+    @property
+    def upper(self) -> float:
+        return 1.0
 
     def sample(self, rng) -> float:
         value = float(rng.beta(self.alpha, self.beta))
@@ -155,6 +176,14 @@ class BetaMixturePrior:
     def mean(self) -> float:
         return sum(weight * prior.mean for weight, prior in self.components)
 
+    @property
+    def lower(self) -> float:
+        return 0.0
+
+    @property
+    def upper(self) -> float:
+        return 1.0
+
     def sample(self, rng) -> float:
         selector = float(rng.random())
         if not isfinite(selector) or not 0.0 <= selector < 1.0:
@@ -191,10 +220,40 @@ GPS_PHASE2_IMMUNE_EVIDENCE = BinomialEvidence(
     evaluable=14,
 )
 
-REGAL_INTERIM_IMMUNE_EVIDENCE = BinomialEvidence(
-    "REGAL interim randomly selected GPS immune cohort",
-    responders=8,
-    evaluable=10,
+
+def regal_interim_assumed_evidence(evaluable):
+    """Translate the reported 80% rate under an explicit denominator assumption.
+
+    SELLAS publicly reported the response percentage and random sampling, but
+    not the sample size. Only assumed denominators that imply an integer number
+    of responders are accepted, keeping the unverifiable precision assumption
+    visible and easy to vary.
+    """
+
+    if isinstance(evaluable, bool) or not isinstance(evaluable, Integral):
+        raise ValueError("assumed REGAL evaluable count must be an integer")
+    evaluable = int(evaluable)
+    if evaluable <= 0:
+        raise ValueError("assumed REGAL evaluable count must be positive")
+    expected = REGAL_INTERIM_REPORTED_RESPONSE_RATE * evaluable
+    responders = int(round(expected))
+    if abs(expected - responders) > 1e-12:
+        raise ValueError(
+            "assumed REGAL evaluable count must make the reported 80% an "
+            "integer responder count"
+        )
+    return BinomialEvidence(
+        (
+            "REGAL interim randomly selected GPS immune cohort "
+            f"(80% reported; n={evaluable} working assumption)"
+        ),
+        responders=responders,
+        evaluable=evaluable,
+    )
+
+
+REGAL_INTERIM_IMMUNE_EVIDENCE = regal_interim_assumed_evidence(
+    REGAL_INTERIM_DEFAULT_ASSUMED_EVALUABLE
 )
 
 GPS_PHASE2_RESPONSE_POSTERIOR = REFERENCE_RESPONSE_PRIOR.update(
@@ -202,16 +261,34 @@ GPS_PHASE2_RESPONSE_POSTERIOR = REFERENCE_RESPONSE_PRIOR.update(
     label="gps_phase2_only_beta_10_6",
 )
 
-REGAL_INTERIM_RESPONSE_POSTERIOR = REFERENCE_RESPONSE_PRIOR.update(
-    REGAL_INTERIM_IMMUNE_EVIDENCE,
-    label="regal_interim_only_beta_9_3",
+REGAL_INTERIM_RESPONSE_POSTERIOR_SENSITIVITY = MappingProxyType(
+    {
+        evaluable: REFERENCE_RESPONSE_PRIOR.update(
+            regal_interim_assumed_evidence(evaluable),
+            label=f"regal_interim_only_assumed_n_{evaluable}",
+        )
+        for evaluable in REGAL_INTERIM_DENOMINATOR_SENSITIVITY
+    }
 )
 
-POOLED_GPS_RESPONSE_POSTERIOR = REFERENCE_RESPONSE_PRIOR.update(
-    GPS_PHASE2_IMMUNE_EVIDENCE,
-    REGAL_INTERIM_IMMUNE_EVIDENCE,
-    label="pooled_gps_beta_18_8",
+POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY = MappingProxyType(
+    {
+        evaluable: REFERENCE_RESPONSE_PRIOR.update(
+            GPS_PHASE2_IMMUNE_EVIDENCE,
+            regal_interim_assumed_evidence(evaluable),
+            label=f"pooled_gps_regal_assumed_n_{evaluable}",
+        )
+        for evaluable in REGAL_INTERIM_DENOMINATOR_SENSITIVITY
+    }
 )
+
+REGAL_INTERIM_RESPONSE_POSTERIOR = REGAL_INTERIM_RESPONSE_POSTERIOR_SENSITIVITY[
+    REGAL_INTERIM_DEFAULT_ASSUMED_EVALUABLE
+]
+
+POOLED_GPS_RESPONSE_POSTERIOR = POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY[
+    REGAL_INTERIM_DEFAULT_ASSUMED_EVALUABLE
+]
 
 
 # The following anchors are deliberately descriptive. They explain the elicited
@@ -293,9 +370,15 @@ __all__ = [
     "GPS_PHASE2_IMMUNE_EVIDENCE",
     "GPS_PHASE2_RESPONSE_POSTERIOR",
     "POOLED_GPS_RESPONSE_POSTERIOR",
+    "POOLED_GPS_RESPONSE_POSTERIOR_SENSITIVITY",
     "REFERENCE_RESPONSE_PRIOR",
+    "REGAL_INTERIM_DEFAULT_ASSUMED_EVALUABLE",
+    "REGAL_INTERIM_DENOMINATOR_SENSITIVITY",
     "REGAL_INTERIM_IMMUNE_EVIDENCE",
+    "REGAL_INTERIM_IMMUNE_SOURCE_URL",
+    "REGAL_INTERIM_REPORTED_RESPONSE_RATE",
     "REGAL_INTERIM_RESPONSE_POSTERIOR",
+    "REGAL_INTERIM_RESPONSE_POSTERIOR_SENSITIVITY",
     "SurvivalEvidenceAnchor",
     "WT1_DURABLE_MODERATE_COMPONENT",
     "WT1_DURABLE_SKEPTICAL_COMPONENT",
@@ -304,4 +387,5 @@ __all__ = [
     "WT1_RESPONDER_DURABLE_PRIOR_MECHANISM_FAVORING",
     "WT1_RESPONDER_DURABLE_PRIOR_SKEPTICAL",
     "WT1_RESPONDER_SURVIVAL_EVIDENCE",
+    "regal_interim_assumed_evidence",
 ]

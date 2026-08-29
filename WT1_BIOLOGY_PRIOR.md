@@ -15,25 +15,40 @@ The model separates:
    the probability that the patient enters the responder/cure family's
    durable-remission / very-low-disease-hazard state.
 
-This prevents the observed REGAL 8/10 immune-response result from being treated
-as though 80% of GPS patients necessarily obtain a survival benefit.
+This prevents the reported REGAL 80% immune-response rate from being treated as
+though 80% of GPS patients necessarily obtain a survival benefit. SELLAS did not
+publicly disclose the immune sample size; the default 8/10 translation used below
+is therefore a working modeling assumption, not a reported patient count.
 
 ## Immune-response prior
 
 The direct GPS evidence is pooled with a Beta(1,1) reference prior:
 
-| Cohort | Responders | Evaluable |
-| --- | ---: | ---: |
-| GPS phase 2 AML | 9 | 14 |
-| REGAL interim randomly selected GPS patients | 8 | 10 |
-| **Combined** | **17** | **24** |
+| Cohort | Responders | Evaluable | Denominator status |
+| --- | ---: | ---: | --- |
+| GPS phase 2 AML | 9 | 14 | reported |
+| REGAL interim randomly selected GPS patients | 8 | 10 | working assumption from reported 80% |
+| **Combined default** | **17** | **24** | includes assumed REGAL n=10 |
 
-The resulting response probability is **Beta(18,8)** with mean **69.2%**.
-The phase-2-only Beta(10,6) and REGAL-only Beta(9,3) distributions remain
-available for exchangeability sensitivity analysis.
+Under that default assumption, the resulting response probability is
+**Beta(18,8)** with mean **69.2%**. The phase-2-only Beta(10,6) and REGAL-only
+Beta(9,3) distributions remain available for exchangeability sensitivity.
+
+Because the public disclosure gives 80% but not the denominator, the code also
+exposes this denominator sensitivity:
+
+| Assumed REGAL n | Implied responders | Pooled posterior | Pooled mean |
+| ---: | ---: | --- | ---: |
+| 5 | 4 | Beta(14,7) | 66.7% |
+| 10 | 8 | Beta(18,8) | 69.2% |
+| 15 | 12 | Beta(22,9) | 71.0% |
+| 20 | 16 | Beta(26,10) | 72.2% |
 
 GPS phase 2 source:
 https://pmc.ncbi.nlm.nih.gov/articles/PMC5812332/
+
+REGAL source reporting 80% in a randomly selected sample, without sample size:
+https://www.sec.gov/Archives/edgar/data/1390478/000110465925005648/tm254291d1_ex99-1.htm
 
 ## Why responder survival is not meta-analyzed directly
 
@@ -161,7 +176,10 @@ python audit/biology_informed_posterior_comparison.py \
 It integrates the default non-responder families once, recomputes only the
 responder family for each biology prior on the same family-specific random seed,
 and reports posterior rejection probability across the complete futility-HR
-sensitivity grid.
+sensitivity grid. By default the CLI refuses to print or write results if any
+forecast-readiness gate fails. `--allow-diagnostic-output` may be used to inspect
+such a run, but the table and JSON are then explicitly marked `diagnostic_only`
+and retain the readiness failures and ESS/weight diagnostics.
 
 ## What this prior does not claim
 

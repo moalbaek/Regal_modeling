@@ -27,6 +27,7 @@ import sys
 import tempfile
 from typing import Optional
 
+from biology_priors import BetaMixturePrior, BetaPrior
 from posterior import (
     BALANCED_MODEL_FAMILY_PRIOR,
     DEFAULT_EFFECT_FAMILY_PRIORS,
@@ -37,6 +38,7 @@ from posterior import (
     MINIMUM_POSTERIOR_FORECAST_ESS,
     PosteriorForecastResult,
     REQUIRED_EFFECT_FAMILIES,
+    UniformPriorRange,
     condition_effect_family_futility_sensitivity,
     posterior_model_average,
     posterior_prior_sensitivity,
@@ -165,6 +167,29 @@ def _probability(value, name, allow_none=False):
 
 
 def _prior_range_record(prior_range):
+    if isinstance(prior_range, BetaPrior):
+        return {
+            "distribution": "beta",
+            "alpha": prior_range.alpha,
+            "beta": prior_range.beta,
+            "label": prior_range.label,
+            "mean": prior_range.mean,
+        }
+    if isinstance(prior_range, BetaMixturePrior):
+        return {
+            "distribution": "beta_mixture",
+            "label": prior_range.label,
+            "mean": prior_range.mean,
+            "components": [
+                {
+                    "weight": weight,
+                    "prior": _prior_range_record(component),
+                }
+                for weight, component in prior_range.components
+            ],
+        }
+    if not isinstance(prior_range, UniformPriorRange):
+        raise ValueError("effect parameter prior has an unsupported distribution")
     if prior_range.is_point_mass:
         distribution = "point_mass"
     elif prior_range.log_scale:
