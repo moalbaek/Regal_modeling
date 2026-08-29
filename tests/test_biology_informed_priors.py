@@ -1,3 +1,5 @@
+from datetime import date
+
 import numpy as np
 
 from biology_informed_posterior import (
@@ -20,7 +22,12 @@ from biology_priors import (
     WT1_RESPONDER_DURABLE_PRIOR_SKEPTICAL,
     WT1_RESPONDER_SURVIVAL_EVIDENCE,
 )
-from posterior import DEFAULT_EFFECT_FAMILY_PRIORS, GPSEffectFamily, UniformPriorRange
+from posterior import (
+    DEFAULT_EFFECT_FAMILY_PRIORS,
+    GPSEffectFamily,
+    GPSEffectScenarioSampler,
+    UniformPriorRange,
+)
 
 
 def _responder_prior(priors):
@@ -106,6 +113,24 @@ def test_full_biology_prior_samples_response_and_survival_distributions():
     assert abs(cure.mean() - WT1_RESPONDER_DURABLE_PRIOR_BALANCED.mean) < 0.01
     assert np.all((response >= 0.0) & (response <= 1.0))
     assert np.all((cure >= 0.0) & (cure <= 1.0))
+
+
+def test_full_biology_prior_runs_through_existing_responder_scenario_sampler():
+    prior = _responder_prior(BIOLOGY_INFORMED_EFFECT_FAMILY_PRIORS)
+    patients = GPSEffectScenarioSampler(prior)(
+        (date(2022, 1, 1),) * 126,
+        np.random.default_rng(20260901),
+    )
+    assert patients.patient_count == 126
+    assert patients.treatment.sum() > 0
+    probabilities = np.linspace(0.05, 0.75, 126)
+    times = patients.event_time_model.ppf(probabilities)
+    np.testing.assert_allclose(
+        patients.event_time_model.cdf(times),
+        probabilities,
+        rtol=0.0,
+        atol=3e-12,
+    )
 
 
 def test_survival_sensitivity_tuples_hold_response_evidence_fixed():
