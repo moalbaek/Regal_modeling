@@ -24,7 +24,7 @@ likelihood/posterior modules, and the strict Python-generated
 > gate. The legacy controls remain isolated below it. See
 > [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) for the rebuild status.
 
-**Last updated:** 2026-08-25 · **Status:** research/analysis tool, not investment advice.
+**Last updated:** 2026-08-29 · **Status:** research/analysis tool, not investment advice.
 
 ---
 
@@ -69,6 +69,10 @@ The legacy survival, fitting, and final-analysis engine is delivered in two form
 | `event_likelihood.py` | Isolated v2 public-history likelihood; not consumed by the legacy explorer. | registry-anchored fixed-N accrual, correlated Poisson-multinomial event increments, event-80 announcement right censor |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 data/likelihood audit. | anchor reachability, integer-count correlation, reporting-lag sensitivity |
 | `posterior.py` | Isolated WP6/WP7 conditioning and model-averaging engine; not consumed by the legacy explorer. | consistent latent histories, exact public-count conditional draws, continuation importance weights, seven GPS effect families, parameter priors, posterior family weights, prior sensitivity, ESS diagnostics |
+| `biology_priors.py` | Optional endpoint-level immunogenicity and responder-survival prior definitions. | beta-binomial source updates, explicit REGAL denominator sensitivity, conservative beta-mixture durable-state priors |
+| `biology_informed_posterior.py` | Additive responder-family sensitivity wiring; canonical WP7 defaults remain unchanged. | pooled, phase-2-only, REGAL-interim-only, skeptical, balanced, and mechanism-favoring prior tuples |
+| `WT1_BIOLOGY_PRIOR.md` | Auditable evidence and elicitation note for the optional responder prior. | source links, working assumptions, mixture rationale, interpretation limits, reproduction command |
+| `audit/biology_informed_posterior_comparison.py` | Parallel, readiness-gated comparison of baseline and biology-informed forecasts. | source-isolation, survival-prior, futility-grid, and n=5/n=20 denominator forecast sensitivities |
 | `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 rare-continuation stress audit. | base-versus-centered proposal coverage and public-history compatibility agreement |
 | `audit/v2_effect_model_averaging_validation.py` | Compact synthetic WP7 end-to-end audit. | complete family coverage, WP6 integration, posterior-weight normalization, and skeptical/balanced/cure-favoring sensitivity |
 | `regal_data.py` | WP8 public-data reporting boundary. | validated history snapshot, evidence as-of date, exact source-file SHA-256, JSON-safe observation summary |
@@ -701,16 +705,40 @@ subset, a boundary-selected cure model, or a numerically unresolved model averag
 presented as the v2 posterior forecast. The thresholds are release safeguards, not proof of Monte
 Carlo convergence; seed stability and sensitivity diagnostics still require review.
 
+#### 4.8.1 Optional biology-informed responder sensitivity
+
+`biology_priors.py` keeps immunogenicity as an endpoint-level update separate from the blinded
+survival event-count likelihood. It combines the reported GPS phase-2 result (9/14) with REGAL's
+publicly reported 80% interim immune-response rate. Because SELLAS did not disclose the REGAL immune
+sample size, 8/10 is labeled a working assumption rather than a reported count; pooled n=5, 10, 15,
+and 20 alternatives remain explicit. Responder durable benefit is a conservative beta-mixture
+elicitation rather than a meta-analysis of non-exchangeable small-study hazard ratios.
+
+`biology_informed_posterior.py` changes only the responder family's active probability priors. The
+canonical seven WP7 default prior values remain unchanged. The audit
+runner uses the production-sized 150,000 draws per family and seven workers by default, reuses each
+non-responder integration, and runs phase-2-only, REGAL-interim-only, pooled-response,
+skeptical/balanced/mechanism-favoring survival, and pooled-denominator n=5/n=20 responder forecasts on
+the same family seed. This is an expensive production-scale run comprising 15 family integrations.
+It withholds output unless every complete model average clears the canonical
+ESS and maximum-weight gates; smaller runs require explicit diagnostic-only labeling. Full sources,
+assumptions, and the command are recorded in `WT1_BIOLOGY_PRIOR.md`.
+
 ### 4.9 WP8 result bundle and frontend contract
 
 Python remains the only v2 statistical engine. `regal_data.py` loads the same `PublicHistory` object
 used by WP5–WP7, fingerprints the raw source file with SHA-256, and emits the evidence dates and typed
 observation summary. The browser does not keep a second hand-entered public-history table.
+The publisher writes schema v4. The Python validator also reads legacy schema-v3 bundles, restricted
+to schema v3's original point-mass, uniform, and log-uniform prior vocabulary; beta and beta-mixture
+records require schema v4.
 
 `report.py` requires three model-weight rows—skeptical, balanced, and cure-favoring—from identical
 family projections, plus the full paired futility grid (disabled and assumed interim HR thresholds
-0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-3 wire
-schema separately records the numerical-run source revision and the bundle-serialization revision,
+0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-4 wire
+schema explicitly supports point-mass, uniform, log-uniform, beta, and beta-mixture active-parameter
+prior records and separately records the numerical-run source revision and bundle-serialization
+revision,
 plus UTC generation time, seed, importance-draw count, public-
 data hash, trial boundaries, active within-family parameter priors, family prior/posterior weights,
 conditional probabilities, ESS, maximum history-weight share, and proposal diagnostics. Every prior
@@ -737,9 +765,9 @@ calculations remain confined to the v1 section.
 
 The checked-in production artifact's numerical run was generated on 2026-08-26 UTC from source
 revision `fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`, with seed `20260825`, the exact
-public-history-conditioned base proposal, and 150,000 importance draws per family. Its schema-3
-bundle was serialized by revision `79b0965208b908dcc43f13b346c25bba256227b2`; that metadata-only migration
-added no simulation output and did not change any numerical value. The artifact is complete
+public-history-conditioned base proposal, and 150,000 importance draws per family. Its schema-4
+bundle is a serialization-only migration that adds the explicit beta/beta-mixture prior vocabulary;
+it adds no simulation output and changes no numerical value. The artifact is complete
 and **release-ready**. In the balanced, no-futility baseline, history ESS ranges from 291.6 to
 9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight share from 0.032% to
 1.890%. The complete family set and every model-prior and futility sensitivity row clear the
@@ -808,7 +836,7 @@ the exact validated Python bundle; the browser performs no duplicate posterior c
 | `condition_effect_families_futility_sensitivity_grid` | Paired WP7 family sets that retain identical latent histories within each family across no-futility and explicit HR-threshold assumptions. |
 | `posterior_model_average` | Requires all effect families, updates their weights with joint history/continuation evidence, and averages conditional final projections. |
 | `posterior_prior_sensitivity` | Reuses identical family likelihoods under skeptical, balanced, and cure-favoring model-weight priors. |
-| `build_result_bundle` / `validate_result_bundle` | Serialize the complete WP7 analysis to the finite-number v1 wire schema and enforce the release/headline invariants. |
+| `build_result_bundle` / `validate_result_bundle` | Serialize the complete WP7 analysis to the finite-number version-4 wire schema and enforce the prior-vocabulary, release, and headline invariants. |
 | `write_published_artifacts` / `validate_published_artifacts` | Write canonical JSON, embed the same object in the self-contained HTML, and reject any schema or parity drift. |
 | `figure()` / `render` + `chart*` | 9-panel figure (py, 3×3 grid) / live SVG charts and metrics panel (html): `chart` (survival), `chartAccrual`, `chartHist`, `chartDiverge`, `chartEnroll`, `chartPower`, `chartSelect`. |
 

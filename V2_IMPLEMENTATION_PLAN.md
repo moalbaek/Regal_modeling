@@ -362,6 +362,10 @@ simulation.py
 report.py
 ```
 
+Optional endpoint-level responder sensitivity is isolated in `biology_priors.py` and
+`biology_informed_posterior.py`, with its readiness-gated runner under `audit/`; it does not change
+the canonical module defaults above.
+
 Required tests include survival-scale handling, non-immortal cure survival, no future-outcome
 selection, BAT weights and combinations, interim branch conservation, O'Brien-Fleming type-I error,
 stratified-analysis parity, small-cohort likelihood checks, continuation-boundary conditioning,
@@ -378,8 +382,11 @@ diagnostics. Every prior and futility row also carries the minimum history ESS, 
 ESS, and maximum history-weight share across its families, so its gate status remains independently
 checkable even when the futility row omits repeated family records. Non-finite diagnostic estimates
 serialize as JSON `null`; a release-ready result may not contain a null probability.
-Schema 3 records the numerical-run source revision separately from the bundle-serialization revision,
-so metadata-only migrations do not relabel which code produced the simulation values.
+Schema 4 retains schema 3's separate numerical-run and bundle-serialization revisions and adds an
+explicit validated vocabulary for point-mass, uniform, log-uniform, beta, and beta-mixture active
+parameter priors. Metadata-only migrations therefore do not relabel which code produced the
+simulation values. Writers emit schema 4; readers retain compatibility with schema 3 while limiting
+it to its original point-mass, uniform, and log-uniform prior records.
 The browser exposes each futility row's minimum continuation ESS and its margin over the 100 floor.
 The HR-0.80 row is tightest at 116.1, so that 16.1 margin is treated as seed-specific evidence to
 recheck on every production run, not as permanent clearance.
@@ -395,8 +402,8 @@ against the committed public-history source. A production build always persists 
 
 The current production artifact uses 150,000 importance draws per family, seed `20260825`, the exact
 public-history-conditioned base proposal, and numerical-run source revision
-`fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`. Schema-3 serialization is pinned separately to revision
-`79b0965208b908dcc43f13b346c25bba256227b2`; that metadata-only migration left all numerical values unchanged.
+`fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`. Its schema-4 serialization revision is pinned separately
+inside the bundle; that metadata-only migration leaves all numerical values unchanged.
 Across the balanced no-futility baseline, family history
 ESS ranges from 291.6 to 9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight
 share from 0.032% to 1.890%. The complete seven-family result and every model-prior and futility row

@@ -32,12 +32,16 @@ from posterior import (  # noqa: E402
 from regal_data import load_regal_data_snapshot  # noqa: E402
 from report import (  # noqa: E402
     AnalysisRunMetadata,
+    EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
+    LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
     PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
     RESULT_BUNDLE_SCHEMA_VERSION,
     RESULT_BUNDLE_END,
     RESULT_BUNDLE_START,
+    SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS,
     _family_worker,
     _git_revision,
+    _prior_range_record,
     build_result_bundle,
     build_unpublished_result_bundle,
     _build_command,
@@ -336,23 +340,104 @@ class ResultBundleTest(unittest.TestCase):
         serialized = canonical_result_json(bundle)
         self.assertEqual(json.loads(serialized), bundle)
 
-    def test_schema_three_separates_numerical_and_serialization_revisions(self):
+    def test_schema_four_versions_prior_vocabulary_and_run_revisions(self):
         bundle = self.ready_bundle()
-        self.assertEqual(RESULT_BUNDLE_SCHEMA_VERSION, 3)
-        self.assertEqual(bundle["schema_version"], 3)
+        self.assertEqual(RESULT_BUNDLE_SCHEMA_VERSION, 4)
+        self.assertEqual(bundle["schema_version"], 4)
+        self.assertEqual(
+            EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
+            {"point_mass", "uniform", "log_uniform", "beta", "beta_mixture"},
+        )
+        self.assertEqual(
+            LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS,
+            {"point_mass", "uniform", "log_uniform"},
+        )
+        self.assertEqual(SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS, {3, 4})
         self.assertEqual(bundle["source_revision"], "abc1234")
         self.assertEqual(bundle["serialization_revision"], "def5678")
 
         legacy = json.loads(canonical_result_json(bundle))
-        legacy["schema_version"] = 2
-        del legacy["serialization_revision"]
+        legacy["schema_version"] = 3
+        validate_result_bundle(legacy)
+
+        legacy_with_v4_prior = json.loads(canonical_result_json(legacy))
+        responder = next(
+            item
+            for item in legacy_with_v4_prior["prior_sensitivity"][0]["families"]
+            if item["family"] == GPSEffectFamily.RESPONDER_CURE.value
+        )
+        responder["parameter_priors"]["response_probability"] = {
+            "distribution": "beta",
+            "alpha": 2.0,
+            "beta": 3.0,
+            "label": "v4_only",
+            "mean": 0.4,
+        }
+        with self.assertRaisesRegex(ValueError, "unsupported distribution"):
+            validate_result_bundle(legacy_with_v4_prior)
+
+        future = json.loads(canonical_result_json(bundle))
+        future["schema_version"] = 5
         with self.assertRaisesRegex(ValueError, "unsupported result-bundle schema"):
-            validate_result_bundle(legacy)
+            validate_result_bundle(future)
 
         missing = json.loads(canonical_result_json(bundle))
         del missing["serialization_revision"]
         with self.assertRaisesRegex(ValueError, "serialization_revision"):
             validate_result_bundle(missing)
+
+    def test_prior_records_own_their_description_without_exploratory_imports(self):
+        class DescribedPrior:
+            def describe(self):
+                return {
+                    "distribution": "beta",
+                    "alpha": 2.0,
+                    "beta": 3.0,
+                    "label": "structural",
+                    "mean": 0.4,
+                }
+
+        self.assertEqual(
+            _prior_range_record(DescribedPrior())["distribution"], "beta"
+        )
+        report_source = (ROOT / "report.py").read_text(encoding="utf-8")
+        self.assertNotIn("from biology_priors import", report_source)
+
+        class BrokenPrior:
+            def describe(self):
+                raise RuntimeError("broken prior implementation")
+
+        with self.assertRaisesRegex(RuntimeError, "broken prior implementation"):
+            _prior_range_record(BrokenPrior())
+
+    def test_wire_validator_enforces_schema_four_prior_records(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        responder = next(
+            item
+            for item in bundle["prior_sensitivity"][0]["families"]
+            if item["family"] == GPSEffectFamily.RESPONDER_CURE.value
+        )
+        responder["parameter_priors"]["response_probability"] = {
+            "distribution": "unsupported"
+        }
+        with self.assertRaisesRegex(ValueError, "unsupported distribution"):
+            validate_result_bundle(bundle)
+
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        responder = next(
+            item
+            for item in bundle["prior_sensitivity"][0]["families"]
+            if item["family"] == GPSEffectFamily.RESPONDER_CURE.value
+        )
+        responder["parameter_priors"]["response_probability"] = {
+            "distribution": "beta",
+            "alpha": 2.0,
+            "beta": 3.0,
+            "label": "invalid_mean",
+            "mean": 0.5,
+        }
+        with self.assertRaisesRegex(ValueError, "mean differs"):
+            validate_result_bundle(bundle)
 
     def test_bundle_serializes_the_canonical_python_readiness_gates(self):
         expected = {

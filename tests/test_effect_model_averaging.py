@@ -184,6 +184,127 @@ class EffectFamilyTest(unittest.TestCase):
                 hazard_ratio=UniformPriorRange(0.8, 1.0, log_scale=True),
             )
 
+    def test_probability_prior_structural_contract_rejects_invalid_objects(self):
+        class ValidStructuralPrior:
+            lower = 0.2
+            upper = 0.8
+
+            def sample(self, rng):
+                return 0.5
+
+            def describe(self):
+                return {
+                    "distribution": "uniform",
+                    "lower": self.lower,
+                    "upper": self.upper,
+                }
+
+        valid = ValidStructuralPrior()
+        prior = EffectFamilyPrior(
+            GPSEffectFamily.RESPONDER_CURE,
+            response_probability=valid,
+        )
+        self.assertIs(prior.response_probability, valid)
+
+        cases = (
+            (
+                "sample",
+                type(
+                    "MissingSample",
+                    (),
+                    {
+                        "lower": 0.0,
+                        "upper": 1.0,
+                        "describe": lambda self: {},
+                    },
+                )(),
+                "must provide sample",
+            ),
+            (
+                "describe",
+                type(
+                    "MissingDescribe",
+                    (),
+                    {"lower": 0.0, "upper": 1.0, "sample": lambda self, rng: 0.5},
+                )(),
+                "must provide describe",
+            ),
+            (
+                "numeric_bounds",
+                type(
+                    "MissingBounds",
+                    (),
+                    {
+                        "sample": lambda self, rng: 0.5,
+                        "describe": lambda self: {},
+                    },
+                )(),
+                "numeric lower and upper",
+            ),
+            (
+                "boolean_bounds",
+                type(
+                    "BooleanBounds",
+                    (),
+                    {
+                        "lower": False,
+                        "upper": True,
+                        "sample": lambda self, rng: 0.5,
+                        "describe": lambda self: {},
+                    },
+                )(),
+                "numeric lower and upper",
+            ),
+            (
+                "unordered_bounds",
+                type(
+                    "UnorderedBounds",
+                    (),
+                    {
+                        "lower": 0.9,
+                        "upper": 0.1,
+                        "sample": lambda self, rng: 0.5,
+                        "describe": lambda self: {},
+                    },
+                )(),
+                "finite and ordered",
+            ),
+            (
+                "nonfinite_bounds",
+                type(
+                    "NonfiniteBounds",
+                    (),
+                    {
+                        "lower": float("nan"),
+                        "upper": 1.0,
+                        "sample": lambda self, rng: 0.5,
+                        "describe": lambda self: {},
+                    },
+                )(),
+                "finite and ordered",
+            ),
+            (
+                "outside_probability_support",
+                type(
+                    "OutsideSupport",
+                    (),
+                    {
+                        "lower": -0.1,
+                        "upper": 1.0,
+                        "sample": lambda self, rng: 0.5,
+                        "describe": lambda self: {},
+                    },
+                )(),
+                r"bounds must lie in \[0, 1\]",
+            ),
+        )
+        for name, invalid, message in cases:
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, message):
+                EffectFamilyPrior(
+                    GPSEffectFamily.RESPONDER_CURE,
+                    response_probability=invalid,
+                )
+
     def test_every_family_generates_estimable_stratified_patients_and_quantiles(self):
         entries = (date(2022, 1, 1),) * 126
         for index, prior in enumerate(DEFAULT_EFFECT_FAMILY_PRIORS):

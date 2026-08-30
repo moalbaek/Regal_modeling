@@ -14,6 +14,7 @@ while the headline is set to ``null``.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -50,7 +51,8 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULT_BUNDLE_PATH = ROOT / "data" / "regal_v2_result_bundle.json"
 DEFAULT_HTML_PATH = ROOT / "regal_explorer.html"
 
-RESULT_BUNDLE_SCHEMA_VERSION = 3
+RESULT_BUNDLE_SCHEMA_VERSION = 4
+SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS = frozenset({3, 4})
 RESULT_BUNDLE_TYPE = "regal_v2_posterior_forecast"
 MODEL_VERSION = "v2"
 PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
@@ -62,6 +64,12 @@ PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
 PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS = ()
 RESULT_BUNDLE_START = "<!-- REGAL_V2_RESULT_BUNDLE_START -->"
 RESULT_BUNDLE_END = "<!-- REGAL_V2_RESULT_BUNDLE_END -->"
+EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS = frozenset(
+    {"point_mass", "uniform", "log_uniform", "beta", "beta_mixture"}
+)
+LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS = frozenset(
+    {"point_mass", "uniform", "log_uniform"}
+)
 
 FAMILY_LABELS = {
     GPSEffectFamily.NO_EFFECT: "No effect",
@@ -165,17 +173,15 @@ def _probability(value, name, allow_none=False):
 
 
 def _prior_range_record(prior_range):
-    if prior_range.is_point_mass:
-        distribution = "point_mass"
-    elif prior_range.log_scale:
-        distribution = "log_uniform"
-    else:
-        distribution = "uniform"
-    return {
-        "distribution": distribution,
-        "lower": prior_range.lower,
-        "upper": prior_range.upper,
-    }
+    describe = getattr(prior_range, "describe", None)
+    if not callable(describe):
+        raise ValueError("effect parameter prior must provide describe()")
+    record = describe()
+    if not isinstance(record, Mapping):
+        raise ValueError("effect parameter prior description must be an object")
+    record = dict(record)
+    _validate_parameter_prior_record(record)
+    return record
 
 
 def _effect_prior_record(prior):
@@ -566,6 +572,89 @@ def _nonnegative_number(value, name, allow_none=False):
     return number
 
 
+def _finite_number(value, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be numeric")
+    number = float(value)
+    if not isfinite(number):
+        raise ValueError(f"{name} must be finite")
+    return number
+
+
+def _validate_parameter_prior_record(
+    record, *, schema_version=RESULT_BUNDLE_SCHEMA_VERSION
+):
+    """Validate one version-aware active-parameter prior description."""
+
+    if not isinstance(record, dict):
+        raise ValueError("effect parameter prior record must be an object")
+    distributions = (
+        EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS
+        if schema_version >= 4
+        else LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS
+    )
+    distribution = record.get("distribution")
+    if distribution not in distributions:
+        raise ValueError("effect parameter prior has an unsupported distribution")
+
+    if distribution in {"point_mass", "uniform", "log_uniform"}:
+        if set(record) != {"distribution", "lower", "upper"}:
+            raise ValueError(f"{distribution} prior record has unsupported fields")
+        lower = _finite_number(record["lower"], f"{distribution} prior lower bound")
+        upper = _finite_number(record["upper"], f"{distribution} prior upper bound")
+        if lower > upper:
+            raise ValueError(f"{distribution} prior bounds must be ordered")
+        if distribution == "point_mass" and lower != upper:
+            raise ValueError("point-mass prior bounds must be equal")
+        if distribution != "point_mass" and lower >= upper:
+            raise ValueError(f"{distribution} prior bounds must be distinct")
+        if distribution == "log_uniform" and lower <= 0.0:
+            raise ValueError("log-uniform prior bounds must be positive")
+        return record
+
+    if distribution == "beta":
+        if set(record) != {"distribution", "alpha", "beta", "label", "mean"}:
+            raise ValueError("beta prior record has unsupported fields")
+        alpha = _finite_number(record["alpha"], "beta prior alpha")
+        beta = _finite_number(record["beta"], "beta prior beta")
+        if alpha <= 0.0 or beta <= 0.0:
+            raise ValueError("beta prior parameters must be positive")
+        if not isinstance(record["label"], str):
+            raise ValueError("beta prior label must be a string")
+        mean = _probability(record["mean"], "beta prior mean")
+        if abs(mean - alpha / (alpha + beta)) > 1e-12:
+            raise ValueError("beta prior mean differs from its parameters")
+        return record
+
+    if set(record) != {"distribution", "label", "mean", "components"}:
+        raise ValueError("beta-mixture prior record has unsupported fields")
+    if not isinstance(record["label"], str) or not record["label"].strip():
+        raise ValueError("beta-mixture prior label must be non-empty")
+    mean = _probability(record["mean"], "beta-mixture prior mean")
+    components = record["components"]
+    if not isinstance(components, list) or not components:
+        raise ValueError("beta-mixture prior components must be a non-empty list")
+    total_weight = 0.0
+    expected_mean = 0.0
+    for component in components:
+        if not isinstance(component, dict) or set(component) != {"weight", "prior"}:
+            raise ValueError("beta-mixture components must contain weight and prior")
+        weight = _probability(component["weight"], "beta-mixture weight")
+        if weight <= 0.0:
+            raise ValueError("beta-mixture weights must be positive")
+        nested = component["prior"]
+        _validate_parameter_prior_record(nested, schema_version=schema_version)
+        if nested["distribution"] != "beta":
+            raise ValueError("beta-mixture components must be beta priors")
+        total_weight += weight
+        expected_mean += weight * float(nested["mean"])
+    if abs(total_weight - 1.0) > 1e-12:
+        raise ValueError("beta-mixture weights must sum to one")
+    if abs(mean - expected_mean) > 1e-12:
+        raise ValueError("beta-mixture mean differs from its components")
+    return record
+
+
 def _validate_readiness_diagnostics(record):
     diagnostics = record.get("readiness_diagnostics")
     if not isinstance(diagnostics, dict):
@@ -615,7 +704,9 @@ def _validate_readiness_diagnostics(record):
     }
 
 
-def _validate_forecast_record(record, *, families_required):
+def _validate_forecast_record(
+    record, *, families_required, schema_version=RESULT_BUNDLE_SCHEMA_VERSION
+):
     if not isinstance(record, dict):
         raise ValueError("forecast records must be objects")
     if not isinstance(record.get("name"), str) or not record["name"]:
@@ -679,8 +770,17 @@ def _validate_forecast_record(record, *, families_required):
                     _probability(value, f"family probability {name}")
                 elif record["is_posterior_forecast"]:
                     raise ValueError("a ready family cannot contain null probabilities")
-            if not isinstance(item.get("parameter_priors"), dict):
+            parameter_priors = item.get("parameter_priors")
+            if not isinstance(parameter_priors, dict):
                 raise ValueError("family parameter priors must be an object")
+            if set(parameter_priors) != set(ACTIVE_PRIOR_FIELDS[family]):
+                raise ValueError(
+                    "family parameter priors differ from the active-parameter contract"
+                )
+            for prior_record in parameter_priors.values():
+                _validate_parameter_prior_record(
+                    prior_record, schema_version=schema_version
+                )
             diagnostics = item.get("diagnostics")
             if not isinstance(diagnostics, dict):
                 raise ValueError("family diagnostics must be an object")
@@ -768,7 +868,12 @@ def validate_result_bundle(bundle):
     if not isinstance(bundle, dict):
         raise ValueError("result bundle root must be an object")
     _assert_json_finite(bundle)
-    if bundle.get("schema_version") != RESULT_BUNDLE_SCHEMA_VERSION:
+    schema_version = bundle.get("schema_version")
+    if (
+        isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version not in SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS
+    ):
         raise ValueError("unsupported result-bundle schema version")
     if bundle.get("bundle_type") != RESULT_BUNDLE_TYPE:
         raise ValueError("unsupported result-bundle type")
@@ -899,14 +1004,18 @@ def validate_result_bundle(bundle):
     if [item.get("name") for item in prior_rows] != expected_prior_names:
         raise ValueError("prior sensitivity rows are incomplete or out of order")
     for row in prior_rows:
-        _validate_forecast_record(row, families_required=True)
+        _validate_forecast_record(
+            row, families_required=True, schema_version=schema_version
+        )
     observed_thresholds = [
         item.get("assumed_futility_hr_threshold") for item in futility_rows
     ]
     if observed_thresholds != list(FUTILITY_HR_SENSITIVITY_GRID):
         raise ValueError("futility sensitivity rows are incomplete or out of order")
     for row in futility_rows:
-        _validate_forecast_record(row, families_required=False)
+        _validate_forecast_record(
+            row, families_required=False, schema_version=schema_version
+        )
     primary = next(
         item for item in prior_rows if item["name"] == PRIMARY_MODEL_WEIGHT_SENSITIVITY
     )
@@ -1345,8 +1454,11 @@ __all__ = (
     "AnalysisRunMetadata",
     "DEFAULT_HTML_PATH",
     "DEFAULT_RESULT_BUNDLE_PATH",
+    "EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS",
+    "LEGACY_EFFECT_PARAMETER_PRIOR_DISTRIBUTIONS",
     "MODEL_VERSION",
     "RESULT_BUNDLE_SCHEMA_VERSION",
+    "SUPPORTED_RESULT_BUNDLE_SCHEMA_VERSIONS",
     "RESULT_BUNDLE_TYPE",
     "build_result_bundle",
     "build_unpublished_result_bundle",

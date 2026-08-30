@@ -21,6 +21,18 @@ DISCLOSURE_FILES = (
     "regal_explorer.py",
     "REGAL_MODEL_DOCUMENTATION.md",
 )
+BIOLOGY_DISCOVERY_FILES = (
+    "README.md",
+    "REGAL_MODEL_DOCUMENTATION.md",
+    "docs.html",
+    "regal_explorer.html",
+)
+BIOLOGY_ARTIFACTS = (
+    "biology_priors.py",
+    "biology_informed_posterior.py",
+    "audit/biology_informed_posterior_comparison.py",
+    "WT1_BIOLOGY_PRIOR.md",
+)
 
 
 class StaticConsistencyTest(unittest.TestCase):
@@ -123,6 +135,17 @@ class StaticConsistencyTest(unittest.TestCase):
                 r"(?:not a posterior|does not estimate a posterior)",
                 f"{name} omits the non-posterior disclosure",
             )
+
+    def test_biology_sensitivity_is_discoverable_on_every_documentation_surface(self):
+        for name in BIOLOGY_DISCOVERY_FILES:
+            with open(os.path.join(ROOT, name), encoding="utf-8") as handle:
+                source = handle.read()
+            for artifact in BIOLOGY_ARTIFACTS:
+                self.assertIn(
+                    artifact,
+                    source,
+                    f"{name} does not link the biology artifact {artifact}",
+                )
 
 
 if __name__ == "__main__":

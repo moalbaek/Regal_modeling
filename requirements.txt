@@ -1,5 +1,6 @@
 # Runtime dependencies for regal_explorer.py (the CLI engine + figure).
-# The interactive regal_explorer.html has NO dependencies — open it in any browser.
+# The interactive regal_explorer.html has no runtime dependencies and opens in any browser.
+# Its optional documentation links require the companion repository files.
 # Floors are the oldest versions the engine is known to run on; CI installs latest.
 numpy>=1.24
 matplotlib>=3.7

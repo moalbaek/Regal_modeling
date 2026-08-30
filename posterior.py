@@ -1076,9 +1076,42 @@ class UniformPriorRange:
             return exp(log(self.lower) + draw * (log(self.upper) - log(self.lower)))
         return self.lower + draw * (self.upper - self.lower)
 
+    def describe(self) -> Mapping[str, object]:
+        """Return the prior's versioned-reporting vocabulary record."""
+
+        if self.is_point_mass:
+            distribution = "point_mass"
+        elif self.log_scale:
+            distribution = "log_uniform"
+        else:
+            distribution = "uniform"
+        return {
+            "distribution": distribution,
+            "lower": self.lower,
+            "upper": self.upper,
+        }
+
 
 POINT_ZERO_PRIOR = UniformPriorRange(0.0, 0.0)
 POINT_ONE_PRIOR = UniformPriorRange(1.0, 1.0, log_scale=True)
+
+
+class ScalarPrior(Protocol):
+    """Structural contract for a bounded, auditable scalar parameter prior."""
+
+    @property
+    def lower(self) -> float:
+        ...
+
+    @property
+    def upper(self) -> float:
+        ...
+
+    def sample(self, rng) -> float:
+        ...
+
+    def describe(self) -> Mapping[str, object]:
+        ...
 
 
 @dataclass(frozen=True)
@@ -1180,8 +1213,8 @@ class EffectFamilyPrior:
     delay_months: UniformPriorRange = POINT_ZERO_PRIOR
     late_hazard_ratio: UniformPriorRange = POINT_ONE_PRIOR
     extra_cure_probability: UniformPriorRange = POINT_ZERO_PRIOR
-    response_probability: UniformPriorRange = POINT_ZERO_PRIOR
-    responder_cure_probability: UniformPriorRange = POINT_ZERO_PRIOR
+    response_probability: ScalarPrior = POINT_ZERO_PRIOR
+    responder_cure_probability: ScalarPrior = POINT_ZERO_PRIOR
 
     def __post_init__(self):
         try:
@@ -1196,20 +1229,49 @@ class EffectFamilyPrior:
             "response_probability": self.response_probability,
             "responder_cure_probability": self.responder_cure_probability,
         }
-        if not all(isinstance(value, UniformPriorRange) for value in ranges.values()):
-            raise ValueError("effect parameter priors must be UniformPriorRange values")
-        if ranges["hazard_ratio"].lower <= 0.0 or ranges[
-            "late_hazard_ratio"
-        ].lower <= 0.0:
+        uniform_fields = (
+            "hazard_ratio",
+            "delay_months",
+            "late_hazard_ratio",
+            "extra_cure_probability",
+        )
+        if not all(
+            isinstance(ranges[name], UniformPriorRange) for name in uniform_fields
+        ):
+            raise ValueError(
+                "hazard, delay, and extra-cure priors must be UniformPriorRange values"
+            )
+        for name in ("response_probability", "responder_cure_probability"):
+            prior = ranges[name]
+            if not callable(getattr(prior, "sample", None)):
+                raise ValueError(f"{name} prior must provide sample(rng)")
+            if not callable(getattr(prior, "describe", None)):
+                raise ValueError(f"{name} prior must provide describe()")
+            try:
+                if isinstance(prior.lower, (bool, np.bool_)) or isinstance(
+                    prior.upper, (bool, np.bool_)
+                ):
+                    raise TypeError
+                lower = float(prior.lower)
+                upper = float(prior.upper)
+            except (AttributeError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f"{name} prior must expose numeric lower and upper bounds"
+                ) from error
+            if not isfinite(lower) or not isfinite(upper) or lower > upper:
+                raise ValueError(f"{name} prior bounds must be finite and ordered")
+        if float(ranges["hazard_ratio"].lower) <= 0.0 or float(
+            ranges["late_hazard_ratio"].lower
+        ) <= 0.0:
             raise ValueError("hazard-ratio prior bounds must be positive")
-        if ranges["delay_months"].lower < 0.0:
+        if float(ranges["delay_months"].lower) < 0.0:
             raise ValueError("delay prior bounds must be non-negative")
         for name in (
             "extra_cure_probability",
             "response_probability",
             "responder_cure_probability",
         ):
-            if ranges[name].lower < 0.0 or ranges[name].upper > 1.0:
+            if float(ranges[name].lower) < 0.0 or float(ranges[name].upper) > 1.0:
                 raise ValueError(f"{name} prior bounds must lie in [0, 1]")
         sample = EffectParameters(
             family=family,
@@ -3915,6 +3977,7 @@ __all__ = (
     "PosteriorForecastResult",
     "REQUIRED_EFFECT_FAMILIES",
     "SKEPTICAL_MODEL_FAMILY_PRIOR",
+    "ScalarPrior",
     "ScenarioPatients",
     "ScenarioSampler",
     "TiltProposalError",

@@ -60,6 +60,10 @@ has been established.
 | `event_likelihood.py` | Isolated v2 public-history layer: registry-anchored fixed-N accrual and a joint Poisson-multinomial likelihood over correlated integer event increments and latent patient trajectories. |
 | `audit/v2_public_history_validation.py` | Deterministic WP5 audit for schema integrity, reachable 20/104/126 accrual anchors, small-cohort likelihood correctness, and event-80 reporting-lag sensitivity. |
 | `posterior.py` | V2 WP6/WP7 posterior layer: one consistent latent enrollment/outcome history, exact public-count conditioning, continuation-centered importance sampling, all seven required/exploratory GPS effect families, within-family parameter priors, posterior family weights, and prior-weight sensitivity. Fixed-family outputs remain non-forecast projections; a complete model average must also clear explicit Monte Carlo readiness gates before it is marked as a posterior forecast. |
+| `biology_priors.py` | Auditable beta-binomial immunogenicity priors and conservative beta-mixture responder durable-state priors, including explicit REGAL denominator sensitivity. The immunogenicity endpoint remains separate from the event-count likelihood. |
+| `biology_informed_posterior.py` | Opt-in responder-family prior tuples for pooled, phase-2-only, REGAL-interim-only, and responder-survival sensitivities; all canonical WP7 defaults remain unchanged. |
+| `WT1_BIOLOGY_PRIOR.md` | Evidence map, denominator working assumption, elicitation rationale, source links, and interpretation limits for the biology-informed responder prior. |
+| `audit/biology_informed_posterior_comparison.py` | Readiness-gated, parallel baseline-versus-biology forecast comparison, including phase-2/REGAL source isolation and n=5/n=20 denominator extremes. |
 | `audit/v2_interim_conditioning_validation.py` | Fixed-seed WP6 stress audit showing that continuation-centered importance sampling reaches a rare continuation branch while preserving the public-history compatibility estimate. |
 | `audit/v2_effect_model_averaging_validation.py` | Compact synthetic WP7 audit covering every effect family, the full WP6 conditioning path, posterior family-weight normalization, and skeptical/balanced/cure-favoring prior sensitivity. It does not print a REGAL forecast. |
 | `regal_data.py` | WP8 reporting adapter that loads the validated public history, fingerprints the exact source JSON, and supplies the evidence metadata used by the result bundle. |
@@ -128,13 +132,15 @@ the registry opening and enrollment-close window as support but does not use the
 counts as prior centers. Forecast labeling additionally requires history and continuation ESS of at
 least 100 in every family and no family history weight above 5%; failing diagnostics remain visible
 on the complete model-average result.
-The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON wire schema, separate
+The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON schema-v4 writer contract
+(including point-mass, uniform, log-uniform, beta, and beta-mixture prior records), separate
 numerical-run and bundle-serialization revisions, complete family and sensitivity grids, serialized
 gate constants and min-ESS/max-weight summaries for every row, the rule
 that a failed readiness gate forces the release headline to `null`, safe HTML embedding, and exact
 equality between the checked-in JSON and the bundle consumed by the self-contained browser. The
 browser reads its gate labels and margins from that bundle, formats the Python outputs, and performs
-no posterior calculation of its own.
+no posterior calculation of its own. The Python validator retains read compatibility with schema-v3
+bundles while restricting them to their original point-mass/uniform/log-uniform vocabulary.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
@@ -143,6 +149,8 @@ python3 audit/v2_trial_decision_validation.py --nsim 200000  # validate v2 alpha
 python3 audit/v2_public_history_validation.py  # validate WP5 data/accrual/joint likelihood
 python3 audit/v2_interim_conditioning_validation.py  # validate WP6 latent-history/rare-continuation IS
 python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect families/model averaging
+# Production-scale biology audit (expensive: 15 family integrations × 150,000 draws):
+python3 audit/biology_informed_posterior_comparison.py --nsim 150000 --workers 7  # readiness-gated biology sensitivity
 python3 report.py validate                 # validate the committed WP8 JSON + embedded HTML
 # Production build (expensive; always persists the gated bundle; --require-ready exits nonzero if withheld):
 python3 report.py build --nsim 150000 --seed 20260825 --workers 7 --require-ready

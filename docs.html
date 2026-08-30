@@ -58,6 +58,8 @@
   .doc hr{border:0;border-top:1px solid var(--line);margin:26px 0}
   .doc img{max-width:100%}
   .note{color:var(--muted);font-size:13px;margin:18px 0}
+  .related{color:var(--muted);font-size:12px;margin:0 0 12px}
+  .related a{color:var(--teal)}
   footer{max-width:880px;margin:8px auto 40px;padding:0 20px;color:var(--muted);font-size:12px}
 </style>
 </head>
@@ -70,6 +72,13 @@
   <button type="button" id="themeToggle" aria-pressed="false">🌙 Dark</button>
 </div>
 <div class="wrap">
+  <div class="related">
+    Biology sensitivity sources:
+    <a href="biology_priors.py">biology_priors.py</a> ·
+    <a href="biology_informed_posterior.py">biology_informed_posterior.py</a> ·
+    <a href="audit/biology_informed_posterior_comparison.py">audit runner</a> ·
+    <a href="WT1_BIOLOGY_PRIOR.md">WT1_BIOLOGY_PRIOR.md</a>
+  </div>
   <div class="tabs" id="tabs" role="tablist" aria-label="Documentation sections"></div>
   <div id="doc" class="doc" role="tabpanel" tabindex="0"><p class="note">Loading documentation…</p></div>
 </div>
@@ -81,11 +90,12 @@
 <script src="marked.min.js"></script>
 <script>
 "use strict";
-// Two documentation views rendered from their Markdown source into tabs. The hash (#model /
-// #research) deep-links a tab so it is shareable; content is fetched once and cached.
+// Documentation views rendered from their Markdown source into tabs. The hash deep-links a tab so
+// it is shareable; content is fetched once and cached.
 const DOCS = [
   {id: "model",    label: "Model documentation", file: "REGAL_MODEL_DOCUMENTATION.md", title: "REGAL Model — Documentation"},
   {id: "research", label: "BAT research basis",  file: "BAT_CONTROL_ARM_RESEARCH.md",  title: "REGAL Model — BAT research basis"},
+  {id: "biology",  label: "WT1 biology prior",   file: "WT1_BIOLOGY_PRIOR.md",          title: "REGAL Model — WT1 biology prior"},
 ];
 const el = document.getElementById("doc");
 const tabsEl = document.getElementById("tabs");
