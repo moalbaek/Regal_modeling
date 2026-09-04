@@ -2,7 +2,7 @@
 
 This document tracks the scientific and software changes required before the model can report a
 forecast for the actual REGAL trial. The existing Python and HTML implementations remain the
-reproducible **v1 legacy scenario explorer** while this work is in progress.
+reproducible **v1 scenario explorer** while this work is in progress.
 
 ## Output contract
 
@@ -25,7 +25,7 @@ probability that the ongoing trial succeeds.
 
 ### 1. Preserve v1 and correct its language
 
-- Tag and retain the current numerical behavior as `v1-legacy`.
+- Tag and retain the current numerical behavior as the v1 reference.
 - Replace ambiguous output labels with explicit branch probabilities:
   `P(interim efficacy)`, `P(futility)`, `P(continue)`,
   `P(final rejection | continue)`, and `P(overall trial success)`.
@@ -33,7 +33,7 @@ probability that the ongoing trial succeeds.
 - Remove automatic claims that a boundary fit statistically rejects no cure or proves cure is
   required. Boundary and residual checks are model diagnostics, not hypothesis tests.
 - Correct stale enrollment, background-mortality, and UI documentation.
-- Keep the golden tests as regression tests for legacy behavior, not evidence of scientific
+- Keep the golden tests as regression tests for v1 behavior, not evidence of scientific
   validity.
 
 ### 2. Correct the survival primitives
@@ -65,7 +65,7 @@ PR 2 implements these requirements in the isolated `survival_models.py` layer:
 The frailty model draws baseline prognosis, applies a probabilistic eligibility rule, and only then
 randomizes the selected cohort. Its neutral default has zero frailty variance and no prognostic
 enrichment, exactly reproducing the component curve; both quantities must later receive priors or
-external calibration rather than inheriting v1's arbitrary 25% top-survivor setting. The legacy
+external calibration rather than inheriting v1's arbitrary 25% top-survivor setting. The v1
 Python/HTML engines remain unchanged, and the v2
 primitives are not a trial forecast until subsequent BAT, likelihood, and simulation work wires them
 into the canonical engine.
@@ -86,7 +86,7 @@ case-mix prior is calibrated.
   combinations do not double-count patients.
 - [x] Treat bear and venetoclax-dominant allocations as stress tests rather than primary protocol
   reconstructions unless realized-regimen evidence supports them.
-- [x] Treat the current component weights as a legacy comparison.
+- [x] Treat the current component weights as a historical comparison.
 - [x] Resolve each patient assignment to exactly one validated survival component, with named
   failures when a custom component library is incomplete or invalid.
 - [x] Permit explicit zero-mass strata only in non-primary designs; keep all four primary strata
@@ -96,12 +96,12 @@ case-mix prior is calibrated.
 patient pathway carries both values, while each regimen carries all known component exposures and
 exactly one survival-profile key. An HMA + venetoclax patient therefore contributes once to the
 regimen and outcome distributions but to both exposure marginals. The primary
-`PRIMARY_EQUAL_STRATA` design uses 25% per planned stratum and preserves the legacy 27:8 internal
+`PRIMARY_EQUAL_STRATA` design uses 25% per planned stratum and preserves the historical 27:8 internal
 observation/hydroxyurea split within the supportive-care stratum. Its single-profile regimen mapping
 is an explicit proxy until realized combination evidence is available, not a claim about delivered
 REGAL treatments.
 
-The committed `LEGACY_COMPONENT_MIX` is classified as `legacy_comparison`; the 60% venetoclax-dominant
+The committed compatibility object `LEGACY_COMPONENT_MIX` is classified as a comparison; the 60% venetoclax-dominant
 and 70% bear allocations are classified as `stress_test`. The bear preset's separate 25% venetoclax
 cure assumption is reproduced by the separately named, immutable
 `BEAR_STRONG_BAT_COMPONENT_LIBRARY` rather than being hidden in allocation. The component library
@@ -117,9 +117,9 @@ production allocation constant until evidence supports one. Primary designs requ
 in every planned stratum; non-primary comparison and stress designs may use an explicit zero-mass
 pathway to represent an absent stratum.
 
-The legacy equal-strata run is more bullish than the current default (about 99.9% scenario power,
-median HR about 0.30, and about 94% interim efficacy crossing). Reproduce it with
-`python3 audit/interim_efficacy_replay.py --nsim 10000`. These are characterization checks, not v2
+The v1 equal-strata run is more bullish than the current default (about 98.4% scenario rejection,
+median HR about 0.37, and about 83.6% interim efficacy crossing at 1,000 draws). Reproduce it with
+`python3 audit/interim_efficacy_replay.py --nsim 1000`. These are characterization checks, not v2
 forecast targets. Equal planned strata are only one interpretation because "and/or" combinations
 can make realized regimens differ from stratification balance.
 
@@ -127,7 +127,7 @@ can make realized regimens differ from stratification balance.
 
 - [x] Calculate the one-sided 0.025 Lan-DeMets/O'Brien-Fleming efficacy boundaries from the spending
   function and the 60/80 information fraction. Expected validation values are approximately
-  `z60 = 2.340` and `z80 = 2.012`. The legacy replay's classical discrete-look values
+  `z60 = 2.340` and `z80 = 2.012`. The v1 replay's classical discrete-look values
   (`2.327` / `2.015`) are characterization snapshots, not v2 validation targets.
 - [x] Simulate all interim branches: efficacy stop, futility stop, and continuation.
 - [x] Keep the unknown futility rule configurable and report a sensitivity grid.
@@ -135,7 +135,7 @@ can make realized regimens differ from stratification balance.
   or Cox analysis; keep the approximation only as a diagnostic.
 - [x] Validate the null type-I error and decision branches by simulation.
 
-`trial_design.py` now keeps the legacy classical boundary intact while adding the protocol spending
+`trial_design.py` now keeps the v1 classical boundary intact while adding the protocol spending
 function and sequential boundary solve. At 60/80 information the v2 values are
 `z60 = 2.339711` and `z80 = 2.011777`; the correlated probability of crossing either boundary under
 the null is one-sided 0.025. The v2 primary statistic is the stratified log-rank score, equivalently
@@ -344,7 +344,7 @@ forecast.
   null headline and explicit readiness issues.
 - [x] Embed the exact checked-in JSON in the self-contained HTML and validate byte-independent parsed
   equality, so opening the file directly requires no server, fetch, build step, or duplicated inputs.
-- [x] Preserve the v1 scenario controls as a separately labeled legacy section rather than silently
+- [x] Preserve the v1 scenario controls as a separately labeled section rather than silently
   changing their numerical behavior.
 - [x] Publish a production REGAL run from a pinned source revision and seed; the interface may call it
   a posterior forecast only if the complete primary result clears every numerical readiness gate.
@@ -430,6 +430,6 @@ revisions carry a `-dirty` suffix when tracked or untracked worktree changes are
   prior, futility, and proposal diagnostics for audit.
 
 Only a complete, numerically ready `PosteriorForecastResult` may be described as the v2 posterior
-forecast. Legacy scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete
+forecast. V1 scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete
 family sets, and complete averages that fail the ESS/weight-concentration gates must not be described
 as REGAL's probability of success.

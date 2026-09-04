@@ -1,4 +1,4 @@
-"""Reproduce the legacy equal-strata interim-efficacy sensitivity.
+"""Reproduce the v1 equal-strata interim-efficacy sensitivity.
 
 This is an operating-characteristic replay, not conditioning on REGAL's observed
 continuation and not a forecast for the ongoing trial.
@@ -18,7 +18,7 @@ from trial_design import obrien_fleming_two_look  # noqa: E402
 
 
 def equal_strata_config():
-    """Four 25% planned BAT strata; preserve the legacy BSC 27:8 internal split."""
+    """Four 25% planned BAT strata; preserve the v1 BSC 27:8 internal split."""
 
     cfg = regal.default_cfg()
     supportive_total = 25.0
@@ -41,7 +41,7 @@ def replay(nsim=10000, seed=987654321):
     result = regal.mc(model, nsim=nsim, seed=seed)
     boundary = obrien_fleming_two_look(0.025, cfg["IA"] / cfg["FINAL"])
     return {
-        "interpretation": "legacy fixed-scenario operating characteristic",
+        "interpretation": "v1 fixed-scenario operating characteristic",
         "boundary_variant": "classical two-look O'Brien-Fleming; not Lan-DeMets spending",
         "nsim": nsim,
         "seed": seed,

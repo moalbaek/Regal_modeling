@@ -22,7 +22,7 @@ Three caveats these tests also pin, because all three are easy to lose track of:
 * Surviving the window does NOT enrich unconditionally. Only the exponential case is neutral;
   a decreasing baseline hazard (k < 1) helps survivors and an increasing one (k > 1) hurts
   them, independently of any frailty or cure heterogeneity. Several shipped components use
-  k = 1.1, so the window's favourable net effect on them is a calibration result, pinned as
+  k = 1.1, so the window's favourable net effect on them is a configuration result, pinned as
   such, rather than a property of delayed entry.
 """
 
@@ -45,8 +45,8 @@ COMPONENTS = [
     (c["med"], c["cure"] / 100.0, c["k"])
     for c in R.DEFAULT_COMP
 ]
-THETA = 0.53
-Q = 0.25
+THETA = R.default_cfg()["fvar"]
+Q = R.default_cfg()["esel"]
 WINDOW = (1.0, 6.0)
 
 
@@ -213,7 +213,7 @@ class DelayedEntryTest(unittest.TestCase):
         Conditioning on reaching randomization does NOT help in general: see
         test_the_window_direction_follows_the_baseline_hazard_slope below, where an increasing
         baseline hazard makes the survivors WORSE off. What makes it help here is that the
-        cure fractions and the frailty spread (theta = 0.53) outweigh the mild k = 1.1 penalty.
+        cure fractions and the default frailty spread outweigh the mild k = 1.1 penalty.
         So this pins the shipped configuration, not a property of delayed entry.
         """
         for med, cure, k in COMPONENTS:

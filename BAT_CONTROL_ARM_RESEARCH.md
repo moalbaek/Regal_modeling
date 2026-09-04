@@ -215,9 +215,28 @@ The model implements the BAT arm as an explicit component mixture (`DEFAULT_COMP
 `regal_explorer.py` / `.html`), each a cure-mixture with its own (median, cure, Weibull k), then weights
 them. The recommended base case above is encoded as the **base preset**. The model applies two
 pre-randomization selection layers on top of these components — frailty-based eligibility screening
-(default `q` = 25%) and the CR2 → randomization entry window (default 1–6 months) — so the cure
+(evidence-informed defaults `q` = 20%, `θ` = 0.35) and the CR2 → randomization entry window
+(default 1–6 months) — so the cure
 fractions below are the **pre-selection** values. Frailty screening leaves them unchanged; the entry
 window raises them to `π / E_D[S(D)]` at runtime.
+
+The selection defaults are deliberately modest. A 599-patient first-relapse AML validation found
+one-year OS of 64%, 38%, and 17% across favorable, intermediate, and poor prognostic groups
+(https://pubmed.ncbi.nlm.nih.gov/16803568/). In 1,042 AML patients transplanted in CR2, 28% were
+MRD-positive; two-year relapse was 40% versus 24% for MRD-negative patients, with cytogenetics and
+time to transplant also prognostic (https://doi.org/10.1038/s41408-021-00479-3). These cohorts show
+real heterogeneity but do not directly estimate a gamma-frailty variance for REGAL's
+transplant-ineligible population; `θ = 0.35` is therefore a central working assumption and
+0.20–0.60 is the sensitivity range.
+
+Published AML trial ineligibility rates are higher than the modeled `q`: 26.7–35.9% by reported
+race across 13 FDA registration trials (https://doi.org/10.1016/j.clml.2023.03.012), and 41% in a
+post-transplant AML/MDS maintenance study (https://doi.org/10.1182/bloodadvances.2020002544).
+Those totals include mutation mismatch, consent, logistics, treatment choice, and timing failures.
+Because this model's `q` represents only exclusions correlated with baseline frailty—and the entry
+window separately handles deaths before randomization—the working default is 20%, with 10–30% used
+for sensitivity analysis. The default pair yields `E[Z | eligible] = 0.8^0.35 = 0.925`, a 7.5%
+reduction in mean uncured disease hazard among accepted patients.
 
 | Component | Weight | Median OS | Cure π | Weibull k |
 |-----------|--------|-----------|--------|-----------|
@@ -229,10 +248,11 @@ window raises them to `π / E_D[S(D)]` at runtime.
 
 Observation + hydroxyurea (35% combined) implement the review's ~35% observation stratum; venetoclax at
 35% and a 15% cure is the CR2-discounted midpoint of the frontline 15–25% range; the venetoclax k = 0.78
-is the one published shape. This yields a pre-selection blended cure ≈ 9% and median ≈ 8 mo (≈ 12% / ≈ 12
-mo after the default selection filter), squarely inside the review's ~8–15% / ~9–13-month base case.
+is the one published shape. This yields a pre-selection blended cure ≈ 9% and median ≈ 8 mo (≈ 12% /
+≈ 10.7 mo after the default selection layers), squarely inside the review's ~8–15% / ~9–13-month
+base case.
 
-The four legacy stress presets map to scenario corners: **low-venetoclax** (access-constrained /
+The four stress presets map to scenario corners: **low-venetoclax** (access-constrained /
 observation-heavy), **venetoclax-dominant** (US-heavy delivered-regimen stress), **bear** (70%
 venetoclax at a 25% cure — an intentionally strong-BAT allocation stress), and **bull**
 (observation-heavy weak-BAT corner). They are sensitivities, not reconstructions of the protocol's

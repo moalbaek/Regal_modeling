@@ -15,11 +15,11 @@ patient nor the outcome is counted twice.
 
 The primary constant below reproduces approximately equal planned strata.  It is
 a protocol-compatible proxy, not evidence of REGAL's realized regimen mix.  The
-legacy, venetoclax-dominant, and bear constants are explicitly classified as a
+historical-component, venetoclax-dominant, and bear constants are explicitly classified as a
 comparison or stress tests.  The v1 low-venetoclax and bull presets are not carried
 forward because work package 3 names only the venetoclax-dominant and bear
 allocations.  Nothing in this module is a forecast for the ongoing trial, and it is
-not imported by the legacy explorer.
+not imported by the v1 explorer.
 """
 
 from collections.abc import Mapping
@@ -482,7 +482,7 @@ LEGACY_COMPONENT_MIX = BATDesign(
     name="legacy_component_mix",
     role=BATDesignRole.LEGACY_COMPARISON,
     pathways=_proxy_pathways(0.27, 0.08, 0.22, 0.35, 0.08),
-    description="Current v1 component weights, retained only as a legacy comparison.",
+    description="Current v1 component weights, retained only as a historical comparison.",
 )
 
 VENETOCLAX_DOMINANT_STRESS = BATDesign(
@@ -497,7 +497,7 @@ BEAR_STRONG_BAT_STRESS = BATDesign(
     role=BATDesignRole.STRESS_TEST,
     pathways=_proxy_pathways(0.05, 0.03, 0.12, 0.70, 0.10),
     description=(
-        "Strong-BAT allocation stress test. The separate legacy 25% venetoclax "
+        "Strong-BAT allocation stress test. The separate historical 25% venetoclax "
         "cure override belongs to survival-parameter sensitivity, not allocation."
     ),
 )

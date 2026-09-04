@@ -25,7 +25,7 @@ NSIM = 400   # fixed MC budget for reproducible scenario rates; mc() seeds deter
 # only the blinded milestones swapped — deliberately drive the fit to each status, pinning the
 # categorical A/B/C logic. Each sits well clear of its flip boundary:
 #   A_upper_boundary — milestones stall, so the bounded Weibull runs to its median cap
-#                      and heavy-tail edge (legacy cureReq=True subtype).
+#                      and heavy-tail edge (compatibility cureReq=True subtype).
 #   A_light_edge    — bunched milestones want an ever-lighter (increasing-hazard) tail,
 #                     so sG pins at the light edge (non-identified, cureReq=False).
 #   B_inconsistent  — a hard early stall then a late burst no single Weibull tail can hit:

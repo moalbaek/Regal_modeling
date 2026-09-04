@@ -1,6 +1,6 @@
 """Survival primitives for the REGAL v2 model.
 
-The legacy explorer conditions each treatment-specific survival distribution on
+The v1 explorer conditions each treatment-specific survival distribution on
 belonging to its longest-surviving fraction.  That mechanism is intentionally not
 reproduced here: trial eligibility is decided before randomization and therefore
 cannot depend on a patient's future realized survival under the assigned therapy.
@@ -15,7 +15,7 @@ curve already embeds population mortality and cannot be safely rescaled without 
 explicit excess-hazard decomposition.
 
 The module is not imported by ``regal_explorer.py``.  That separation preserves the
-v1 legacy scenario outputs while later v2 work builds on these corrected primitives.
+v1 scenario outputs while later v2 work builds on these corrected primitives.
 """
 
 from dataclasses import dataclass

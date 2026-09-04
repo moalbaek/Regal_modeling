@@ -1,6 +1,6 @@
 """REGAL v2 public-history data and joint count likelihoods.
 
-The legacy explorer fits three cumulative event totals with weighted least
+The v1 explorer fits three cumulative event totals with weighted least
 squares.  That treats cumulative observations as though they were independent
 continuous measurements.  They are neither: enrollment and death counts are
 integer-valued, and successive cumulative totals share all earlier patients and
