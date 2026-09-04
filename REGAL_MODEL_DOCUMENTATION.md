@@ -796,12 +796,15 @@ observation summary. The browser does not keep a second hand-entered public-hist
 
 `report.py` requires three model-weight rows—skeptical, balanced, and cure-favoring—from identical
 family projections, plus the full paired futility grid (disabled and assumed interim HR thresholds
-0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-1 wire
-schema records the exact source revision, UTC generation time, seed, importance-draw count, public-
+0.80/0.90/1.00/1.10/1.20). It rejects drift between the balanced no-futility rows. The version-3 wire
+schema separately records the numerical-run source revision and the bundle-serialization revision,
+plus UTC generation time, seed, importance-draw count, public-
 data hash, trial boundaries, active within-family parameter priors, family prior/posterior weights,
-conditional probabilities, ESS, maximum history-weight share, and proposal diagnostics. JSON NaN and
-infinity are forbidden: unavailable non-ready diagnostics become `null`, while a release-ready row
-may not contain a null probability.
+conditional probabilities, ESS, maximum history-weight share, and proposal diagnostics. Every prior
+and futility row includes its cross-family minimum history ESS, minimum continuation ESS, and maximum
+history-weight share, allowing the validator to enforce its gates even when repeated futility-family
+records are omitted. JSON NaN and infinity are forbidden: unavailable non-ready diagnostics become
+`null`, while a release-ready row may not contain a null probability.
 
 The release object is the browser's sole authority. If the balanced no-futility result has
 `is_posterior_forecast = true`, its headline is exactly
@@ -819,15 +822,40 @@ The production build always persists a gated diagnostic bundle; `--require-ready
 nonzero if that bundle remains withheld. The HTML formats the bundle only; all legacy JavaScript
 calculations remain confined to the v1 section.
 
-The checked-in production artifact was generated on 2026-08-25 from source revision
-`c2774331ffe034a98369c9478e81a8bdc8ca808e`, with seed `20260825` and 10,000 importance draws per
-family. It is complete but **not release-ready**. In the balanced, no-futility baseline, history ESS
-ranges from 5.9 to 109.4, continuation ESS from 11.2 to 56.7, and maximum history-weight share from
-2.3% to 37.6%. No complete family set clears the ≥100/≥100/≤5% gates. The release headline is
-therefore `null`, the interface says “Not published,” and sensitivity probabilities are withheld in
-the rendered tables. The JSON retains the raw rows with `estimate_status = diagnostic_only` so the
-importance proposal and any future larger run can be audited without presenting those estimates as
-REGAL's probability of success.
+The checked-in production artifact's numerical run was generated on 2026-08-26 UTC from source
+revision `fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`, with seed `20260825`, the exact
+public-history-conditioned base proposal, and 150,000 importance draws per family. Its schema-3
+bundle was serialized by revision `79b0965208b908dcc43f13b346c25bba256227b2`; that metadata-only migration
+added no simulation output and did not change any numerical value. The artifact is complete
+and **release-ready**. In the balanced, no-futility baseline, history ESS ranges from 291.6 to
+9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight share from 0.032% to
+1.890%. The complete family set and every model-prior and futility sensitivity row clear the
+≥100/≥100/≤5% gates. The release headline is therefore
+`P(final rejection | public history, interim continuation) = 91.97%`. The JSON retains the full
+family, sensitivity, and proposal diagnostics for audit. Numerical gate clearance is a release
+safeguard, not by itself proof of Monte-Carlo convergence or model correctness.
+The tightest sensitivity is the assumed futility-HR 0.80 row, whose minimum continuation ESS is
+116.1—only 16.1 above the release floor. The browser displays that minimum and headroom directly.
+ESS is itself seed-specific, so a later production run must independently re-clear the gates.
+
+Compared with the earlier 10,000-draw tilted diagnostic run, the production base proposal improves
+history ESS per draw in every family. Continuation ESS per draw is materially lower for delayed cure
+and waning/piecewise (and marginally lower for delayed proportional hazards), so their readiness
+comes from clearing the absolute gate at 150,000 draws rather than from uniform proposal-efficiency
+dominance. This does not contradict the rare-continuation WP6 audit: that audit deliberately creates
+a case with zero continuation draws under the 300-draw base run and 71 under the optional centered
+tilt, while its illustrative probabilities are not REGAL forecasts.
+The production CLI defaults to the empty base-proposal target tuple. Passing
+`--proposal-interim-z-targets auto` restores Z=0 plus design-derived futility tilts, and passing an
+explicit numeric list supplies fixed Z targets for proposal-only cross-checks. A noncanonical
+proposal is rejected before simulation unless both `--output-json` and `--html` point away from the
+committed release artifacts. The bundle serializes the minimum ESS and maximum history-weight gates;
+the validator requires exact agreement with the Python constants, and the browser derives its ESS
+label and margin from those serialized values. Automatic Git provenance appends `-dirty` when the
+worktree has tracked or untracked changes and
+`-state-unknown` when Git cannot verify its state. Empty weights deliberately produce ESS 0 but an
+undefined (`NaN`, serialized `null`) maximum share: zero information is defined, while no normalized
+weight distribution exists from which to take a maximum.
 
 ---
 

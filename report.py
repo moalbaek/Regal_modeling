@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from typing import Optional
 
 from posterior import (
     BALANCED_MODEL_FAMILY_PRIOR,
@@ -49,10 +50,16 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_RESULT_BUNDLE_PATH = ROOT / "data" / "regal_v2_result_bundle.json"
 DEFAULT_HTML_PATH = ROOT / "regal_explorer.html"
 
-RESULT_BUNDLE_SCHEMA_VERSION = 1
+RESULT_BUNDLE_SCHEMA_VERSION = 3
 RESULT_BUNDLE_TYPE = "regal_v2_posterior_forecast"
 MODEL_VERSION = "v2"
 PRIMARY_MODEL_WEIGHT_SENSITIVITY = BALANCED_MODEL_FAMILY_PRIOR.name
+# The production release is gated on the no-futility baseline.  Use the exact
+# public-history-conditioned base proposal instead of spending proposal mass
+# on the Z=0 centering component and five futility-design tilts.
+# All six designs are still evaluated on the same draws; changing this tuple
+# changes sampling efficiency only, never a target estimand.
+PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS = ()
 RESULT_BUNDLE_START = "<!-- REGAL_V2_RESULT_BUNDLE_START -->"
 RESULT_BUNDLE_END = "<!-- REGAL_V2_RESULT_BUNDLE_END -->"
 
@@ -65,6 +72,18 @@ FAMILY_LABELS = {
     GPSEffectFamily.WANING_PIECEWISE: "Waning / piecewise",
     GPSEffectFamily.RESPONDER_CURE: "Responder / cure exploratory",
 }
+
+
+def _readiness_gate_record():
+    """Return the release gates serialized into every result bundle."""
+
+    return {
+        "minimum_posterior_forecast_ess": MINIMUM_POSTERIOR_FORECAST_ESS,
+        "maximum_history_weight_share": (
+            MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+        ),
+    }
+
 
 ACTIVE_PRIOR_FIELDS = {
     GPSEffectFamily.NO_EFFECT: (),
@@ -99,6 +118,7 @@ class AnalysisRunMetadata:
     generated_at: datetime
     source_revision: str
     seed: int
+    serialization_revision: Optional[str] = None
 
     def __post_init__(self):
         generated_at = self.generated_at
@@ -108,10 +128,18 @@ class AnalysisRunMetadata:
         revision = str(self.source_revision).strip()
         if not revision:
             raise ValueError("source_revision must be non-empty")
+        serialization_revision = (
+            revision
+            if self.serialization_revision is None
+            else str(self.serialization_revision).strip()
+        )
+        if not serialization_revision:
+            raise ValueError("serialization_revision must be non-empty")
         if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
             raise ValueError("seed must be a non-negative integer")
         object.__setattr__(self, "generated_at", generated_at)
         object.__setattr__(self, "source_revision", revision)
+        object.__setattr__(self, "serialization_revision", serialization_revision)
 
     @property
     def generated_at_iso(self):
@@ -207,6 +235,29 @@ def _conditioning_diagnostics(conditioning):
     }
 
 
+def _forecast_readiness_diagnostics(forecast):
+    """Serialize the numerical gates even when per-family rows are omitted."""
+
+    def finite_extreme(values, operation):
+        values = tuple(float(value) for value in values)
+        if not values or any(not isfinite(value) for value in values):
+            return None
+        return operation(values)
+
+    conditioning = tuple(item.conditioning for item in forecast.family_results)
+    return {
+        "minimum_history_effective_sample_size": finite_extreme(
+            (item.history_effective_sample_size for item in conditioning), min
+        ),
+        "minimum_continuation_effective_sample_size": finite_extreme(
+            (item.continuation_effective_sample_size for item in conditioning), min
+        ),
+        "maximum_history_weight_share": finite_extreme(
+            (item.maximum_history_weight_share for item in conditioning), max
+        ),
+    }
+
+
 def _family_record(item):
     conditioning = item.conditioning
     return {
@@ -245,6 +296,7 @@ def _forecast_record(forecast, include_families=True):
             else "diagnostic_only"
         ),
         "readiness_issues": list(forecast.forecast_readiness_issues),
+        "readiness_diagnostics": _forecast_readiness_diagnostics(forecast),
         "probabilities": {
             "public_history_and_continuation": _json_number(
                 forecast.p_public_history_and_continuation
@@ -392,6 +444,8 @@ def build_result_bundle(
         "model_version": MODEL_VERSION,
         "generated_at": metadata.generated_at_iso,
         "source_revision": metadata.source_revision,
+        "serialization_revision": metadata.serialization_revision,
+        "gates": _readiness_gate_record(),
         "public_data": dict(data_snapshot.to_mapping()),
         "design": _design_record(primary.family_results[0].conditioning.design),
         "run": {
@@ -431,6 +485,7 @@ def build_unpublished_result_bundle(
     *,
     generated_at,
     source_revision="unpublished",
+    serialization_revision=None,
     data_snapshot=None,
 ):
     """Build a schema-valid placeholder that cannot expose a headline value."""
@@ -440,6 +495,12 @@ def build_unpublished_result_bundle(
     generated_at_iso = generated_at.astimezone(timezone.utc).isoformat(
         timespec="seconds"
     ).replace("+00:00", "Z")
+    source_revision = str(source_revision).strip() or "unpublished"
+    if serialization_revision is None:
+        serialization_revision = source_revision
+    serialization_revision = str(serialization_revision).strip()
+    if not serialization_revision:
+        raise ValueError("serialization_revision must be non-empty")
     if data_snapshot is None:
         data_snapshot = load_regal_data_snapshot()
     bundle = {
@@ -447,7 +508,9 @@ def build_unpublished_result_bundle(
         "bundle_type": RESULT_BUNDLE_TYPE,
         "model_version": MODEL_VERSION,
         "generated_at": generated_at_iso,
-        "source_revision": str(source_revision).strip() or "unpublished",
+        "source_revision": source_revision,
+        "serialization_revision": serialization_revision,
+        "gates": _readiness_gate_record(),
         "public_data": dict(data_snapshot.to_mapping()),
         "design": _design_record(
             TrialDecisionDesign(
@@ -492,6 +555,66 @@ def _assert_json_finite(value, path="bundle"):
         raise ValueError(f"{path} contains a non-finite JSON number")
 
 
+def _nonnegative_number(value, name, allow_none=False):
+    if value is None and allow_none:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be numeric")
+    number = float(value)
+    if not isfinite(number) or number < 0.0:
+        raise ValueError(f"{name} must be finite and non-negative")
+    return number
+
+
+def _validate_readiness_diagnostics(record):
+    diagnostics = record.get("readiness_diagnostics")
+    if not isinstance(diagnostics, dict):
+        raise ValueError("forecast readiness diagnostics must be an object")
+    required = {
+        "minimum_history_effective_sample_size",
+        "minimum_continuation_effective_sample_size",
+        "maximum_history_weight_share",
+    }
+    if not required.issubset(diagnostics):
+        raise ValueError("forecast readiness diagnostics are incomplete")
+    history_ess = _nonnegative_number(
+        diagnostics["minimum_history_effective_sample_size"],
+        "minimum history ESS",
+        allow_none=True,
+    )
+    continuation_ess = _nonnegative_number(
+        diagnostics["minimum_continuation_effective_sample_size"],
+        "minimum continuation ESS",
+        allow_none=True,
+    )
+    maximum_share = _probability(
+        diagnostics["maximum_history_weight_share"],
+        "maximum history weight share",
+        allow_none=True,
+    )
+    if record["is_posterior_forecast"]:
+        if history_ess is None or history_ess < MINIMUM_POSTERIOR_FORECAST_ESS:
+            raise ValueError("a ready forecast must clear the minimum history ESS gate")
+        if (
+            continuation_ess is None
+            or continuation_ess < MINIMUM_POSTERIOR_FORECAST_ESS
+        ):
+            raise ValueError(
+                "a ready forecast must clear the minimum continuation ESS gate"
+            )
+        if maximum_share is None or maximum_share > (
+            MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+        ):
+            raise ValueError(
+                "a ready forecast must clear the maximum history-weight gate"
+            )
+    return {
+        "minimum_history_effective_sample_size": history_ess,
+        "minimum_continuation_effective_sample_size": continuation_ess,
+        "maximum_history_weight_share": maximum_share,
+    }
+
+
 def _validate_forecast_record(record, *, families_required):
     if not isinstance(record, dict):
         raise ValueError("forecast records must be objects")
@@ -513,6 +636,7 @@ def _validate_forecast_record(record, *, families_required):
         raise ValueError("a ready forecast cannot retain readiness issues")
     if not record["is_posterior_forecast"] and not issues:
         raise ValueError("a diagnostic-only forecast must state its readiness issues")
+    readiness_diagnostics = _validate_readiness_diagnostics(record)
     probabilities = record.get("probabilities")
     if not isinstance(probabilities, dict):
         raise ValueError("forecast probabilities must be an object")
@@ -531,6 +655,9 @@ def _validate_forecast_record(record, *, families_required):
             raise ValueError("forecast families must cover every required effect family")
         prior_weights = []
         posterior_weights = []
+        history_effective_sample_sizes = []
+        continuation_effective_sample_sizes = []
+        maximum_history_weight_shares = []
         for item in families:
             try:
                 family = GPSEffectFamily(item["family"])
@@ -575,12 +702,25 @@ def _validate_forecast_record(record, *, families_required):
                 count = diagnostics.get(count_name)
                 if isinstance(count, bool) or not isinstance(count, int) or count < 0:
                     raise ValueError(f"family diagnostic {count_name} must be non-negative")
+            history_ess = _nonnegative_number(
+                diagnostics.get("history_effective_sample_size"),
+                "family history ESS",
+                allow_none=not record["is_posterior_forecast"],
+            )
+            continuation_ess = _nonnegative_number(
+                diagnostics.get("continuation_effective_sample_size"),
+                "family continuation ESS",
+                allow_none=not record["is_posterior_forecast"],
+            )
+            maximum_share = _probability(
+                diagnostics.get("maximum_history_weight_share"),
+                "family maximum history weight share",
+                allow_none=not record["is_posterior_forecast"],
+            )
+            history_effective_sample_sizes.append(history_ess)
+            continuation_effective_sample_sizes.append(continuation_ess)
+            maximum_history_weight_shares.append(maximum_share)
             if record["is_posterior_forecast"]:
-                history_ess = diagnostics.get("history_effective_sample_size")
-                continuation_ess = diagnostics.get(
-                    "continuation_effective_sample_size"
-                )
-                maximum_share = diagnostics.get("maximum_history_weight_share")
                 if history_ess is None or float(history_ess) < MINIMUM_POSTERIOR_FORECAST_ESS:
                     raise ValueError("a ready family must clear the history ESS gate")
                 if continuation_ess is None or (
@@ -597,6 +737,27 @@ def _validate_forecast_record(record, *, families_required):
             sum(posterior_weights) - 1.0
         ) > 1e-12:
             raise ValueError("forecast family weights must sum to one")
+        expected_readiness_diagnostics = {
+            "minimum_history_effective_sample_size": (
+                None
+                if any(value is None for value in history_effective_sample_sizes)
+                else min(history_effective_sample_sizes)
+            ),
+            "minimum_continuation_effective_sample_size": (
+                None
+                if any(value is None for value in continuation_effective_sample_sizes)
+                else min(continuation_effective_sample_sizes)
+            ),
+            "maximum_history_weight_share": (
+                None
+                if any(value is None for value in maximum_history_weight_shares)
+                else max(maximum_history_weight_shares)
+            ),
+        }
+        if readiness_diagnostics != expected_readiness_diagnostics:
+            raise ValueError(
+                "forecast readiness diagnostics differ from family diagnostics"
+            )
     elif families is not None:
         raise ValueError("futility sensitivity rows must not duplicate family records")
 
@@ -626,6 +787,29 @@ def validate_result_bundle(bundle):
         "source_revision"
     ].strip():
         raise ValueError("source_revision must be non-empty")
+    if not isinstance(bundle.get("serialization_revision"), str) or not bundle[
+        "serialization_revision"
+    ].strip():
+        raise ValueError("serialization_revision must be non-empty")
+
+    gates = bundle.get("gates")
+    expected_gates = _readiness_gate_record()
+    if not isinstance(gates, dict) or set(gates) != set(expected_gates):
+        raise ValueError("bundle readiness gates are incomplete or unsupported")
+    minimum_ess = _nonnegative_number(
+        gates["minimum_posterior_forecast_ess"],
+        "minimum posterior forecast ESS gate",
+    )
+    maximum_share = _probability(
+        gates["maximum_history_weight_share"],
+        "maximum history weight share gate",
+    )
+    if minimum_ess != MINIMUM_POSTERIOR_FORECAST_ESS or maximum_share != (
+        MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+    ):
+        raise ValueError(
+            "bundle readiness gates differ from the canonical Python constants"
+        )
 
     public_data = bundle.get("public_data")
     if not isinstance(public_data, dict):
@@ -888,12 +1072,19 @@ def validate_published_artifacts(
     return external
 
 
-def _family_worker(effect_prior, thresholds, nsim, seed):
+def _family_worker(
+    effect_prior,
+    thresholds,
+    nsim,
+    seed,
+    proposal_interim_z_targets=PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
+):
     return condition_effect_family_futility_sensitivity(
         effect_prior,
         thresholds=thresholds,
         nsim=nsim,
         seed=seed,
+        proposal_interim_z_targets=proposal_interim_z_targets,
     )
 
 
@@ -903,6 +1094,7 @@ def run_regal_forecast_analysis(
     seed=20260825,
     workers=1,
     thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+    proposal_interim_z_targets=PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
 ):
     """Run every family once and return prior and futility model averages."""
 
@@ -920,17 +1112,39 @@ def run_regal_forecast_analysis(
         ) from error
     if thresholds != tuple(FUTILITY_HR_SENSITIVITY_GRID):
         raise ValueError("thresholds must contain the complete configured grid")
+    if proposal_interim_z_targets is not None:
+        try:
+            proposal_interim_z_targets = tuple(
+                float(value) for value in proposal_interim_z_targets
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "proposal_interim_z_targets must be numeric or None"
+            ) from error
+        if not all(isfinite(value) for value in proposal_interim_z_targets):
+            raise ValueError("proposal_interim_z_targets must be finite")
     by_family = {}
     if workers == 1:
         for prior in DEFAULT_EFFECT_FAMILY_PRIORS:
             by_family[prior.family] = _family_worker(
-                prior, thresholds, nsim, seed
+                prior,
+                thresholds,
+                nsim,
+                seed,
+                proposal_interim_z_targets,
             )
             print(f"completed {prior.family.value}", flush=True)
     else:
         with ProcessPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_family_worker, prior, thresholds, nsim, seed): prior.family
+                executor.submit(
+                    _family_worker,
+                    prior,
+                    thresholds,
+                    nsim,
+                    seed,
+                    proposal_interim_z_targets,
+                ): prior.family
                 for prior in DEFAULT_EFFECT_FAMILY_PRIORS
             }
             for future in as_completed(futures):
@@ -957,7 +1171,7 @@ def _git_revision():
     if environment:
         return environment
     try:
-        return subprocess.check_output(
+        revision = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
             cwd=str(ROOT),
             text=True,
@@ -965,6 +1179,54 @@ def _git_revision():
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+    try:
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=str(ROOT),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return revision + "-state-unknown"
+    return revision + ("-dirty" if status else "")
+
+
+def _parse_proposal_interim_z_targets(values):
+    """Resolve CLI proposal targets without changing the canonical default."""
+
+    if values is None:
+        return PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS
+    if len(values) == 1 and values[0].casefold() == "auto":
+        return None
+    if any(value.casefold() == "auto" for value in values):
+        raise ValueError("'auto' must be the only proposal target value")
+    try:
+        targets = tuple(float(value) for value in values)
+    except ValueError as error:
+        raise ValueError(
+            "proposal targets must be finite numbers or the single value 'auto'"
+        ) from error
+    if not all(isfinite(value) for value in targets):
+        raise ValueError("proposal targets must be finite")
+    return targets
+
+
+def _validate_proposal_output_paths(args):
+    """Keep proposal-only cross-checks away from committed release artifacts."""
+
+    if args.proposal_interim_z_targets == PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS:
+        return
+    protected = []
+    if Path(args.output_json).resolve() == DEFAULT_RESULT_BUNDLE_PATH.resolve():
+        protected.append("--output-json")
+    if Path(args.html).resolve() == DEFAULT_HTML_PATH.resolve():
+        protected.append("--html")
+    if protected:
+        raise ValueError(
+            "noncanonical proposal cross-checks require scratch paths for both "
+            "--output-json and --html; committed release path still selected for "
+            + ", ".join(protected)
+        )
 
 
 def _build_command(args):
@@ -972,11 +1234,18 @@ def _build_command(args):
         nsim=args.nsim,
         seed=args.seed,
         workers=args.workers,
+        proposal_interim_z_targets=getattr(
+            args,
+            "proposal_interim_z_targets",
+            PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
+        ),
     )
+    serialization_revision = _git_revision()
     metadata = AnalysisRunMetadata(
         generated_at=datetime.now(timezone.utc),
-        source_revision=args.source_revision or _git_revision(),
+        source_revision=args.source_revision or serialization_revision,
         seed=args.seed,
+        serialization_revision=serialization_revision,
     )
     bundle = build_result_bundle(prior, futility, metadata=metadata)
     write_published_artifacts(
@@ -1019,7 +1288,24 @@ def main(argv=None):
     build_parser.add_argument(
         "--workers", type=int, default=max(1, min(os.cpu_count() or 1, 4))
     )
-    build_parser.add_argument("--source-revision")
+    build_parser.add_argument(
+        "--source-revision",
+        help=(
+            "numerical-run source revision; defaults to the current Git revision, "
+            "which is also recorded separately as the serialization revision"
+        ),
+    )
+    build_parser.add_argument(
+        "--proposal-interim-z-targets",
+        nargs="*",
+        metavar="Z",
+        help=(
+            "importance-proposal interim Z targets; omit for the canonical base "
+            "proposal, pass 'auto' alone for Z=0 plus design-derived futility "
+            "tilts, or provide an explicit numeric list; noncanonical targets "
+            "require scratch paths for both output options"
+        ),
+    )
     build_parser.add_argument(
         "--require-ready",
         action="store_true",
@@ -1041,6 +1327,13 @@ def main(argv=None):
             + ")"
         )
         return 0
+    try:
+        args.proposal_interim_z_targets = _parse_proposal_interim_z_targets(
+            args.proposal_interim_z_targets
+        )
+        _validate_proposal_output_paths(args)
+    except ValueError as error:
+        parser.error(str(error))
     return _build_command(args)
 
 

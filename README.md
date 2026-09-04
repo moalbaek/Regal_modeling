@@ -16,11 +16,21 @@ complete remission.
 > on the observed decision to continue after the 60-event interim. The separation is tracked in
 > [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md).
 
-The checked-in production bundle uses 10,000 importance draws per family and seed `20260825`. Its
-release status is currently **withheld**: history ESS is 5.9–109.4, continuation ESS is 11.2–56.7,
-and maximum history-weight share is 2.3–37.6% across families, so the complete primary result does
-not clear the ≥100 ESS / ≤5% concentration gates. The interface therefore publishes no headline
-probability; raw numerical estimates remain diagnostic-only in the JSON for audit.
+The checked-in production bundle uses 150,000 importance draws per family and seed `20260825`. Its
+release status is **ready**: history ESS is 291.6–9,053.6, continuation ESS is 129.7–1,147.4, and
+maximum history-weight share is 0.032–1.890% across families, clearing the ≥100 ESS / ≤5%
+concentration gates. The balanced no-futility headline is 91.97%. All model-prior and futility
+sensitivity rows also clear their numerical gates. These gates are release safeguards, not by
+themselves proof of Monte-Carlo convergence or model correctness.
+The tightest sensitivity is the assumed futility-HR 0.80 row: its minimum continuation ESS is 116.1,
+only 16.1 above the release floor. The browser now displays this row-level ESS margin explicitly;
+because ESS is seed-specific, every future production run must re-clear the same gates.
+
+The base proposal improved history ESS per draw in every family relative to the earlier 10,000-draw
+tilted diagnostic run. Continuation ESS per draw fell materially for delayed cure and
+waning/piecewise (and marginally for delayed proportional hazards), so those rows clear the absolute
+ESS gate through the 150,000-draw budget—not because the base proposal is uniformly more efficient
+for every conditional estimand.
 
 The blinded death-event milestones (60/72/78) constrain only the *pooled* survival trajectory, so the
 split between arms is an explicit assumption. The tool calibrates assumed pooled curve families to
@@ -103,7 +113,10 @@ and proposal-infeasible-draw counts expose a poorly supported fixed-scenario pro
 hiding it behind a raw draw count. Structurally infeasible proposal pairs remain counted zero-weight
 draws, while numerical underflow in a mathematically positive quota probability raises instead of
 silently discarding weight. Tilt iteration/error summaries are `None` when no tilt converged. Direct
-tilt callers can catch the exported `TiltProposalError`.
+tilt callers can catch the exported `TiltProposalError`. The rare-continuation audit deliberately
+uses a stress scenario in which the 300-draw base run has no continuation draws; it demonstrates why
+the optional tilt remains available and is not representative of the adequately supported 150,000-
+draw production integration.
 The WP7 tests additionally pin piecewise and delayed-cure event-time inversion, scale-aware
 population hazards, exact nesting of PH=1 inside no effect, protocol-factor-stratified randomization,
 complete coverage of the six required effect structures plus the exploratory responder/cure family,
@@ -115,11 +128,13 @@ the registry opening and enrollment-close window as support but does not use the
 counts as prior centers. Forecast labeling additionally requires history and continuation ESS of at
 least 100 in every family and no family history weight above 5%; failing diagnostics remain visible
 on the complete model-average result.
-The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON wire schema, complete family and
-sensitivity grids, the rule that a failed readiness gate forces the release headline to `null`, safe
-HTML embedding, and exact equality between the checked-in JSON and the bundle consumed by the
-self-contained browser. The browser formats these Python outputs and performs no posterior
-calculation of its own.
+The WP8 tests pin the public-data SHA-256 snapshot, strict finite-JSON wire schema, separate
+numerical-run and bundle-serialization revisions, complete family and sensitivity grids, serialized
+gate constants and min-ESS/max-weight summaries for every row, the rule
+that a failed readiness gate forces the release headline to `null`, safe HTML embedding, and exact
+equality between the checked-in JSON and the bundle consumed by the self-contained browser. The
+browser reads its gate labels and margins from that bundle, formats the Python outputs, and performs
+no posterior calculation of its own.
 
 ```bash
 python3 -m unittest discover -s tests   # run the golden test
@@ -130,7 +145,13 @@ python3 audit/v2_interim_conditioning_validation.py  # validate WP6 latent-histo
 python3 audit/v2_effect_model_averaging_validation.py  # validate WP7 effect families/model averaging
 python3 report.py validate                 # validate the committed WP8 JSON + embedded HTML
 # Production build (expensive; always persists the gated bundle; --require-ready exits nonzero if withheld):
-python3 report.py build --nsim 10000 --seed 20260825 --workers 4 --require-ready
+python3 report.py build --nsim 150000 --seed 20260825 --workers 7 --require-ready
+# Proposal-only cross-checks are refused unless BOTH outputs use scratch paths:
+cp regal_explorer.html /tmp/regal_explorer_auto.html
+python3 report.py build --nsim 2000 --seed 4242 --workers 7 \
+  --proposal-interim-z-targets auto \
+  --output-json /tmp/regal_v2_auto.json --html /tmp/regal_explorer_auto.html
+# An explicit numeric list such as --proposal-interim-z-targets 0 1.25 is also supported.
 python3 tests/gen_golden.py             # regenerate golden.json after an INTENDED change, then review the diff
 ```
 

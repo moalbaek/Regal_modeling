@@ -271,9 +271,11 @@ truth.
 scenario where the exact-count base proposal produced no continuation draws in the pinned
 300-draw run. Adding the continuation-centered component produced 71 raw continuation draws
 (weighted ESS 3.89) while giving a consistent public-history compatibility estimate. This validates
-rare-branch access; none of those illustrative probabilities is a REGAL forecast. WP6 itself still
-operates under one fixed scenario (or one supplied prior-predictive family) at a time. WP7 now
-supplies effect-family and parameter draws and averages those conditional projections.
+rare-branch access; none of those illustrative probabilities is a REGAL forecast. The production
+integration has adequate base-proposal continuation support at its 150,000-draw budget, whereas the
+audit intentionally constructs a much rarer continuation case to exercise the optional tilt. WP6
+itself still operates under one fixed scenario (or one supplied prior-predictive family) at a time.
+WP7 now supplies effect-family and parameter draws and averages those conditional projections.
 
 ### 7. Average across GPS effect structures
 
@@ -372,8 +374,15 @@ a second likelihood. `report.py` serializes `PosteriorForecastResult` values, re
 model-weight prior rows and the full paired futility grid, and refuses drift between the balanced
 no-futility rows. Every family carries its active parameter prior, prior/posterior weight,
 within-family conditional probabilities, ESS, maximum history-weight share, and proposal
-diagnostics. Non-finite diagnostic estimates serialize as JSON `null`; a release-ready result may
-not contain a null probability.
+diagnostics. Every prior and futility row also carries the minimum history ESS, minimum continuation
+ESS, and maximum history-weight share across its families, so its gate status remains independently
+checkable even when the futility row omits repeated family records. Non-finite diagnostic estimates
+serialize as JSON `null`; a release-ready result may not contain a null probability.
+Schema 3 records the numerical-run source revision separately from the bundle-serialization revision,
+so metadata-only migrations do not relabel which code produced the simulation values.
+The browser exposes each futility row's minimum continuation ESS and its margin over the 100 floor.
+The HR-0.80 row is tightest at 116.1, so that 16.1 margin is treated as seed-specific evidence to
+recheck on every production run, not as permanent clearance.
 
 The publisher writes `data/regal_v2_result_bundle.json` and replaces one marked
 `application/json` block in `regal_explorer.html`. The UI reads only that block. A ready primary row
@@ -384,13 +393,29 @@ embedded bundle, schema, release invariants, exact parsed equality, and the full
 against the committed public-history source. A production build always persists its gated bundle;
 `--require-ready` returns a nonzero status after writing when the result remains withheld.
 
-The first production artifact uses 10,000 importance draws per family, seed `20260825`, and source
-revision `c2774331ffe034a98369c9478e81a8bdc8ca808e`. It is a complete seven-family result with all
-model-prior and futility rows, but the release status is **withheld**. Across the balanced baseline,
-family history ESS ranges from 5.9 to 109.4, continuation ESS from 11.2 to 56.7, and maximum history
-weight share from 2.3% to 37.6%. No family set clears all three committed gates, so the bundle's
-headline remains `null` and the interface says “Not published.” The underlying numerical estimates
-are retained only as explicitly marked diagnostic fields for audit and proposal improvement.
+The current production artifact uses 150,000 importance draws per family, seed `20260825`, the exact
+public-history-conditioned base proposal, and numerical-run source revision
+`fce73fe0556d317e03d8ebdc183ae4cd7be14bf5`. Schema-3 serialization is pinned separately to revision
+`79b0965208b908dcc43f13b346c25bba256227b2`; that metadata-only migration left all numerical values unchanged.
+Across the balanced no-futility baseline, family history
+ESS ranges from 291.6 to 9,053.6, continuation ESS from 129.7 to 1,147.4, and maximum history-weight
+share from 0.032% to 1.890%. The complete seven-family result and every model-prior and futility row
+clear all three committed gates. The release status is therefore **ready**, and the balanced
+no-futility headline is 91.97%. The earlier 10,000-draw diagnostic artifact was correctly withheld;
+the larger run was accepted only after the unchanged gates were evaluated. Relative to that tilted
+diagnostic run, the base proposal improves history ESS per draw in every family, but continuation ESS
+per draw is materially lower for delayed cure and waning/piecewise (and marginally lower for delayed
+proportional hazards). Those rows pass because the absolute 150,000-draw ESS clears the gate, not
+because the base proposal dominates the tilted mixture for every conditional estimand.
+For proposal-only exactness checks, `report.py build --proposal-interim-z-targets auto` restores the
+Z=0 plus design-derived tilted mixture, while an explicit numeric list supplies fixed Z targets; the
+canonical default remains the empty base-proposal tuple. Noncanonical proposals must send both the
+JSON and HTML to scratch paths; the CLI rejects either committed release path before starting the
+simulation. The bundle is also the sole source of truth for the minimum ESS and maximum
+history-weight gates: validation cross-checks them against the Python constants and the browser uses
+the serialized minimum ESS for its header and margin arithmetic. Automatically detected Git
+revisions carry a `-dirty` suffix when tracked or untracked worktree changes are present and
+`-state-unknown` when Git cannot verify worktree state.
 
 ## Release gates
 
@@ -400,10 +425,9 @@ are retained only as explicitly marked diagnostic fields for audit and proposal 
   and posterior model averaging.
 - **v2-publication infrastructure — complete:** strict result bundle, self-contained frontend,
   readiness-gated headline, prior/futility diagnostics, and Python/HTML parity validation.
-- **v2 production integration — complete but withheld:** the pinned 10,000-draw run is published as
-  a diagnostic artifact and fails the numerical release gates above. A v2 headline forecast remains
-  unreleased until a future run clears them; increasing raw draws or improving the importance
-  proposal must be validated rather than assumed sufficient.
+- **v2 production integration — complete and ready:** the pinned 150,000-draw base-proposal run
+  clears every numerical release gate, publishes the gated headline, and retains complete family,
+  prior, futility, and proposal diagnostics for audit.
 
 Only a complete, numerically ready `PosteriorForecastResult` may be described as the v2 posterior
 forecast. Legacy scenario rates, one-family WP6/WP7 projections, synthetic audit values, incomplete

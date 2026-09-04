@@ -7,6 +7,7 @@ from io import StringIO
 import json
 from math import log
 from pathlib import Path
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -23,20 +24,27 @@ from posterior import (  # noqa: E402
     ConditioningResult,
     EffectFamilyProjection,
     GPSEffectFamily,
+    MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE,
+    MINIMUM_POSTERIOR_FORECAST_ESS,
     posterior_model_average,
     posterior_prior_sensitivity,
 )
 from regal_data import load_regal_data_snapshot  # noqa: E402
 from report import (  # noqa: E402
     AnalysisRunMetadata,
+    PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS,
+    RESULT_BUNDLE_SCHEMA_VERSION,
     RESULT_BUNDLE_END,
     RESULT_BUNDLE_START,
+    _family_worker,
+    _git_revision,
     build_result_bundle,
     build_unpublished_result_bundle,
     _build_command,
     canonical_result_json,
     embed_result_bundle,
     extract_embedded_result_bundle,
+    main as report_main,
     run_regal_forecast_analysis,
     validate_published_artifacts,
     validate_result_bundle,
@@ -150,6 +158,7 @@ class ResultBundleTest(unittest.TestCase):
             generated_at=datetime(2026, 8, 25, 12, 30, tzinfo=timezone.utc),
             source_revision="abc1234",
             seed=20260825,
+            serialization_revision="def5678",
         )
 
     def ready_bundle(self):
@@ -160,6 +169,148 @@ class ResultBundleTest(unittest.TestCase):
             metadata=self.metadata,
             data_snapshot=self.snapshot,
         )
+
+    def test_production_worker_uses_the_auditable_base_proposal(self):
+        prior = DEFAULT_EFFECT_FAMILY_PRIORS[0]
+        with mock.patch(
+            "report.condition_effect_family_futility_sensitivity",
+            return_value=("projection",),
+        ) as run_family:
+            result = _family_worker(
+                prior,
+                FUTILITY_HR_SENSITIVITY_GRID,
+                123,
+                20260825,
+            )
+        self.assertEqual(result, ("projection",))
+        self.assertEqual(PRODUCTION_PROPOSAL_INTERIM_Z_TARGETS, ())
+        run_family.assert_called_once_with(
+            prior,
+            thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+            nsim=123,
+            seed=20260825,
+            proposal_interim_z_targets=(),
+        )
+
+    def test_production_worker_accepts_an_explicit_proposal_cross_check(self):
+        prior = DEFAULT_EFFECT_FAMILY_PRIORS[0]
+        with mock.patch(
+            "report.condition_effect_family_futility_sensitivity",
+            return_value=("projection",),
+        ) as run_family:
+            result = _family_worker(
+                prior,
+                FUTILITY_HR_SENSITIVITY_GRID,
+                123,
+                20260825,
+                (0.0, 1.25),
+            )
+        self.assertEqual(result, ("projection",))
+        run_family.assert_called_once_with(
+            prior,
+            thresholds=FUTILITY_HR_SENSITIVITY_GRID,
+            nsim=123,
+            seed=20260825,
+            proposal_interim_z_targets=(0.0, 1.25),
+        )
+
+    def test_build_cli_parses_automatic_and_explicit_proposal_targets(self):
+        scratch_outputs = [
+            "--output-json",
+            str(ROOT / "scratch" / "proposal.json"),
+            "--html",
+            str(ROOT / "scratch" / "proposal.html"),
+        ]
+        cases = (
+            ([], ()),
+            (["--proposal-interim-z-targets"], ()),
+            (
+                ["--proposal-interim-z-targets", "auto", *scratch_outputs],
+                None,
+            ),
+            (
+                [
+                    "--proposal-interim-z-targets",
+                    "0",
+                    "1.25",
+                    *scratch_outputs,
+                ],
+                (0.0, 1.25),
+            ),
+        )
+        for extra, expected in cases:
+            with self.subTest(extra=extra), mock.patch(
+                "report._build_command", return_value=0
+            ) as build:
+                self.assertEqual(report_main(["build", "--nsim", "1", *extra]), 0)
+                self.assertEqual(
+                    build.call_args.args[0].proposal_interim_z_targets,
+                    expected,
+                )
+
+    def test_build_cli_rejects_mixed_or_nonfinite_proposal_targets(self):
+        for values in (("auto", "0"), ("nan",), ("not-a-number",)):
+            with self.subTest(values=values), mock.patch(
+                "report._build_command"
+            ) as build:
+                stderr = StringIO()
+                with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                    report_main(
+                        ["build", "--proposal-interim-z-targets", *values]
+                    )
+                self.assertEqual(raised.exception.code, 2)
+                self.assertNotIn("Traceback", stderr.getvalue())
+                build.assert_not_called()
+
+    def test_noncanonical_proposal_build_requires_two_scratch_output_paths(self):
+        scratch_json = str(ROOT / "scratch" / "proposal.json")
+        scratch_html = str(ROOT / "scratch" / "proposal.html")
+        cases = (
+            (["--proposal-interim-z-targets", "auto"], "--output-json, --html"),
+            (
+                [
+                    "--proposal-interim-z-targets",
+                    "auto",
+                    "--output-json",
+                    scratch_json,
+                ],
+                "--html",
+            ),
+            (
+                [
+                    "--proposal-interim-z-targets",
+                    "0",
+                    "--html",
+                    scratch_html,
+                ],
+                "--output-json",
+            ),
+        )
+        for argv, protected in cases:
+            with self.subTest(argv=argv), mock.patch("report._build_command") as build:
+                stderr = StringIO()
+                with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                    report_main(["build", *argv])
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn(
+                    "noncanonical proposal cross-checks require scratch paths",
+                    stderr.getvalue(),
+                )
+                self.assertIn(protected, stderr.getvalue())
+                self.assertNotIn("Traceback", stderr.getvalue())
+                build.assert_not_called()
+
+    def test_git_revision_marks_dirty_or_unknown_worktree_state(self):
+        with mock.patch.dict("report.os.environ", {"GITHUB_SHA": ""}), mock.patch(
+            "report.subprocess.check_output",
+            side_effect=["abc123\n", " M report.py\n"],
+        ):
+            self.assertEqual(_git_revision(), "abc123-dirty")
+        with mock.patch.dict("report.os.environ", {"GITHUB_SHA": ""}), mock.patch(
+            "report.subprocess.check_output",
+            side_effect=["abc123\n", subprocess.CalledProcessError(1, "git")],
+        ):
+            self.assertEqual(_git_revision(), "abc123-state-unknown")
 
     def test_ready_bundle_exposes_only_the_primary_release_headline(self):
         bundle = self.ready_bundle()
@@ -184,6 +335,84 @@ class ResultBundleTest(unittest.TestCase):
         )
         serialized = canonical_result_json(bundle)
         self.assertEqual(json.loads(serialized), bundle)
+
+    def test_schema_three_separates_numerical_and_serialization_revisions(self):
+        bundle = self.ready_bundle()
+        self.assertEqual(RESULT_BUNDLE_SCHEMA_VERSION, 3)
+        self.assertEqual(bundle["schema_version"], 3)
+        self.assertEqual(bundle["source_revision"], "abc1234")
+        self.assertEqual(bundle["serialization_revision"], "def5678")
+
+        legacy = json.loads(canonical_result_json(bundle))
+        legacy["schema_version"] = 2
+        del legacy["serialization_revision"]
+        with self.assertRaisesRegex(ValueError, "unsupported result-bundle schema"):
+            validate_result_bundle(legacy)
+
+        missing = json.loads(canonical_result_json(bundle))
+        del missing["serialization_revision"]
+        with self.assertRaisesRegex(ValueError, "serialization_revision"):
+            validate_result_bundle(missing)
+
+    def test_bundle_serializes_the_canonical_python_readiness_gates(self):
+        expected = {
+            "minimum_posterior_forecast_ess": MINIMUM_POSTERIOR_FORECAST_ESS,
+            "maximum_history_weight_share": (
+                MAXIMUM_POSTERIOR_FORECAST_HISTORY_WEIGHT_SHARE
+            ),
+        }
+        self.assertEqual(self.ready_bundle()["gates"], expected)
+        unpublished = build_unpublished_result_bundle(
+            generated_at=self.metadata.generated_at,
+            source_revision=self.metadata.source_revision,
+            serialization_revision=self.metadata.serialization_revision,
+            data_snapshot=self.snapshot,
+        )
+        self.assertEqual(unpublished["gates"], expected)
+
+    def test_wire_validator_rejects_readiness_gate_constant_drift(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        bundle["gates"]["minimum_posterior_forecast_ess"] = 99.0
+        with self.assertRaisesRegex(ValueError, "canonical Python constants"):
+            validate_result_bundle(bundle)
+
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        del bundle["gates"]["maximum_history_weight_share"]
+        with self.assertRaisesRegex(ValueError, "incomplete or unsupported"):
+            validate_result_bundle(bundle)
+
+    def test_every_sensitivity_row_serializes_its_numerical_gate_summary(self):
+        bundle = self.ready_bundle()
+        expected = {
+            "minimum_history_effective_sample_size": 400.0,
+            "minimum_continuation_effective_sample_size": 250.0,
+            "maximum_history_weight_share": 0.01,
+        }
+        rows = bundle["prior_sensitivity"] + bundle["futility_sensitivity"]
+        for row in rows:
+            with self.subTest(
+                row=row["name"],
+                threshold=row["assumed_futility_hr_threshold"],
+            ):
+                self.assertEqual(row["readiness_diagnostics"], expected)
+        for row in bundle["futility_sensitivity"]:
+            self.assertNotIn("families", row)
+
+    def test_wire_validator_enforces_futility_row_gate_summaries(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        bundle["futility_sensitivity"][0]["readiness_diagnostics"][
+            "minimum_continuation_effective_sample_size"
+        ] = 99.0
+        with self.assertRaisesRegex(ValueError, "minimum continuation ESS gate"):
+            validate_result_bundle(bundle)
+
+    def test_wire_validator_rejects_prior_gate_summary_drift(self):
+        bundle = json.loads(canonical_result_json(self.ready_bundle()))
+        bundle["prior_sensitivity"][0]["readiness_diagnostics"][
+            "minimum_history_effective_sample_size"
+        ] = 399.0
+        with self.assertRaisesRegex(ValueError, "differ from family diagnostics"):
+            validate_result_bundle(bundle)
 
     def test_failed_readiness_gate_withholds_the_headline_but_keeps_diagnostics(self):
         prior_rows, futility_rows = sensitivity_results(history_ess=99.0)
@@ -247,6 +476,7 @@ class ResultBundleTest(unittest.TestCase):
         bundle = build_unpublished_result_bundle(
             generated_at=self.metadata.generated_at,
             source_revision=self.metadata.source_revision,
+            serialization_revision=self.metadata.serialization_revision,
             data_snapshot=self.snapshot,
         )
         self.assertEqual(bundle["release"]["status"], "not_run")
@@ -269,6 +499,13 @@ class ResultBundleTest(unittest.TestCase):
         html = (ROOT / "regal_explorer.html").read_text(encoding="utf-8")
         self.assertIn("renderV2Forecast()", html)
         self.assertIn("release.is_posterior_forecast===true", html)
+        self.assertIn('id="v2FutilityEssHeader"', html)
+        self.assertIn("gates.minimum_posterior_forecast_ess", html)
+        self.assertIn("Bundle serializer revision", html)
+        self.assertIn("bundle.serialization_revision", html)
+        self.assertNotIn("margin over 100", html)
+        self.assertNotIn("minContinuationEss-100", html)
+        self.assertIn("minimum_continuation_effective_sample_size", html)
         self.assertEqual(extract_embedded_result_bundle(html), bundle)
 
     def test_published_artifacts_must_match_canonical_public_data(self):
@@ -308,6 +545,8 @@ class ResultBundleTest(unittest.TestCase):
             with mock.patch(
                 "report.run_regal_forecast_analysis",
                 return_value=(prior_rows, futility_rows),
+            ), mock.patch(
+                "report._git_revision", return_value="serializer5678"
             ):
                 stderr = StringIO()
                 with redirect_stderr(stderr):
@@ -320,11 +559,24 @@ class ResultBundleTest(unittest.TestCase):
                 html_path=html_path,
             )
             self.assertEqual(persisted["release"]["status"], "withheld")
+            self.assertEqual(persisted["source_revision"], "abc1234")
+            self.assertEqual(
+                persisted["serialization_revision"], "serializer5678"
+            )
 
     def test_custom_futility_grid_fails_before_family_work_starts(self):
         with mock.patch("report._family_worker") as worker:
             with self.assertRaisesRegex(ValueError, "complete configured grid"):
                 run_regal_forecast_analysis(nsim=1, thresholds=(None, 1.0))
+            worker.assert_not_called()
+
+    def test_nonfinite_proposal_target_fails_before_family_work_starts(self):
+        with mock.patch("report._family_worker") as worker:
+            with self.assertRaisesRegex(ValueError, "must be finite"):
+                run_regal_forecast_analysis(
+                    nsim=1,
+                    proposal_interim_z_targets=(float("nan"),),
+                )
             worker.assert_not_called()
 
     def test_not_run_bundle_uses_neutral_status_badge(self):
