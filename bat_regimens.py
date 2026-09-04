@@ -15,8 +15,8 @@ patient nor the outcome is counted twice.
 
 The primary constant below reproduces approximately equal planned strata.  It is
 a protocol-compatible proxy, not evidence of REGAL's realized regimen mix.  The
-historical-component, venetoclax-dominant, and bear constants are explicitly classified as a
-comparison or stress tests.  The v1 low-venetoclax and bull presets are not carried
+compatibility comparison, venetoclax-dominant allocation, and bear allocation are
+classified as comparison or stress tests.  The v1 low-venetoclax and bull presets are not carried
 forward because work package 3 names only the venetoclax-dominant and bear
 allocations.  Nothing in this module is a forecast for the ongoing trial, and it is
 not imported by the v1 explorer.

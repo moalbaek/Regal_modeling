@@ -2613,6 +2613,7 @@ const MODEL_VIEWS=[
 ];
 function selectModelTab(id,updateHash,focusTab){
   const view=MODEL_VIEWS.find(v=>v.id===id)||MODEL_VIEWS[0];
+  const v1WasHidden=$("panel-v1").hidden;
   MODEL_VIEWS.forEach(v=>{
     const tab=$("tab-"+v.id),panel=$("panel-"+v.id),on=v.id===view.id;
     tab.setAttribute("aria-selected",String(on));
@@ -2622,6 +2623,7 @@ function selectModelTab(id,updateHash,focusTab){
   });
   document.title=view.title;
   if(updateHash)history.replaceState(null,"","#"+view.id);
+  if(view.id==="v1"&&v1WasHidden)schedule();
 }
 MODEL_VIEWS.forEach((view,i)=>{
   const tab=$("tab-"+view.id);

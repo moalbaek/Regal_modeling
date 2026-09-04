@@ -28,11 +28,11 @@ NSIM = 400   # fixed MC budget for reproducible scenario rates; mc() seeds deter
 #                      and heavy-tail edge (compatibility cureReq=True subtype).
 #   A_light_edge    — bunched milestones want an ever-lighter (increasing-hazard) tail,
 #                     so sG pins at the light edge (non-identified, cureReq=False).
-#   B_inconsistent  — a hard early stall then a late burst no single Weibull tail can hit:
-#                     the best fit stays interior (mG~109, sG~1.34) yet the residual clears
-#                     the tolerance (inconsistent). Retuned when the no-cure responder stopped
-#                     being re-selected: the old [60, 61, 72] now runs to the median cap and
-#                     lands in State A, so it no longer covered this branch.
+#   B_inconsistent  — irregular milestone spacing no single Weibull tail can hit: the best fit
+#                     stays interior (mG~100, sG~1.43) yet the residual clears the tolerance
+#                     (inconsistent). Retuned when the evidence-informed defaults made the old
+#                     [59, 60, 71] fixture run to the median/heavy-tail boundary and land in
+#                     State A, so it no longer covered this branch.
 #   C_interior      — a milestone set the bounded alternative fits cleanly in the interior
 #                     (sG~0.90, residual well inside tolerance). Some presets also reach State C
 #                     now, but the branch keeps a fixture of its own so coverage does not depend
@@ -40,7 +40,7 @@ NSIM = 400   # fixed MC budget for reproducible scenario rates; mc() seeds deter
 VERDICT_FIXTURES = {
     "A_upper_boundary": {"ev_counts": [70, 72, 73]},
     "A_light_edge": {"ev_dates": [(2024, 12, 10), (2025, 3, 26), (2025, 5, 11)]},
-    "B_inconsistent": {"ev_counts": [59, 60, 71]},
+    "B_inconsistent": {"ev_counts": [60, 65, 73]},
     "C_interior": {"ev_counts": [62, 74, 78]},
 }
 

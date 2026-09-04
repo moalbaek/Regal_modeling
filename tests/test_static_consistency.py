@@ -152,8 +152,15 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertNotRegex(v1_panel.group(), r"\shidden(?:\s|=|>)")
         self.assertRegex(v2_panel.group(), r"\shidden(?:\s|=|>)")
 
-        self.assertIn('||"v1",false,false)', self.html)
+        self.assertRegex(
+            self.html,
+            r'location\.hash\.replace\(/\^#/,\s*["\']{2}\)\s*\|\|\s*["\']v1["\']',
+        )
         self.assertIn('window.addEventListener("hashchange"', self.html)
+        self.assertRegex(
+            self.html,
+            r'if\s*\(\s*view\.id\s*===\s*["\']v1["\']\s*&&\s*v1WasHidden\s*\)\s*schedule\(\)',
+        )
         for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
             self.assertIn(f'e.key==="{key}"', self.html)
 

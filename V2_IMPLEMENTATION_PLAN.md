@@ -101,8 +101,9 @@ observation/hydroxyurea split within the supportive-care stratum. Its single-pro
 is an explicit proxy until realized combination evidence is available, not a claim about delivered
 REGAL treatments.
 
-The committed compatibility object `LEGACY_COMPONENT_MIX` is classified as a comparison; the 60% venetoclax-dominant
-and 70% bear allocations are classified as `stress_test`. The bear preset's separate 25% venetoclax
+The committed compatibility object `LEGACY_COMPONENT_MIX` has the wire role `legacy_comparison`
+(`BATDesignRole.LEGACY_COMPARISON`); the 60% venetoclax-dominant and 70% bear allocations are
+classified as `stress_test`. The bear preset's separate 25% venetoclax
 cure assumption is reproduced by the separately named, immutable
 `BEAR_STRONG_BAT_COMPONENT_LIBRARY` rather than being hidden in allocation. The component library
 connects the documented Observation, Hydroxyurea, HMA, venetoclax, and LDAC inputs to the scale-aware
@@ -117,9 +118,9 @@ production allocation constant until evidence supports one. Primary designs requ
 in every planned stratum; non-primary comparison and stress designs may use an explicit zero-mass
 pathway to represent an absent stratum.
 
-The v1 equal-strata run is more bullish than the current default (about 98.4% scenario rejection,
-median HR about 0.37, and about 83.6% interim efficacy crossing at 1,000 draws). Reproduce it with
-`python3 audit/interim_efficacy_replay.py --nsim 1000`. These are characterization checks, not v2
+The v1 equal-strata run is more bullish than the current default (98.4% scenario rejection,
+median HR 0.369, and 83.1% interim efficacy crossing at 10,000 draws). Reproduce it with
+`python3 audit/interim_efficacy_replay.py --nsim 10000`. These are characterization checks, not v2
 forecast targets. Equal planned strata are only one interpretation because "and/or" combinations
 can make realized regimens differ from stratification balance.
 

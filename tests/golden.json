@@ -207,11 +207,11 @@
       "state": "A"
     },
     "B_inconsistent": {
-      "cureReq": true,
-      "mG": 120.0,
-      "rmsResid": 4.439820931107049,
-      "sG": 1.5,
-      "state": "A"
+      "cureReq": false,
+      "mG": 100.02534253630803,
+      "rmsResid": 2.844515714201195,
+      "sG": 1.4333333333333336,
+      "state": "B"
     },
     "C_interior": {
       "cureReq": false,

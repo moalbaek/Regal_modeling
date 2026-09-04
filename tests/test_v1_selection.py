@@ -22,7 +22,9 @@ import regal_explorer as R  # noqa: E402
 
 
 COMPONENTS = [(6.0, 0.03, 1.1), (12.0, 0.15, 0.78), (7.0, 0.08, 1.1), (5.0, 0.02, 1.1)]
-THETA = R.default_cfg()["fvar"]
+# Keep mechanism tests at a stronger heterogeneity stress value. The shipped default is pinned
+# independently below, so changing a tunable default cannot silently weaken these invariants.
+THETA = 1.43
 
 
 class FrailtySelectionTest(unittest.TestCase):

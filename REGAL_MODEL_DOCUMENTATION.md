@@ -226,10 +226,10 @@ chosen parameter box and BAT assumptions; they do not establish cure.
 strata. Under a literal four-stratum interpretation, the primary allocation is approximately 25%
 each to supportive care/hydroxyurea, HMA, venetoclax, and LDAC. A v1 equal-strata run makes BAT
 slightly weaker because of the LDAC weight and is therefore more bullish: approximately 98.4%
-scenario rejection, median HR 0.37, and an 83.6% probability of crossing the interim efficacy boundary
-at the pinned 1,000-draw characterization budget.
+scenario rejection, median HR 0.369, and an 83.1% probability of crossing the interim efficacy boundary
+at the pinned 10,000-draw characterization budget.
 The characterization is reproducible with
-`python3 audit/interim_efficacy_replay.py --nsim 1000`. This is one interpretation of the published
+`python3 audit/interim_efficacy_replay.py --nsim 10000`. This is one interpretation of the published
 stratification statement, not proof of the realized regimen mix: the publication's "and/or" wording
 allows combinations, and balanced planned strata need not equal delivered treatments. Accordingly,
 venetoclax-dominant and bear remain clearly labeled allocation stress tests rather than primary
@@ -490,7 +490,7 @@ downward as selection increases, so the plateau scenario rate also falls — a h
 harder-to-beat comparator leaves less residual to
 attribute to GPS. Note the direction of the fit-check: at `q = 0` the raw medians *over*-produce early
 deaths (modeled ~64/74/76 vs 60/72/78) and `π_resp` cannot slow BAT, so a residual misfit at low `q` is
-the signal that *some* selection is needed; the fit tightens through the defensible band and, past it,
+the signal that *some* selection is needed; the fit tightens through the primary sensitivity band and, past it,
 the first milestone starts to *under*-fire (BAT too healthy). Because BAT is shared, the **no-GPS-cure
 alternative** rides the same BAT: as `q` rises its fitted GPS median `m_G` and tail `s_G` re-fit, and the
 fit status can change (a healthier BAT can make an adequate interior State-C fit easier; an extreme
@@ -997,7 +997,7 @@ the exact validated Python bundle; the browser performs no duplicate posterior c
    their weights with joint public-history/continuation evidence, and reports prior-weight
    sensitivity. A family-specific result remains non-forecast output; a complete average is marked
    as the posterior forecast only after all family ESS and history-weight-concentration gates pass.
-3. **Blinded pooled survival is high:** ~27–33% modeled plateau, ~19–21-mo median — far above the
+3. **Blinded pooled survival is high:** ~31–36% modeled plateau, ~18.4–19.8-mo median — far above the
    ~6–8-mo historical/contemporary control. Something is keeping these patients alive.
 4. **Under the plateau model, the scenario rejection rate is governed by the BAT-quality assumption.** With a
    clinically-built BAT composition it stays high (~97% at base), but it is no longer hard to push
