@@ -8,7 +8,7 @@ That is a genuine left-truncation, but on the CR2 clock rather than the trial cl
 what separates it from v1's old outcome clip: the truncation point lands at trial-clock t = 0,
 so no guarantee interval appears. These tests pin that distinction.
 
-Two caveats these tests also pin, because both are easy to lose track of:
+Three caveats these tests also pin, because all three are easy to lose track of:
 
 * The layer conditions on OVERALL survival, not on remaining in CR2. The component library
   carries no relapse hazard, so a patient who relapses inside the window but survives it is
@@ -19,6 +19,11 @@ Two caveats these tests also pin, because both are easy to lose track of:
 * Uniform[1, 6] is an analyst assumption, not a protocol quantity. Inclusion 7 runs on the
   re-induction-dose clock rather than the CR2 clock and sets no floor after CR2; inclusion 8
   gives only an upper bound. The floor is material, so it is pinned as material below.
+* Surviving the window does NOT enrich unconditionally. Only the exponential case is neutral;
+  a decreasing baseline hazard (k < 1) helps survivors and an increasing one (k > 1) hurts
+  them, independently of any frailty or cure heterogeneity. Several shipped components use
+  k = 1.1, so the window's favourable net effect on them is a calibration result, pinned as
+  such, rather than a property of delayed entry.
 """
 
 import os
@@ -196,8 +201,15 @@ class DelayedEntryTest(unittest.TestCase):
                 ratio = d1[1:] / d1[:-1]
                 self.assertLess(float(np.max(np.abs(ratio - 1.0))), 0.25)
 
-    def test_window_survivors_are_enriched(self):
-        """Conditioning on reaching randomization can only help the enrolled cohort."""
+    def test_window_survivors_are_enriched_on_the_production_components(self):
+        """On the shipped components the window helps -- but that is a RESULT, not an invariant.
+
+        Conditioning on reaching randomization does NOT help in general: see
+        test_the_window_direction_follows_the_baseline_hazard_slope below, where an increasing
+        baseline hazard makes the survivors WORSE off. What makes it help here is that the
+        cure fractions and the frailty spread (theta = 0.53) outweigh the mild k = 1.1 penalty.
+        So this pins the shipped configuration, not a property of delayed entry.
+        """
         for med, cure, k in COMPONENTS:
             with self.subTest(med=med):
                 plain = R.median(lambda t: R.Scf(t, med, cure, k, THETA, Q))
@@ -214,12 +226,16 @@ class DelayedEntryTest(unittest.TestCase):
                     float(self._sdel(1e12, med, cure, k)), cure / denom, delta=1e-6
                 )
 
-    def test_a_memoryless_component_is_barely_enriched_by_the_window(self):
-        """Delayed entry enriches only through heterogeneity.
+    def test_an_exponential_component_is_exactly_unchanged_by_the_window(self):
+        """Memorylessness is the knife edge where the window does nothing at all.
 
         With no frailty spread, no cure fraction and shape k = 1, survival is exponential and
         therefore memoryless: surviving the entry window carries no prognostic information, so
-        the enrolled curve must be unchanged. Anything else would be enrichment from nowhere.
+        the enrolled curve must be unchanged -- exactly, not approximately.
+
+        This is the ONLY configuration in which the window is neutral. It is the boundary
+        between the two directions pinned in the next test, not evidence that heterogeneity is
+        the sole channel through which delayed entry acts.
         """
         ts = np.linspace(0.0, 60.0, 601)
         np.testing.assert_allclose(
@@ -228,6 +244,34 @@ class DelayedEntryTest(unittest.TestCase):
             rtol=1e-12,
             atol=1e-12,
         )
+
+    def test_the_window_direction_follows_the_baseline_hazard_slope(self):
+        """With heterogeneity switched off entirely, the Weibull shape alone sets the sign.
+
+        Delayed entry is not a one-way enrichment. Strip out frailty (theta = 0) and cure
+        (c = 0) and the window still moves the curve, because a Weibull with k != 1 is not
+        memoryless: the survivors have aged along the CR2 clock.
+
+          k < 1  decreasing hazard  -> survivors are past the risky early phase, median RISES
+          k = 1  constant hazard    -> memoryless, median UNCHANGED (previous test)
+          k > 1  increasing hazard  -> survivors have aged into worse risk, median FALLS
+
+        The k > 1 branch is the one that matters in practice: several shipped components use
+        k = 1.1, so "surviving the window can only help" is false for the model as configured.
+        """
+        med = 9.0
+        cases = ((0.78, "rise"), (1.1, "fall"), (1.3, "fall"))
+        for k, direction in cases:
+            with self.subTest(k=k):
+                plain = R.median(lambda t: R.Scf(t, med, 0.0, k, 0.0, Q))
+                delayed = R.median(
+                    lambda t: R.Sdel(t, med, 0.0, k, 0.0, Q, self.grid, self.weights)
+                )
+                self.assertAlmostEqual(plain, med, places=6)
+                if direction == "rise":
+                    self.assertGreater(delayed, plain)
+                else:
+                    self.assertLess(delayed, plain)
 
     def test_sampled_times_match_the_analytic_delayed_curve(self):
         """The exact draw and the closed form must describe one model."""

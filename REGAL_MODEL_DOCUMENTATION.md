@@ -304,8 +304,24 @@ stays closed-form. Fixing the overall acceptance rate at `1 − q` gives `β = (
 S_sel(t) = c + (1 − c) · (1 + θ_sel · (t/λ)^k)^(−1/θ)
 ```
 
-for each BAT component, for the plateau panel's GPS responders, and for the no-GPS-cure panel's GPS
-responder Weibull (with `c = 0`) alike. Three properties matter:
+**Where this transform is applied.** To the **literature-sourced, CR2-clock population curves only**:
+each of the four BAT components, and the GPS non-responders who track Observation through `Ssel`.
+Those are the curves whose published medians describe an unselected population, so they are the ones
+that need transforming to describe the enrolled one.
+
+It is **not** applied to either panel's fitted GPS responder family, because both are fitted to
+milestones observed in the *enrolled* cohort and therefore already describe the post-selection
+population — transforming them again would double-count the screening:
+
+- **Bounded no-GPS-cure panel.** The responder is a bare enrolled-cohort Weibull, `Sweib(t, λ(m_G,
+  s_G), s_G)`, with neither layer applied. Its free parameters are exactly what they are labelled:
+  `S_resp(m_G) = 0.5` by construction.
+- **Plateau panel.** The free parameter `π_resp` is a cure *probability*, so there is no curve to
+  transform. Its non-cured shape does carry both layers, but *indirectly and correctly*: `S_nc(t) =
+  (S_BAT(t) − π_BAT)/(1 − π_BAT)` is derived from the already-transformed BAT arm. The underlying
+  disease trajectory is a literature-sourced CR2-clock quantity and GPS adds cure on top of it.
+
+Three properties of the transform matter:
 
 - **The cure fraction is unchanged.** Screening cannot convert an uncured patient into a cured one, so
   `π_BAT` stays `Σ w_i c_i` instead of being mechanically inflated to `c/(1−q)`.
@@ -372,19 +388,30 @@ Three further points matter:
   so survivors reaching randomization are enriched for cured ones. This resembles the old clip's
   `c/(1−q)` inflation but is a different quantity: it conditions on survival *before* enrolment, which
   screening genuinely observes, not on post-randomization survival, which it cannot.
-- **It enriches only through heterogeneity.** With no frailty spread, no cure fraction and `k = 1`,
-  survival is exponential and therefore memoryless — surviving the window carries no prognostic
-  information and the enrolled curve is unchanged. On the real components, delayed entry alone
-  (`θ = 0`) lifts the BAT median only 8.13 → 8.74 mo; it is the *interaction* with frailty spread that
-  does the work.
+- **Its direction is not guaranteed, and depends on the baseline hazard slope.** Only the
+  exponential case is neutral: with no frailty spread, no cure fraction and `k = 1`, survival is
+  memoryless, surviving the window carries no prognostic information, and the enrolled curve is
+  unchanged *exactly*. Away from that knife edge the Weibull shape alone moves the curve, because
+  survivors have aged along the CR2 clock. At median 9 mo with the default `Uniform[1, 6]` window and
+  heterogeneity switched off entirely:
 
-The window is applied to the **literature-sourced components** — the BAT components, and GPS
-non-responders who track Observation via `Ssel` — whose medians are CR2-clock quantities. It is
-deliberately **not** applied to the *fitted* GPS responder families (`m_G`/`s_G` in the bounded
-alternative): those are post-randomization descriptions, and conditioning them on surviving the
-pre-randomization window would imply GPS was already acting before it was administered. In the plateau
-panel the responder's non-cured shape inherits the window through `Snc`, which is correct — the
-underlying disease trajectory is window-conditioned and GPS adds cure on top of it.
+  | shape | baseline hazard | conditional median | direction |
+  |-------|-----------------|--------------------|-----------|
+  | `k = 0.78` | decreasing | 11.22 mo | survivors are past the risky early phase — **better** |
+  | `k = 1.00` | constant | 9.00 mo | memoryless — **unchanged** |
+  | `k = 1.10` | increasing | 8.39 mo | survivors have aged into worse risk — **worse** |
+
+  This is not academic: **several shipped components use `k = 1.1`**, so "surviving the window can
+  only help" is false for the model as configured. What makes the window help *on the shipped
+  components* is that the cure fractions and the frailty spread outweigh that mild penalty — a result
+  of the calibration, not a property of delayed entry. On the real components, delayed entry alone
+  (`θ = 0`) lifts the BAT median 8.32 → 8.96 mo; it is the *interaction* with frailty spread that does
+  most of the work. `tests/test_v1_delayed_entry.py` pins both directions separately.
+
+The window has **exactly the same scope as the frailty screen** — the literature-sourced, CR2-clock
+components, and neither fitted responder family (see *Where this transform is applied* above). The
+extra reason specific to the window is that conditioning a fitted responder curve on surviving the
+*pre*-randomization window would imply GPS was already acting before it was administered.
 
 **Re-anchoring.** `λ` is anchored so the **population** (`q = 0`) marginal median equals the published
 component median. This matters: the literature curves are already marginal over each source study's
