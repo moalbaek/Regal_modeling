@@ -38,7 +38,13 @@ sys.path.insert(0, ROOT)
 import regal_explorer as R  # noqa: E402
 
 
-COMPONENTS = [(6.0, 0.03, 1.1), (12.0, 0.15, 0.78), (7.0, 0.08, 1.1), (5.0, 0.02, 1.1)]
+# Keep these probes tied to the shipped engine rather than duplicating a subset by hand.
+# DEFAULT_COMP has five modeled rows spanning the protocol's four BAT options because
+# Observation and palliative Hydroxyurea are represented separately.
+COMPONENTS = [
+    (c["med"], c["cure"] / 100.0, c["k"])
+    for c in R.DEFAULT_COMP
+]
 THETA = 0.53
 Q = 0.25
 WINDOW = (1.0, 6.0)
