@@ -1,4 +1,4 @@
-"""REGAL legacy scenario explorer — Python engine (port of regal_explorer.html).
+"""REGAL v1 scenario explorer — Python engine (port of regal_explorer.html).
 
 The blinded milestones (60/72/78 deaths) constrain assumed pooled survival families;
 the arm split remains assumption-driven. The engine compares two fixed scenarios
@@ -11,7 +11,7 @@ GPS non-responders track Observation in both scenarios. The bounded alternative 
 a fit status: A for a boundary/non-identified fit, B for a residual misfit, and C for
 an adequate interior fit. These are diagnostics, not formal hypothesis-test results.
 The `ps` output is a fixed-scenario simulated rejection rate. The survival, fitting,
-and legacy final-Monte-Carlo outputs mirror the JavaScript in regal_explorer.html:
+and v1 final-Monte-Carlo outputs mirror the JavaScript in regal_explorer.html:
 
   enroll · common · bat_arm · build_plateau · build_no_gps_cure · median · chart(figure)
 
@@ -139,7 +139,7 @@ def sampNCf(med, cure, k, theta, u, z):
 # relapse and death are jointly distributed, none of which this library carries. The cure-fraction
 # direction needs a further assumption still, that a latent cured patient never relapses inside the
 # window. We ASSUME the net direction is conservative (true enrichment at least the modelled
-# enrichment, with the shortfall absorbed by the fitted frailty variance) because relapse inside the
+# enrichment, with any shortfall left to sensitivity analysis around the frailty assumptions) because relapse inside the
 # window is strongly prognostic, but that is an analyst judgement, not a derived bound. Settling it
 # needs a joint relapse/death model, which the current single-endpoint component library cannot
 # support.
@@ -265,7 +265,7 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, shape=0.60, shapeOverride=False,
-               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.25, fvar=0.53,
+               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.20, fvar=0.35,
                dmin=1.0, dmax=6.0, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
@@ -500,7 +500,7 @@ def build_no_gps_cure(cfg):
         m2b = float(mms[int(np.argmin(e2))])
         mg_track = m2b > MGHI + 1.0
     # §5 fit status. All non-interior fits are non-identified (State A) with no reported scenario
-    # rate. The legacy cureReq field only separates upper/heavy from light-edge boundaries; neither
+    # rate. The compatibility cureReq field only separates upper/heavy from light-edge boundaries; neither
     # subtype is a formal test of a biological mechanism. RMS-based tolerance ensures the
     # weighted fit's deliberate middle-milestone trade-off does not by itself trip State B.
     RMS_TOL, OFF_TOL = 2.0, 3.0
@@ -549,7 +549,7 @@ def fit_ci(cfg, builder):
 # ---------------------------------------------------------------- shared Monte-Carlo
 def mc(M, nsim=1500, seed=987654321):
     """Enrollment -> per-arm death draws -> censor at FINAL-th event -> log-rank test.
-    ``ps`` is the legacy fixed-scenario final rejection rate conditional on reaching
+    ``ps`` is the v1 fixed-scenario final rejection rate conditional on reaching
     FINAL. The return value also exposes an unconditional interim efficacy-crossing
     diagnostic using the committed two-look O'Brien-Fleming boundary."""
     cfg = M["cfg"]; N, FINAL, HRC, fnr = cfg["N"], cfg["FINAL"], cfg["HRC"], cfg["fnr"]
@@ -881,7 +881,7 @@ def figure(path, nsim=1500, executor=None, base=None):
     gx.scatter([_to_date(mo(y, m, 28)) for (y, m, _) in anchors], [n for (_, _, n) in anchors],
                color=RED, s=42, zorder=5, label="sourced PR anchors (~20/104/126)")
     gx.set_ylabel("patients enrolled"); gx.set_ylim(0, N * 1.05)
-    gx.set_title("(g) Legacy enrollment reconstruction vs sourced anchors",
+    gx.set_title("(g) V1 enrollment reconstruction vs sourced anchors",
                  fontweight="bold", fontsize=9); gx.legend(fontsize=7.2, loc="lower right")
     for lab in gx.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
 
@@ -941,8 +941,8 @@ def figure(path, nsim=1500, executor=None, base=None):
         bat_cure.append(100 * pib); bat_med.append(median(Sbq))
     bat_med = np.array(bat_med); mcap = 60.0                       # clip a "not reached" median for display
     med_plot = np.where(np.isfinite(bat_med), np.minimum(bat_med, mcap), mcap)
-    ix.axvspan(20, 35, color=GREY, alpha=.10)                      # defensible screening band (fitness criteria)
-    ix.text(27.5, 3, "defensible\n~20–35%", color=GREY, fontsize=7, ha="center", va="bottom")
+    ix.axvspan(10, 30, color=GREY, alpha=.10)                      # evidence-informed sensitivity band
+    ix.text(20, 3, "sensitivity\n10–30%", color=GREY, fontsize=7, ha="center", va="bottom")
     ix.plot(100 * qs, med_plot, color=NAVY, lw=2.4, marker="o", ms=2.5, label="BAT median OS (mo)")
     ix.set_xlabel("eligibility screen-out q (% rejected on baseline frailty)"); ix.set_ylabel("BAT median OS (months)", color=NAVY)
     ix.tick_params(axis="y", labelcolor=NAVY); ix.set_xlim(0, 50); ix.set_ylim(0, mcap * 1.02)
@@ -959,7 +959,7 @@ def figure(path, nsim=1500, executor=None, base=None):
     h1, l1 = ix.get_legend_handles_labels(); h2, l2 = ix2.get_legend_handles_labels()
     ix.legend(h1 + h2, l1 + l2, fontsize=7.2, loc="upper left")
 
-    fig.suptitle("REGAL legacy scenario explorer — fixed-scenario rejection rates and bounded-fit diagnostics; "
+    fig.suptitle("REGAL v1 scenario explorer — fixed-scenario rejection rates and bounded-fit diagnostics; "
                  "not a posterior forecast for the ongoing trial.",
                  fontweight="bold", fontsize=10.5, y=1.01)
     fig.tight_layout(); fig.savefig(path, bbox_inches="tight")

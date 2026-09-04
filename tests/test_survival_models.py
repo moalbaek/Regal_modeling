@@ -56,7 +56,7 @@ class SurvivalScaleTest(unittest.TestCase):
         self.assertIs(component.survival_scale, SurvivalScale.NET)
 
     def test_existing_inputs_default_to_overall_scale(self):
-        component = CureMixtureComponent("legacy literature OS", self.uncured, 0.2)
+        component = CureMixtureComponent("historical literature OS", self.uncured, 0.2)
         self.assertIs(component.survival_scale, SurvivalScale.OVERALL)
 
     def test_cured_patients_follow_population_mortality(self):

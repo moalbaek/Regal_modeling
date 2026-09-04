@@ -1,4 +1,4 @@
-"""Static invariants for user-facing defaults and legacy-model disclosure."""
+"""Static invariants for user-facing defaults and scenario-model disclosure."""
 
 from decimal import Decimal
 import os
@@ -90,7 +90,7 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertEqual(self._quoted_attr(tags_by_id["IA"], "min"), "1")
         self.assertEqual(self._quoted_attr(tags_by_id["FINAL"], "min"), "2")
 
-    def test_legacy_disclosure_bans_obsolete_inference_claims(self):
+    def test_scenario_disclosure_bans_obsolete_inference_claims(self):
         forbidden = {
             "formal-null verdict": r"\bnull rejected\b",
             "GPS-cure requirement": r"\bGPS(?:-specific)? cure (?:is )?required\b",
@@ -123,6 +123,46 @@ class StaticConsistencyTest(unittest.TestCase):
                 r"(?:not a posterior|does not estimate a posterior)",
                 f"{name} omits the non-posterior disclosure",
             )
+
+    def test_user_facing_surfaces_use_v1_scenario_terminology(self):
+        for name in BAN_SURFACE_FILES:
+            self.assertNotRegex(
+                self.surfaces[name],
+                re.compile(r"\blegacy\b", re.IGNORECASE),
+                f"{name} still labels the v1 scenario model as legacy",
+            )
+
+    def test_explorer_lands_on_v1_with_accessible_model_tabs(self):
+        v1_tab = re.search(r'<button\b[^>]*\bid="tab-v1"[^>]*>', self.html)
+        v2_tab = re.search(r'<button\b[^>]*\bid="tab-v2"[^>]*>', self.html)
+        v1_panel = re.search(r'<div\b[^>]*\bid="panel-v1"[^>]*>', self.html)
+        v2_panel = re.search(r'<section\b[^>]*\bid="panel-v2"[^>]*>', self.html)
+        for match, label in (
+            (v1_tab, "V1 tab"),
+            (v2_tab, "V2 tab"),
+            (v1_panel, "V1 panel"),
+            (v2_panel, "V2 panel"),
+        ):
+            self.assertIsNotNone(match, f"{label} not found")
+
+        self.assertEqual(self._quoted_attr(v1_tab.group(), "aria-selected"), "true")
+        self.assertEqual(self._quoted_attr(v1_tab.group(), "tabindex"), "0")
+        self.assertEqual(self._quoted_attr(v2_tab.group(), "aria-selected"), "false")
+        self.assertEqual(self._quoted_attr(v2_tab.group(), "tabindex"), "-1")
+        self.assertNotRegex(v1_panel.group(), r"\shidden(?:\s|=|>)")
+        self.assertRegex(v2_panel.group(), r"\shidden(?:\s|=|>)")
+
+        self.assertRegex(
+            self.html,
+            r'location\.hash\.replace\(/\^#/,\s*["\']{2}\)\s*\|\|\s*["\']v1["\']',
+        )
+        self.assertIn('window.addEventListener("hashchange"', self.html)
+        self.assertRegex(
+            self.html,
+            r'if\s*\(\s*view\.id\s*===\s*["\']v1["\']\s*&&\s*v1WasHidden\s*\)\s*schedule\(\)',
+        )
+        for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
+            self.assertIn(f'e.key==="{key}"', self.html)
 
 
 if __name__ == "__main__":

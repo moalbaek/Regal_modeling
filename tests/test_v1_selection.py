@@ -22,10 +22,18 @@ import regal_explorer as R  # noqa: E402
 
 
 COMPONENTS = [(6.0, 0.03, 1.1), (12.0, 0.15, 0.78), (7.0, 0.08, 1.1), (5.0, 0.02, 1.1)]
+# Keep mechanism tests at a stronger heterogeneity stress value. The shipped default is pinned
+# independently below, so changing a tunable default cannot silently weaken these invariants.
 THETA = 1.43
 
 
 class FrailtySelectionTest(unittest.TestCase):
+    def test_evidence_informed_defaults(self):
+        cfg = R.default_cfg()
+        self.assertEqual(cfg["esel"], 0.20)
+        self.assertEqual(cfg["fvar"], 0.35)
+        self.assertAlmostEqual((1.0 - cfg["esel"]) ** cfg["fvar"], 0.9248717100187196)
+
     def test_zero_frailty_variance_reproduces_the_unselected_curve_exactly(self):
         """With no prognostic spread there is nothing to select on, at any q."""
         ts = np.linspace(0.0, 120.0, 2401)

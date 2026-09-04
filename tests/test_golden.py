@@ -86,6 +86,11 @@ class GoldenSnapshotTest(unittest.TestCase):
         g, a = self.golden["verdicts"], self.actual["verdicts"]
         self.assertEqual(sorted(g), sorted(a), "verdict fixture set changed vs golden.json")
         for label, fields in g.items():
+            expected_state = label.split("_", 1)[0]
+            self.assertEqual(
+                a[label]["state"], expected_state,
+                f"{label} no longer lands in its named state",
+            )
             self._check_fields(f"verdicts.{label}", fields, a[label])
 
 

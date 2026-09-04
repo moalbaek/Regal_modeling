@@ -1,4 +1,4 @@
-"""Legacy-audit and isolated v2 trial-decision primitives.
+"""V1-audit and isolated v2 trial-decision primitives.
 
 ``obrien_fleming_two_look`` preserves the classical discrete-look ``c / sqrt(t)``
 boundary used by the v1 reproducibility audit.  V2 uses the separate
@@ -11,7 +11,7 @@ combinations.  Its score statistic is suitable for the efficacy decision.  The
 associated one-step hazard-ratio estimate is retained only as a diagnostic and
 as an explicit sensitivity input for the unpublished interim futility rule.
 
-None of the v2 objects in this module are imported by the legacy explorer.
+None of the v2 objects in this module are imported by the v1 explorer.
 """
 
 from dataclasses import dataclass
@@ -387,7 +387,7 @@ def stratified_logrank(time, event, treatment, strata):
 
 
 def unstratified_logrank_diagnostic(time, event, treatment):
-    """Return the legacy-style unstratified score as a diagnostic only."""
+    """Return the v1-style unstratified score as a diagnostic only."""
 
     size = np.asarray(time).size
     return stratified_logrank(
