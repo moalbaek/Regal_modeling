@@ -500,8 +500,8 @@ def build_no_gps_cure(cfg):
     elif sg_light:
         state = "A"
         reason = ("GPS tail pinned at the light edge (%.2f): the milestones want an even lighter "
-                  "(sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This is "
-                  "this boundary does not identify whether a GPS-specific cure exists" % SGMAX)
+                  "(sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. "
+                  "This boundary does not identify whether a GPS-specific cure exists" % SGMAX)
     elif rms_resid > RMS_TOL or max_off > OFF_TOL:
         state = "B"
         reason = "residual RMS %.1f (modeled %s vs %s)" % (rms_resid, "/".join("%.0f" % x for x in edv), "/".join("%.0f" % x for x in MOBS))
