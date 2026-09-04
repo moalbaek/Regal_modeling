@@ -55,6 +55,169 @@ def Sweib(t, scale, shape):                                      # bare Weibull 
     return np.exp(-(np.clip(t, 0, None) / scale) ** shape)
 sampWeib = lambda scale, shape, u: scale * (-np.log(u)) ** (1.0 / shape)      # inverse-transform Weibull sample
 wscale   = lambda med, shape: med / (np.log(2.0)) ** (1.0 / shape)            # median -> Weibull scale
+
+# ---------------------------------------------------------------- eligibility selection (gamma frailty)
+# Trial eligibility enrols a healthier subset than the unselected population the component medians
+# describe. It screens on BASELINE covariates that merely CORRELATE with survival, never on the
+# realized death time, so the enrolled curve must start dying immediately: S(t) < 1 for every
+# t > 0. (The hazard VALUE at t=0 is not the invariant -- a Weibull with shape k<1 is infinite
+# there and one with k>1 is zero. What the old clip produced, and what must not reappear, is a
+# positive-length interval over which S stays pinned at 1.)
+#
+# Population frailty Z ~ Gamma(mean 1, variance theta) multiplies the UNCURED Weibull hazard.
+# Eligibility accepts a patient with probability proportional to exp(-beta Z): frailer patients are
+# exponentially less likely to pass screening. Gamma is conjugate to that tilt, so the enrolled
+# cohort is again Gamma with the same shape 1/theta and a smaller scale, and the whole model stays
+# closed-form. Fixing the overall acceptance rate at 1-q gives beta = ((1-q)^-theta - 1)/theta and
+#
+#     theta_sel = theta (1-q)^theta,      E[Z | eligible] = (1-q)^theta.
+#
+# Selection therefore rescales the uncured hazard; it does NOT change the cure fraction (an uncured
+# patient cannot be screened into being cured) and it does NOT alter component composition weights.
+# theta -> 0 collapses every formula below to v1's original unselected Weibull: with no unobserved
+# heterogeneity there is nothing for eligibility to select on, so no enrichment is possible at any q.
+def fsel(theta, q):
+    """Enrolled-cohort gamma scale parameter theta_sel."""
+    if theta <= 0: return 0.0
+    return theta * (1.0 - min(max(q, 0.0), 0.999)) ** theta
+
+def fcoef(cure, theta):
+    """Median coefficient (A^-theta - 1)/theta, with A = (0.5-cure)/(1-cure).
+
+    Written as expm1(theta * Acoef)/theta because A^-theta = exp(theta * Acoef): the power form
+    loses the entire numerator to rounding once theta * Acoef drops below machine epsilon, which
+    collapses the scale to zero and makes lamf divide by it. expm1 stays accurate all the way
+    down, so the coefficient tends continuously to Acoef and lamf tends to lam."""
+    a = Acoef(cure)
+    if theta <= 0: return a
+    return np.expm1(theta * a) / theta
+
+def lamf(med, cure, k, theta):
+    """Weibull scale anchored so the POPULATION (q=0) marginal median is `med`.
+
+    The published component medians are already marginal over each source study's patient
+    heterogeneity, so the frailty mixture must be re-anchored to reproduce them at zero selection.
+    Anchoring the conditional (frailty=1) curve instead would double-count that heterogeneity."""
+    return med / fcoef(cure, theta) ** (1.0 / k)
+
+def Scf(t, med, cure, k, theta, q):
+    """Cure-mixture survival for the ENROLLED cohort under gamma-frailty eligibility selection."""
+    s = (np.clip(t, 0, None) / lamf(med, cure, k, theta)) ** k
+    if theta <= 0: return cure + (1 - cure) * np.exp(-s)
+    # exp(-log1p(x)/theta) rather than (1+x)^(-1/theta): for tiny theta the base rounds to exactly
+    # 1 and the power form returns 1 for every t, losing the exponential limit that log1p keeps.
+    return cure + (1 - cure) * np.exp(-np.log1p(fsel(theta, q) * s) / theta)
+
+def sampf(n, theta, q, rng):
+    """Draw enrolled-cohort frailties (all ones when theta = 0)."""
+    if theta <= 0: return np.ones(n)
+    return rng.gamma(1.0 / theta, fsel(theta, q), size=n)
+
+def sampNCf(med, cure, k, theta, u, z):
+    """Uncured event time given frailty z: S(t|z) = exp(-z (t/lam)^k)."""
+    return lamf(med, cure, k, theta) * (-np.log(u) / z) ** (1.0 / k)
+
+
+# ---------------------------------------------------------------- delayed entry (CR2 -> randomization)
+# REGAL randomizes patients some months AFTER they achieve CR2: the protocol requires the last
+# re-induction dose at least 4 weeks earlier (inclusion 7) and consent within 6 months of CR2
+# (inclusion 8). Anyone who relapses or dies inside that window never enrols. That is a genuine
+# left-truncation, but on the CR2 clock rather than the trial clock, so its truncation point sits at
+# t = 0 exactly and it creates no guarantee interval on the trial clock.
+#
+# DEATH-ONLY APPROXIMATION. The real eligibility event is "still in CR2 at randomization", i.e.
+# relapse-free survival. This layer conditions on OVERALL survival, T > D, because the component
+# library carries OS only: no relapse hazard is available to condition on. A patient who relapses
+# inside the window but is still alive is therefore retained here, when the protocol would have
+# excluded them. Every window-enrichment quantity below -- the c / E_D[S(D)] cure lift especially --
+# is therefore a death-only approximation, not the protocol's stated in-CR2 criterion.
+#
+# What follows from that, and what does NOT. Provable: relapse-free survival is at or below overall
+# survival, so the true entry-survival DENOMINATOR is no larger than E_D[S(D)]. NOT provable from
+# here: that the modelled enrichment is a lower bound on the true enrichment. S_trial is a ratio and
+# the numerator moves too -- E_RFS[S(D+t)] depends on the post-relapse death hazard and on how
+# relapse and death are jointly distributed, none of which this library carries. The cure-fraction
+# direction needs a further assumption still, that a latent cured patient never relapses inside the
+# window. We ASSUME the net direction is conservative (true enrichment at least the modelled
+# enrichment, with the shortfall absorbed by the fitted frailty variance) because relapse inside the
+# window is strongly prognostic, but that is an analyst judgement, not a derived bound. Settling it
+# needs a joint relapse/death model, which the current single-endpoint component library cannot
+# support.
+#
+# DELAY DISTRIBUTION IS AN ANALYST ASSUMPTION, NOT A PROTOCOL QUANTITY. dgrid discretises
+# Uniform[dmin, dmax] with a 1-6 month default, and neither endpoint is identified by the protocol.
+# Inclusion 7's four-week rule runs on the LAST RE-INDUCTION DOSE clock, not on time since CR2, so
+# it does not establish a one-month floor after CR2; inclusion 8's six months is an upper bound
+# only, and says nothing about the shape between. The uniform is a maximum-entropy choice on that
+# bound. The assumption is material -- see tests/test_v1_delayed_entry.py's dmin sensitivity, where
+# dropping the floor from 1 to 0 moves the BAT median by roughly half a month and the plateau
+# rejection rate by several points -- so dmin and dmax are exposed as sliders, not baked in.
+#
+# With entry delay D drawn before outcomes and independent of frailty, the enrolled cohort's
+# trial-clock survival is
+#
+#     S_trial(t) = P(T > D + t | T > D) = E_D[S(D + t)] / E_D[S(D)],
+#
+# where the S(D) weighting of the enrolled population cancels. The extra frailty selection created by
+# surviving the window is therefore handled exactly by the ratio; no separate tilt is needed here.
+#
+# Unlike v1's old outcome clip, the cure fraction legitimately RISES, to c / E_D[S(D)]: uncured
+# patients die during the window, so survivors reaching randomization are enriched for cured ones.
+# That conditions on PRE-enrolment survival, which screening genuinely observes, rather than on the
+# post-randomization survival the clip assumed away.
+def dgrid(dmin, dmax):
+    """Moment-matched three-point discretisation of Uniform[dmin, dmax].
+
+    Same construction as the WP5 reporting-lag PMF: it preserves the mean and variance of the
+    continuous window while keeping the curve and sampler to three branches.
+
+    The upper bound dominates: dmin is clamped to dmax so that dmax=0 disables the layer outright
+    (a single zero-delay point) whatever dmin is left at, rather than silently becoming a fixed
+    dmin-month delay."""
+    b = max(float(dmax or 0.0), 0.0)
+    a = min(max(float(dmin or 0.0), 0.0), b)
+    if b <= a:
+        return np.array([a]), np.array([1.0])
+    return np.array([a, 0.5 * (a + b), b]), np.array([1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0])
+
+
+def entry_survival(med, cure, k, theta, q, D, W):
+    """E_D[S(D)] — the probability a CR2 patient is still alive at randomization."""
+    return float(sum(w * float(Scf(d, med, cure, k, theta, q)) for d, w in zip(D, W)))
+
+
+def Sdel(t, med, cure, k, theta, q, D, W):
+    """Trial-clock survival for patients who survived the CR2 -> randomization window."""
+    t = np.asarray(t, dtype=float)
+    num = sum(w * Scf(t + d, med, cure, k, theta, q) for d, w in zip(D, W))
+    return num / entry_survival(med, cure, k, theta, q, D, W)
+
+
+def _delay_parts(med, cure, k, theta, q, D, W, uncured_only):
+    """Shared pieces of the exact delayed-entry draw."""
+    lm = lamf(med, cure, k, theta)
+    ths = fsel(theta, q)
+    sd = (np.asarray(D, dtype=float) / lm) ** k
+    uncured = np.exp(-sd) if theta <= 0 else np.exp(-np.log1p(ths * sd) / theta)
+    surv = cure + (1 - cure) * uncured
+    # The entry delay is length-biased among enrollees: longer windows survive less often.
+    mass = np.asarray(W, dtype=float) * ((1 - cure) * uncured if uncured_only else surv)
+    return lm, ths, sd, surv, mass / mass.sum()
+
+
+def sampdel(n, med, cure, k, theta, q, D, W, rng, uncured_only=False):
+    """Exact delayed-entry event time: enrolled delay, window-tilted frailty, conditional draw."""
+    lm, ths, sd, surv, pmf = _delay_parts(med, cure, k, theta, q, D, W, uncured_only)
+    j = rng.choice(len(sd), size=n, p=pmf)
+    d = np.asarray(D, dtype=float)[j]
+    s = sd[j]
+    # Surviving the window tilts the gamma frailty toward lower risk; gamma is conjugate to it.
+    z = np.ones(n) if theta <= 0 else rng.gamma(1.0 / theta, ths / (1.0 + ths * s))
+    t = lm * (s - np.log(rng.random(n)) / z) ** (1.0 / k) - d
+    if uncured_only:
+        return t
+    cured = rng.random(n) < cure / surv[j]
+    return np.where(cured, 1e9, t)
 # natural (non-disease) all-cause mortality as an independent competing risk.
 # ndr is an annual death fraction; convert to a constant monthly hazard.
 natH  = lambda p: (-np.log(1.0 - p) / 12.0) if p > 0 else 0.0                 # monthly hazard from annual fraction
@@ -102,7 +265,8 @@ PRESETS = {
 
 def default_cfg(**over):
     cfg = dict(N=126, FINAL=80, HRC=0.636, fnr=0.20, bl=0.50, shape=0.60, shapeOverride=False,
-               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.25, unweighted=False,
+               ndr=0.02, IA=60, futHR=1.0, drop=0.0, esel=0.25, fvar=0.53,
+               dmin=1.0, dmax=6.0, unweighted=False,
                comp=[dict(c) for c in DEFAULT_COMP],
                ev=[dict(e) for e in DEFAULT_EV])
     cfg.update(over)
@@ -173,17 +337,23 @@ def bat_arm(cfg):
     one biological lever apart: same per-component medians, cures, shapes and left-truncation."""
     w, cm, coh, MT, MOBS, WT = common(cfg)
     h = natH(cfg.get("ndr", 0.0)); hd = natH(cfg.get("drop", 0.0))
-    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # enrollment selection: left-truncate weakest fraction F
-    # Left-truncation (keep the strongest 1-F): the flat pre-quantile segment is guarantee time
-    # (REGAL's "life expectancy > 6mo" enrolment floor), not an artifact. As t->inf the cured
-    # fraction is RAISED to cure/(1-F).
+    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)   # eligibility screen-out fraction q
+    TH = max(cfg.get("fvar", 0.0) or 0.0, 0.0)     # population frailty variance theta
+    DG, DW = dgrid(cfg.get("dmin", 0.0), cfg.get("dmax", 0.0))   # CR2 -> randomization entry window
+    # Two selection layers, both applied before randomization and neither peeking at post-randomization
+    # survival: eligibility screens on baseline frailty, and the entry window removes CR2 patients who
+    # die before they can be randomized. Neither leaves a flat S(t)=1 interval at the origin.
     def Ssel(t, c):
-        return np.minimum(1.0, Sc(t, c["med"], c["cure"], c["k"]) / (1 - F))
-    pibat = sum(w[i] * cm[i]["cure"] / (1 - F) for i in range(len(cm)))
+        return Sdel(t, c["med"], c["cure"], c["k"], TH, F, DG, DW)
+    def ecure(c):
+        """Cure fraction among patients who reach randomization: c / E_D[S(D)]."""
+        return c["cure"] / entry_survival(c["med"], c["cure"], c["k"], TH, F, DG, DW)
+    pibat = sum(w[i] * ecure(cm[i]) for i in range(len(cm)))
     obs = cm[0]
     def Sbat(t): return sum(w[i] * Ssel(t, cm[i]) for i in range(len(cm)))
     def Snc(t):  return (Sbat(t) - pibat) / (1 - pibat)   # non-cured BAT shape (plateau panel only)
-    return dict(w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT, h=h, hd=hd, F=F,
+    return dict(w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT, h=h, hd=hd, F=F, TH=TH,
+                DG=DG, DW=DW, ecure=ecure,
                 Ssel=Ssel, pibat=pibat, obs=obs, Sbat=Sbat, Snc=Snc)
 
 # ---------------------------------------------------------------- plateau (GPS-cure) model
@@ -191,7 +361,9 @@ def build_plateau(cfg):
     # "plateau"/"cure" here means the GPS-cure model: GPS responders get a durable-remission plateau.
     B = bat_arm(cfg)
     w, cm, coh, MT, MOBS, WT = B["w"], B["cm"], B["coh"], B["MT"], B["MOBS"], B["WT"]
-    h, hd, F, Ssel, pibat, obs, Sbat, Snc = B["h"], B["hd"], B["F"], B["Ssel"], B["pibat"], B["obs"], B["Sbat"], B["Snc"]
+    h, hd, F, TH, Ssel, pibat, obs, Sbat, Snc = (B["h"], B["hd"], B["F"], B["TH"], B["Ssel"],
+                                                 B["pibat"], B["obs"], B["Sbat"], B["Snc"])
+    ecure = B["ecure"]
     fnr = cfg["fnr"]
     def Spool(t, pr):
         return 0.5 * Sbat(t) + 0.5 * ((1 - fnr) * (pr + (1 - pr) * Snc(t)) + fnr * Ssel(t, obs))
@@ -214,7 +386,7 @@ def build_plateau(cfg):
             e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(3))
             if e < bs: bs, best = e, pr
     presp = best
-    pgps = (1 - fnr) * presp + fnr * obs["cure"] / (1 - F)
+    pgps = (1 - fnr) * presp + fnr * ecure(obs)
     # returned curves are all-cause (disease x background mortality).
     Sb = lambda t: Sbat(t) * Snat(t, h)
     Sg = lambda t: ((1 - fnr) * (presp + (1 - presp) * Snc(t)) + fnr * Ssel(t, obs)) * Snat(t, h)
@@ -233,13 +405,25 @@ def build_no_gps_cure(cfg):
     C=adequate interior fit. It does not test or establish a biological cure mechanism."""
     B = bat_arm(cfg)
     w, cm, coh, MT, MOBS, WT = B["w"], B["cm"], B["coh"], B["MT"], B["MOBS"], B["WT"]
-    h, hd, F, Ssel, pibat, obs, Sbat = B["h"], B["hd"], B["F"], B["Ssel"], B["pibat"], B["obs"], B["Sbat"]
+    h, hd, F, TH, Ssel, pibat, obs, Sbat = (B["h"], B["hd"], B["F"], B["TH"], B["Ssel"],
+                                            B["pibat"], B["obs"], B["Sbat"])
     fnr = cfg["fnr"]
     bat_med = median(lambda t: Sbat(t) * Snat(t, h))
     fit_shape = not cfg.get("shapeOverride", False)       # AUTO fits sG; override holds the slider value fixed
     MGLO = min(bat_med if np.isfinite(bat_med) else 60.0, 110.0); MGHI = 120.0; SGMIN, SGMAX = 0.15, 1.5
-    # GPS responder = a single NO-CURE Weibull, left-truncated exactly like BAT (same selection lever).
-    def Sresp(t, mG, sG): return np.minimum(1.0, Sweib(t, wscale(mG, sG), sG) / (1 - F))
+    # GPS responder = a single NO-CURE Weibull describing the ENROLLED responders directly. NEITHER
+    # pre-randomization layer is applied to it, and for one reason: mG/sG are FITTED to milestones
+    # observed in the enrolled cohort, so the fitted curve already IS the post-selection curve.
+    # Pushing it through Scf would re-anchor lambda on a population (q=0) marginal and then re-select
+    # it, which double-counts the screening and -- worse -- silently redefines mG. Under that form mG
+    # was the population-marginal median, not the responder median it is labelled and compared as:
+    # at the default fit S_resp(mG) was 0.544, with the true median 5.5 months higher. Parameterizing
+    # the enrolled curve directly makes S_resp(mG) = 0.5 by construction, so mG/batMed, the boundary
+    # messages and the effect sweeps all compare like with like.
+    # The same reasoning already excluded the entry window here; it applies to frailty screening too.
+    # Literature-sourced components (BAT, and GPS non-responders tracking Observation via Ssel) are
+    # CR2-clock population curves and do carry both layers.
+    def Sresp(t, mG, sG): return Sweib(t, wscale(mG, sG), sG)
     # GPS non-responders (fnr) track Observation — unchanged and identical to the plateau panel.
     def Sgps(t, mG, sG): return (1 - fnr) * Sresp(t, mG, sG) + fnr * Ssel(t, obs)
     def Spool(t, mG, sG): return 0.5 * Sbat(t) + 0.5 * Sgps(t, mG, sG)
@@ -252,7 +436,7 @@ def build_no_gps_cure(cfg):
         t may be any-shaped array. Returns t.shape + (len(mG),) via numpy broadcasting on a
         trailing grid axis, so the whole candidate grid is evaluated in one vectorized pass."""
         t = np.asarray(t, dtype=float); te = t[..., None]
-        Sr = np.minimum(1.0, Sweib(te, wscale(mG, sG), sG) / (1 - F))
+        Sr = Sweib(te, wscale(mG, sG), sG)
         Sg = (1 - fnr) * Sr + fnr * Ssel(t, obs)[..., None]
         return 0.5 * Sbat(t)[..., None] + 0.5 * Sg
 
@@ -330,8 +514,8 @@ def build_no_gps_cure(cfg):
     elif sg_light:
         state = "A"
         reason = ("GPS tail pinned at the light edge (%.2f): the milestones want an even lighter "
-                  "(sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This is "
-                  "this boundary does not identify whether a GPS-specific cure exists" % SGMAX)
+                  "(sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. "
+                  "This boundary does not identify whether a GPS-specific cure exists" % SGMAX)
     elif rms_resid > RMS_TOL or max_off > OFF_TOL:
         state = "B"
         reason = "residual RMS %.1f (modeled %s vs %s)" % (rms_resid, "/".join("%.0f" % x for x in edv), "/".join("%.0f" % x for x in MOBS))
@@ -376,10 +560,15 @@ def mc(M, nsim=1500, seed=987654321):
     rng = np.random.default_rng(seed)
     coh, w, cm = M["coh"], M["w"], M["cm"]
     cohp = coh[:, 1] / coh[:, 1].sum()                              # cohort enrollment probs
-    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)                    # enrollment selection: drop weakest fraction F
-    snq = np.array([(1 - F - cm[i]["cure"]) / (1 - cm[i]["cure"]) for i in range(len(cm))])  # non-cured survival at the F-quantile (caps the conditional draw)
-    ncw = np.array([w[i] * (1 - F - cm[i]["cure"]) for i in range(len(cm))])
-    ncw = ncw / ncw.sum()                                          # BAT non-cured component mix (selected)
+    F = min(max(cfg.get("esel", 0.0), 0.0), 0.5)                    # eligibility screen-out fraction q
+    TH = max(cfg.get("fvar", 0.0) or 0.0, 0.0)                      # population frailty variance theta
+    DG, DW = dgrid(cfg.get("dmin", 0.0), cfg.get("dmax", 0.0))      # CR2 -> randomization entry window
+    ecure_i = np.array([                                            # per-component cure among enrollees
+        cm[i]["cure"] / entry_survival(cm[i]["med"], cm[i]["cure"], cm[i]["k"], TH, F, DG, DW)
+        for i in range(len(cm))
+    ])
+    ncw = np.array([w[i] * (1 - ecure_i[i]) for i in range(len(cm))])
+    ncw = ncw / ncw.sum()                                          # BAT non-cured component mix
     n1 = N // 2
     IA = max(1, min(int(cfg.get("IA", 60)), FINAL - 1))            # interim-analysis event count
     futHR = cfg.get("futHR", 1.0)                                  # interim futility HR threshold
@@ -404,9 +593,7 @@ def mc(M, nsim=1500, seed=987654321):
         for j, c in enumerate(cm):
             idx = np.where(pick == j)[0]
             if idx.size:
-                cured = rng.random(idx.size) < c["cure"] / (1 - F)
-                s = sampNC(c["med"], c["cure"], c["k"], rng.random(idx.size) * snq[j])
-                out[idx] = np.where(cured, 1e9, s)
+                out[idx] = sampdel(idx.size, c["med"], c["cure"], c["k"], TH, F, DG, DW, rng)
         return out
 
     def draw_cure_gps(n):
@@ -415,16 +602,16 @@ def mc(M, nsim=1500, seed=987654321):
         nr = np.where(isnr)[0]; rs = np.where(~isnr)[0]
         obs = M["obs"]
         if nr.size:
-            cured = rng.random(nr.size) < obs["cure"] / (1 - F)
-            s = sampNC(obs["med"], obs["cure"], obs["k"], rng.random(nr.size) * snq[0])
-            out[nr] = np.where(cured, 1e9, s)
+            out[nr] = sampdel(nr.size, obs["med"], obs["cure"], obs["k"], TH, F, DG, DW, rng)
         if rs.size:
             cured = rng.random(rs.size) < M["presp"]
             pick = rng.choice(len(cm), size=rs.size, p=ncw)
             s = np.empty(rs.size)
             for j, c in enumerate(cm):
                 jj = np.where(pick == j)[0]
-                if jj.size: s[jj] = sampNC(c["med"], c["cure"], c["k"], rng.random(jj.size) * snq[j])
+                if jj.size:
+                    s[jj] = sampdel(jj.size, c["med"], c["cure"], c["k"], TH, F, DG, DW,
+                                    rng, uncured_only=True)
             out[rs] = np.where(cured, 1e9, s)
         return out
 
@@ -434,11 +621,11 @@ def mc(M, nsim=1500, seed=987654321):
         nr = np.where(isnr)[0]; rs = np.where(~isnr)[0]
         obs = M["obs"]
         if nr.size:
-            cured = rng.random(nr.size) < obs["cure"] / (1 - F)
-            s = sampNC(obs["med"], obs["cure"], obs["k"], rng.random(nr.size) * snq[0])
-            out[nr] = np.where(cured, 1e9, s)
+            out[nr] = sampdel(nr.size, obs["med"], obs["cure"], obs["k"], TH, F, DG, DW, rng)
         if rs.size:
-            out[rs] = sampWeib(wscale(M["mG"], M["sG"]), M["sG"], rng.random(rs.size) * (1 - F))
+            # Matches Sresp: the enrolled responder curve is parameterized directly, so the draw is
+            # a bare Weibull with no frailty tilt and no entry-window conditioning.
+            out[rs] = sampWeib(wscale(M["mG"], M["sG"]), M["sG"], rng.random(rs.size))
         return out
 
     for _ in range(nsim):
@@ -741,17 +928,23 @@ def figure(path, nsim=1500, executor=None, base=None):
     ix = ax[2, 2]; w0, cm0, h0 = Mc["w"], Mc["cm"], Mc["h"]
     qs = np.linspace(0.0, 0.5, 26)
     bat_med, bat_cure = [], []
+    TH0 = max(Mc["cfg"].get("fvar", 0.0) or 0.0, 0.0)
+    DG0, DW0 = dgrid(Mc["cfg"].get("dmin", 0.0), Mc["cfg"].get("dmax", 0.0))
     for q in qs:
-        pib = sum(w0[i] * cm0[i]["cure"] / (1 - q) for i in range(len(cm0)))
-        Sbq = lambda t, q=q: (sum(w0[i] * np.minimum(1.0, Sc(t, cm0[i]["med"], cm0[i]["cure"], cm0[i]["k"]) / (1 - q))
+        # The cure fraction moves with q only through the entry window; the frailty screen alone
+        # leaves it untouched.
+        pib = sum(w0[i] * cm0[i]["cure"]
+                  / entry_survival(cm0[i]["med"], cm0[i]["cure"], cm0[i]["k"], TH0, q, DG0, DW0)
+                  for i in range(len(cm0)))
+        Sbq = lambda t, q=q: (sum(w0[i] * Sdel(t, cm0[i]["med"], cm0[i]["cure"], cm0[i]["k"], TH0, q, DG0, DW0)
                                   for i in range(len(cm0)))) * Snat(t, h0)
         bat_cure.append(100 * pib); bat_med.append(median(Sbq))
     bat_med = np.array(bat_med); mcap = 60.0                       # clip a "not reached" median for display
     med_plot = np.where(np.isfinite(bat_med), np.minimum(bat_med, mcap), mcap)
-    ix.axvspan(20, 35, color=GREY, alpha=.10)                      # defensible selection band (~fitness + guarantee-time)
+    ix.axvspan(20, 35, color=GREY, alpha=.10)                      # defensible screening band (fitness criteria)
     ix.text(27.5, 3, "defensible\n~20–35%", color=GREY, fontsize=7, ha="center", va="bottom")
     ix.plot(100 * qs, med_plot, color=NAVY, lw=2.4, marker="o", ms=2.5, label="BAT median OS (mo)")
-    ix.set_xlabel("enrollment selection q — drop weakest % "); ix.set_ylabel("BAT median OS (months)", color=NAVY)
+    ix.set_xlabel("eligibility screen-out q (% rejected on baseline frailty)"); ix.set_ylabel("BAT median OS (months)", color=NAVY)
     ix.tick_params(axis="y", labelcolor=NAVY); ix.set_xlim(0, 50); ix.set_ylim(0, mcap * 1.02)
     ix.axhline(mcap, color=NAVY, ls=":", lw=.8, alpha=.4)
     ix.text(1, mcap - 2, "≥60 / NR", color=NAVY, fontsize=6.8, va="top")
@@ -759,7 +952,9 @@ def figure(path, nsim=1500, executor=None, base=None):
     ix2.plot(100 * qs, bat_cure, color=TEAL, lw=2.2, ls="-.", marker="s", ms=2.5, label="BAT cure fraction (%)")
     ix2.set_ylabel("BAT cure fraction (%)", color=TEAL); ix2.tick_params(axis="y", labelcolor=TEAL)
     ix2.set_ylim(0, max(55.0, 1.15 * max(bat_cure)))
-    ix.set_title("(i) Enrollment selection q lifts BAT median OS & cure fraction",
+    # The median rises with q, but the cure fraction FALLS: frailty screening cannot move the cure
+    # fraction at all, and the entry window's c/E_D[S(D)] lift shrinks as the cohort gets healthier.
+    ix.set_title("(i) Screening q lifts BAT median OS; cure fraction edges down",
                  fontweight="bold", fontsize=9)
     h1, l1 = ix.get_legend_handles_labels(); h2, l2 = ix2.get_legend_handles_labels()
     ix.legend(h1 + h2, l1 + l2, fontsize=7.2, loc="upper left")
@@ -781,7 +976,9 @@ if __name__ == "__main__":
         rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)   # Mc/Ml already built live; routing through the pool would rebuild for nothing
         wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
         print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
-              f"loss-to-FU {100*base['drop']:.0f}%/yr, enrol-selection keep-strongest {100*(1-base['esel']):.0f}%, fit {wmode})")
+              f"loss-to-FU {100*base['drop']:.0f}%/yr, eligibility screen-out {100*base['esel']:.0f}% "
+              f"(frailty var {base['fvar']:.2f}), CR2 entry window {base['dmin']:.0f}-{base['dmax']:.0f}mo, "
+              f"fit {wmode})")
         print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
         ci_more, ci_few = fit_ci(base, build_plateau)
         print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")

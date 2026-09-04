@@ -213,9 +213,11 @@ component estimates above:
 
 The model implements the BAT arm as an explicit component mixture (`DEFAULT_COMP` in
 `regal_explorer.py` / `.html`), each a cure-mixture with its own (median, cure, Weibull k), then weights
-them. The recommended base case above is encoded as the **base preset**. Because the model applies a
-separate enrollment-selection left-truncation (default 25% keep-strongest), the component cure fractions
-below are the **pre-selection** values; the model raises them to `π/(1−q)` at runtime.
+them. The recommended base case above is encoded as the **base preset**. The model applies two
+pre-randomization selection layers on top of these components — frailty-based eligibility screening
+(default `q` = 25%) and the CR2 → randomization entry window (default 1–6 months) — so the cure
+fractions below are the **pre-selection** values. Frailty screening leaves them unchanged; the entry
+window raises them to `π / E_D[S(D)]` at runtime.
 
 | Component | Weight | Median OS | Cure π | Weibull k |
 |-----------|--------|-----------|--------|-----------|

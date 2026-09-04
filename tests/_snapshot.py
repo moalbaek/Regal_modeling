@@ -20,21 +20,28 @@ import regal_explorer as R  # noqa: E402
 PRESETS = ["base", "low", "dom", "bear", "bull"]
 NSIM = 400   # fixed MC budget for reproducible scenario rates; mc() seeds deterministically
 
-# The real presets only land in State C or — at the weak-BAT corners (bull, low) — State A,
-# and none reliably exercises State B. These synthetic configs — a base scenario with only
-# the blinded milestones swapped — deliberately drive the fit to each status, pinning the
+# Under gamma-frailty eligibility selection plus the CR2 entry window the real presets split
+# between State A and State C, and none exercises State B. These synthetic configs — a base scenario with
+# only the blinded milestones swapped — deliberately drive the fit to each status, pinning the
 # categorical A/B/C logic. Each sits well clear of its flip boundary:
 #   A_upper_boundary — milestones stall, so the bounded Weibull runs to its median cap
 #                      and heavy-tail edge (legacy cureReq=True subtype).
 #   A_light_edge    — bunched milestones want an ever-lighter (increasing-hazard) tail,
 #                     so sG pins at the light edge (non-identified, cureReq=False).
-#   B_inconsistent  — a burst to the 2nd milestone then a hard late stall no single Weibull
-#                     tail can hit: the best fit stays interior (sG~0.8) yet the residual
-#                     clears the tolerance (inconsistent).
+#   B_inconsistent  — a hard early stall then a late burst no single Weibull tail can hit:
+#                     the best fit stays interior (mG~109, sG~1.34) yet the residual clears
+#                     the tolerance (inconsistent). Retuned when the no-cure responder stopped
+#                     being re-selected: the old [60, 61, 72] now runs to the median cap and
+#                     lands in State A, so it no longer covered this branch.
+#   C_interior      — a milestone set the bounded alternative fits cleanly in the interior
+#                     (sG~0.90, residual well inside tolerance). Some presets also reach State C
+#                     now, but the branch keeps a fixture of its own so coverage does not depend
+#                     on preset behaviour drifting.
 VERDICT_FIXTURES = {
     "A_upper_boundary": {"ev_counts": [70, 72, 73]},
     "A_light_edge": {"ev_dates": [(2024, 12, 10), (2025, 3, 26), (2025, 5, 11)]},
-    "B_inconsistent": {"ev_counts": [52, 74, 75]},
+    "B_inconsistent": {"ev_counts": [59, 60, 71]},
+    "C_interior": {"ev_counts": [62, 74, 78]},
 }
 
 

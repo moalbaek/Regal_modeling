@@ -77,8 +77,8 @@ python3 report.py validate       # verify JSON schema + exact HTML/JSON parity
 
 The Python engine is covered by a golden regression test that pins the fits,
 event accrual, and fixed-seed Monte-Carlo rejection rate across all five presets,
-plus synthetic fixtures that exercise each bounded no-GPS-cure fit-status branch (State A
-upper/heavy boundary and light-edge, State B residual misfit; State C is the presets), so a
+plus synthetic fixtures that exercise every bounded no-GPS-cure fit-status branch (State A
+upper/heavy boundary and light-edge, State B residual misfit, State C interior fit), so a
 change that silently moves a number or flips a fit status fails loudly. CI
 (`.github/workflows/ci.yml`) runs it on Python 3.9–3.12 and smoke-tests the CLI.
 The v2 survival tests independently verify OS-versus-net background-mortality handling,
