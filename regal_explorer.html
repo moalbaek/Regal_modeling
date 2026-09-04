@@ -214,14 +214,18 @@
         <div class="sub">Unobserved prognostic spread available to select on. At 0 no screening can enrich the cohort, and the entry window below barely enriches either. Default 0.53 reproduces the legacy BAT median once the entry window carries its share.</div>
         <label for="dmax">CR2 &rarr; randomization window <span class="val" id="dmaxL">1&ndash;6 mo</span></label>
         <input type="range" id="dmax" min="0" max="12" step="0.5" value="6">
-        <div class="sub">Protocol entry delay (inclusion 7: &ge;4 weeks post-reinduction; inclusion 8: consent within 6 months of CR2). Patients who die in this window never enrol, so survivors are enriched and the cure fraction legitimately rises. Set to 0 to disable.</div>
+        <div class="sub">Entry delay between CR2 and randomization. Patients who die in this window never enrol, so survivors are enriched and the cure fraction rises. Set to 0 to disable. <b>Assumption, not a protocol quantity:</b> inclusion 7's &ge;4-week rule runs from the last re-induction dose, not from CR2, and inclusion 8's 6 months is an upper bound only &mdash; the uniform shape between them is an analyst choice, and the lower bound is material. <b>Death-only:</b> the protocol also excludes patients who <i>relapse</i> in the window, but only overall survival is available to condition on, so the enrichment shown here is a lower bound.</div>
       </div>
-      <div class="sub">The component medians above are for <b>all</b> CR2 transplant-ineligible patients, but the trial's eligibility bar
-        (incl. REGAL's "life expectancy &gt; 6 months" criterion) enrols a healthier subset. This <b>left-truncates</b> the pooled
-        pool — discard the earliest-dying X%, keep the longest-surviving (100−X)% — via the conditional survival
-        <code>min(1, S/(1−X))</code>; the near-flat early segment is real <b>guarantee time</b>, not an artifact. Applied
-        <b>identically to both panels before the arm split</b>, so it cannot bias the within-trial comparison (HR stays ≈ invariant
-        to X). The cured fraction is <i>raised</i> to c/(1−X). 0% = component medians taken at face value.</div>
+      <div class="sub">The component medians above are for <b>all</b> CR2 transplant-ineligible patients, but the trial enrols a
+        healthier subset. Two <b>pre-randomization</b> layers model that, and neither one looks at post-randomization survival.
+        <b>(1) Eligibility screening</b> acts on <i>baseline frailty</i>: unobserved prognostic spread of variance &theta; multiplies
+        the uncured hazard, and screening rejects the frail preferentially. It rescales the uncured hazard only, so the cure fraction
+        is <b>unchanged</b> and &theta;&nbsp;=&nbsp;0 means no screening can enrich anything. <b>(2) The CR2&nbsp;&rarr;&nbsp;randomization
+        window</b> removes patients who do not survive to enrolment, which <i>does</i> raise the cure fraction, to c&nbsp;/&nbsp;E[S(D)].
+        Both are applied <b>identically to both panels before the arm split</b>, so neither biases the within-trial comparison.
+        <b>Superseded:</b> earlier versions truncated the <i>outcome</i> instead, via <code>min(1, S/(1&minus;X))</code>, which
+        conditioned on each patient's realized death time &mdash; something no screening process can observe. Its flat early segment
+        and its c/(1&minus;X) cure inflation were artifacts of that, and both are gone.</div>
     </div>
 
     <div class="card">
@@ -368,7 +372,7 @@
       </div>
       </div>
       <div class="chartgroup">
-      <div class="subhead">Enrollment selection lifts the BAT arm <span class="note">BAT median OS and cure fraction as the drop-weakest slider q sweeps 0→50%; dot = current q</span></div>
+      <div class="subhead">Enrollment selection lifts the BAT arm <span class="note">BAT median OS and cure fraction as the eligibility screen-out q sweeps 0&rarr;50%; dot = current q</span></div>
       <div id="chartSelect" class="chartbox" role="img" aria-label="BAT median survival and cure fraction vs enrollment selection strength"></div>
       <div class="legend">
         <span><i style="background:var(--navy)"></i>BAT median OS (mo)</span>
@@ -2088,16 +2092,22 @@ const wscale=(med,shape)=>med/Math.pow(Math.LN2,1/shape);
 // hazard; acceptance probability is proportional to exp(-beta Z). Gamma is conjugate to that tilt,
 // so the enrolled cohort is Gamma with theta_sel = theta (1-q)^theta and E[Z|eligible] = (1-q)^theta.
 // Selection rescales the uncured hazard only: the cure fraction and the component weights are
-// unchanged, the enrolled curve keeps positive hazard at t=0 (no guarantee interval, no corner),
+// unchanged, the enrolled curve starts dying immediately (S(t)<1 for every t>0 -- no guarantee
+// interval and no corner; the hazard VALUE at 0 is not the invariant, being infinite for k<1),
 // and theta -> 0 collapses every formula to the original unselected Weibull.
 const fsel=(theta,q)=>theta<=0?0:theta*Math.pow(1-Math.min(Math.max(q,0),0.999),theta);
 // Weibull scale anchored so the POPULATION (q=0) marginal median is `med`: the published medians are
 // already marginal over each source study's heterogeneity, so anchoring the conditional curve
 // instead would double-count it.
-const lamf=(med,cure,k,theta)=>{ if(theta<=0) return lam(med,cure,k);
-  const A=(0.5-cure)/(1-cure); return med/Math.pow((Math.pow(A,-theta)-1)/theta,1/k); };
+// (A^-theta - 1)/theta as expm1(theta*Acoef)/theta: the power form loses the whole numerator to
+// rounding once theta*Acoef falls under machine epsilon, collapsing the scale to zero. expm1 keeps
+// the coefficient accurate down to theta=0, where it tends to Acoef and lamf tends to lam.
+const fcoef=(cure,theta)=>{ const a=Acoef(cure); return theta<=0?a:Math.expm1(theta*a)/theta; };
+const lamf=(med,cure,k,theta)=>med/Math.pow(fcoef(cure,theta),1/k);
+// exp(-log1p(x)/theta) rather than (1+x)^(-1/theta): for tiny theta the base rounds to exactly 1
+// and the power form returns 1 at every t, losing the exponential limit that log1p preserves.
 const Scf=(t,med,cure,k,theta,q)=>{ const x=Math.pow(Math.max(t,0)/lamf(med,cure,k,theta),k);
-  return theta<=0?cure+(1-cure)*Math.exp(-x):cure+(1-cure)*Math.pow(1+fsel(theta,q)*x,-1/theta); };
+  return theta<=0?cure+(1-cure)*Math.exp(-x):cure+(1-cure)*Math.exp(-Math.log1p(fsel(theta,q)*x)/theta); };
 const sampNCf=(med,cure,k,theta,u,z)=>lamf(med,cure,k,theta)*Math.pow(-Math.log(u)/z,1/k);
 // Marsaglia-Tsang gamma sampler (shape<1 handled by the standard boost), driven by the page RNG.
 function sampGamma(a,scale,rnd){
@@ -2119,11 +2129,24 @@ const sampf=(theta,q,rnd)=>theta<=0?1:sampGamma(1/theta,fsel(theta,q),rnd);
 // relapse or die inside that window never enrol. That is a real left-truncation, but on the CR2
 // clock, so its truncation point sits at trial-clock t=0 and creates no guarantee interval:
 //     S_trial(t) = E_D[S(D+t)] / E_D[S(D)].
-// The cure fraction legitimately RISES to c / E_D[S(D)] — uncured patients die during the window, so
-// survivors reaching randomization are enriched for cured ones. That conditions on PRE-enrolment
-// survival, which screening genuinely observes, unlike the old post-randomization outcome clip.
+// The cure fraction RISES to c / E_D[S(D)] — uncured patients die during the window, so survivors
+// reaching randomization are enriched for cured ones. That conditions on PRE-enrolment survival,
+// which screening genuinely observes, unlike the old post-randomization outcome clip.
+//
+// DEATH-ONLY APPROXIMATION: the real criterion is "still in CR2 at randomization" (relapse-free
+// survival), but the component library carries OS only, so this conditions on T>D and retains a
+// patient who relapses inside the window yet survives it. RFS sits below OS, so the true
+// denominator is smaller and the real cohort healthier: every enrichment figure here, the cure
+// lift included, is a death-only LOWER bound rather than the protocol's stated criterion.
+//
+// The Uniform[dmin,dmax] delay is an ANALYST ASSUMPTION, not a protocol quantity: inclusion 7's
+// four-week rule runs on the last-re-induction-dose clock rather than time since CR2 and sets no
+// floor after CR2, and inclusion 8 gives an upper bound only, saying nothing about the shape
+// beneath it. Both bounds stay user-editable because the floor is material to the fit.
+// The upper bound dominates: dmin is clamped to dmax so dmax=0 disables the layer outright (a
+// single zero-delay point) whatever dmin is left at, instead of becoming a fixed dmin-month delay.
 function dgrid(dmin,dmax){
-  const a=Math.max(dmin||0,0), b=Math.max(dmax||0,0);
+  const b=Math.max(dmax||0,0), a=Math.min(Math.max(dmin||0,0),b);
   if(b<=a) return {D:[a],W:[1]};
   return {D:[a,0.5*(a+b),b],W:[1/6,2/3,1/6]};   // moment-matched Uniform[a,b], as the WP5 lag PMF
 }
@@ -2136,7 +2159,7 @@ function sampdel(med,cure,k,theta,q,G,rnd,uncuredOnly){
   const sd=[],surv=[],mass=[]; let tot=0;
   for(let i=0;i<n;i++){
     const x=Math.pow(Math.max(G.D[i],0)/lm,k); sd.push(x);
-    const unc=theta<=0?Math.exp(-x):Math.pow(1+ths*x,-1/theta);
+    const unc=theta<=0?Math.exp(-x):Math.exp(-Math.log1p(ths*x)/theta);
     surv.push(cure+(1-cure)*unc);
     const m=G.W[i]*(uncuredOnly?(1-cure)*unc:surv[i]); mass.push(m); tot+=m;
   }
@@ -2189,7 +2212,7 @@ const median=(S)=>{ if(S(900)>=0.5) return Infinity; let lo=.01,hi=900; for(let 
 
 // ---------- shared BAT arm (identical in BOTH panels; only the GPS responder differs) ----------
 // Factored out so the two panels are literally one biological lever apart: same per-component
-// medians, cures, shapes and left-truncation selection. There is no second BAT construction.
+// medians, cures, shapes and pre-randomization selection layers. There is no second BAT construction.
 function batArm(cfg){
   const {w,cm,coh,MT,MOBS,WT}=common(cfg);
   const h=natH(cfg.ndr||0), hd=natH(cfg.drop||0);
@@ -2198,7 +2221,7 @@ function batArm(cfg){
   const G=dgrid(cfg.dmin,cfg.dmax);                             // CR2 -> randomization entry window
   // Two pre-randomization layers, neither peeking at post-randomization survival: eligibility
   // screens on baseline frailty, and the entry window removes CR2 patients who die before they can
-  // be randomized. Both keep positive hazard at t=0.
+  // be randomized. Neither leaves a flat S(t)=1 interval at the origin.
   const Ssel=(t,c)=>Sdel(t,c.med,c.cure,c.k,TH,F,G);
   const ecure=c=>c.cure/entrySurvival(c.med,c.cure,c.k,TH,F,G);  // cure among those reaching randomization
   const pibat=cm.reduce((a,c,i)=>a+w[i]*ecure(c),0), obs=cm[0];

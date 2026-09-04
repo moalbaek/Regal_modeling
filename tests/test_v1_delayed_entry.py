@@ -7,6 +7,16 @@ at least 4 weeks earlier (inclusion 7) and consent must fall within 6 months of 
 That is a genuine left-truncation, but on the CR2 clock rather than the trial clock, which is
 what separates it from v1's old outcome clip: the truncation point lands at trial-clock t = 0,
 so no guarantee interval appears. These tests pin that distinction.
+
+Two caveats these tests also pin, because both are easy to lose track of:
+
+* The layer conditions on OVERALL survival, not on remaining in CR2. The component library
+  carries no relapse hazard, so a patient who relapses inside the window but survives it is
+  retained. Relapse-free survival is below overall survival, so the true denominator is smaller
+  and the real cohort is healthier: this is a death-only LOWER bound on the enrichment.
+* Uniform[1, 6] is an analyst assumption, not a protocol quantity. Inclusion 7 runs on the
+  re-induction-dose clock rather than the CR2 clock and sets no floor after CR2; inclusion 8
+  gives only an upper bound. The floor is material, so it is pinned as material below.
 """
 
 import os
@@ -39,11 +49,81 @@ class DelayGridTest(unittest.TestCase):
         self.assertAlmostEqual(var, (b - a) ** 2 / 12.0, places=12)
 
     def test_a_disabled_window_collapses_to_a_single_zero_delay_point(self):
-        for spec in ((0.0, 0.0), (1.0, 0.0), (5.0, 5.0)):
+        """dmax=0 must disable the layer outright, whatever dmin is left at.
+
+        The default config carries dmin=1, so turning the window off by setting dmax=0 alone
+        used to leave a fixed one-month delay in place rather than no delay at all. The upper
+        bound now dominates, and the surviving point must actually be zero -- asserting only
+        that the grid has one point would pass for any fixed delay.
+        """
+        for spec in ((0.0, 0.0), (1.0, 0.0), (6.0, 0.0)):
             with self.subTest(spec=spec):
                 grid, weights = R.dgrid(*spec)
                 self.assertEqual(len(grid), 1)
+                self.assertEqual(float(grid[0]), 0.0)
                 self.assertAlmostEqual(float(weights[0]), 1.0, places=12)
+
+    def test_a_zero_width_window_collapses_to_its_own_fixed_delay(self):
+        """A degenerate but non-zero window is a fixed delay, not a disabled layer."""
+        for spec, point in (((5.0, 5.0), 5.0), ((2.0, 2.0), 2.0)):
+            with self.subTest(spec=spec):
+                grid, weights = R.dgrid(*spec)
+                self.assertEqual(len(grid), 1)
+                self.assertEqual(float(grid[0]), point)
+                self.assertAlmostEqual(float(weights[0]), 1.0, places=12)
+
+    def test_turning_the_window_off_by_dmax_alone_matches_the_frailty_only_arm(self):
+        """The config-level path, not just dgrid: dmax=0 with the default dmin=1 is a no-op."""
+        off = R.bat_arm(R.default_cfg(dmax=0.0))
+        both = R.bat_arm(R.default_cfg(dmin=0.0, dmax=0.0))
+        self.assertAlmostEqual(off["pibat"], both["pibat"], places=12)
+        for probe in (1.0, 6.0, 24.0, 60.0):
+            self.assertAlmostEqual(
+                float(off["Sbat"](probe)), float(both["Sbat"](probe)), places=12
+            )
+
+
+class DelayAssumptionTest(unittest.TestCase):
+    """The delay window is an analyst choice; these pin what that choice actually buys."""
+
+    def test_the_lower_bound_is_a_material_assumption(self):
+        """dmin is not identified by the protocol, so it must not be silently load-bearing.
+
+        Inclusion 7's four-week rule is measured from the last re-induction dose, not from CR2,
+        so nothing establishes a one-month floor on the CR2 clock. Dropping the floor to zero
+        while holding the six-month bound moves the BAT median by around half a month, which is
+        the same order as the effects this model is fitted to resolve. If a future change makes
+        the floor immaterial, that is a real finding about the model and this test should be
+        updated deliberately rather than deleted.
+        """
+        floored = R.median(R.bat_arm(R.default_cfg(dmin=1.0))["Sbat"])
+        unfloored = R.median(R.bat_arm(R.default_cfg(dmin=0.0))["Sbat"])
+        self.assertGreater(floored, unfloored)
+        self.assertGreater(floored - unfloored, 0.25)
+
+    def test_the_window_is_monotone_in_both_bounds(self):
+        """A longer window screens more, so enrichment must not fall as either bound rises."""
+        med = lambda **o: R.median(R.bat_arm(R.default_cfg(**o))["Sbat"])  # noqa: E731
+        for lo, hi in zip((0.0, 0.5, 1.0, 2.0), (0.5, 1.0, 2.0, 3.0)):
+            self.assertGreaterEqual(med(dmin=hi), med(dmin=lo))
+        for lo, hi in zip((2.0, 4.0, 6.0, 9.0), (4.0, 6.0, 9.0, 12.0)):
+            self.assertGreaterEqual(med(dmin=0.0, dmax=hi), med(dmin=0.0, dmax=lo))
+
+    def test_the_layer_conditions_on_death_only_not_on_staying_in_CR2(self):
+        """Pins the approximation as an approximation: the denominator is OS, not RFS.
+
+        A relapse hazard would push the entry-survival denominator strictly below the
+        overall-survival one, raising the cure lift. Emulating that with an inflated hazard
+        shows the direction: the death-only denominator is an upper bound on the true one, so
+        the modelled enrichment is a lower bound on the true enrichment.
+        """
+        med, cure, k = 12.0, 0.15, 0.78
+        grid, weights = R.dgrid(*WINDOW)
+        os_denom = R.entry_survival(med, cure, k, THETA, Q, grid, weights)
+        # A shorter median stands in for "relapse-free survival is below overall survival".
+        rfs_denom = R.entry_survival(0.5 * med, cure, k, THETA, Q, grid, weights)
+        self.assertLess(rfs_denom, os_denom)
+        self.assertGreater(cure / rfs_denom, cure / os_denom)
 
 
 class DelayedEntryTest(unittest.TestCase):

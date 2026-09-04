@@ -59,7 +59,10 @@ wscale   = lambda med, shape: med / (np.log(2.0)) ** (1.0 / shape)            # 
 # ---------------------------------------------------------------- eligibility selection (gamma frailty)
 # Trial eligibility enrols a healthier subset than the unselected population the component medians
 # describe. It screens on BASELINE covariates that merely CORRELATE with survival, never on the
-# realized death time, so the enrolled curve must retain positive hazard from t=0.
+# realized death time, so the enrolled curve must start dying immediately: S(t) < 1 for every
+# t > 0. (The hazard VALUE at t=0 is not the invariant -- a Weibull with shape k<1 is infinite
+# there and one with k>1 is zero. What the old clip produced, and what must not reappear, is a
+# positive-length interval over which S stays pinned at 1.)
 #
 # Population frailty Z ~ Gamma(mean 1, variance theta) multiplies the UNCURED Weibull hazard.
 # Eligibility accepts a patient with probability proportional to exp(-beta Z): frailer patients are
@@ -78,21 +81,32 @@ def fsel(theta, q):
     if theta <= 0: return 0.0
     return theta * (1.0 - min(max(q, 0.0), 0.999)) ** theta
 
+def fcoef(cure, theta):
+    """Median coefficient (A^-theta - 1)/theta, with A = (0.5-cure)/(1-cure).
+
+    Written as expm1(theta * Acoef)/theta because A^-theta = exp(theta * Acoef): the power form
+    loses the entire numerator to rounding once theta * Acoef drops below machine epsilon, which
+    collapses the scale to zero and makes lamf divide by it. expm1 stays accurate all the way
+    down, so the coefficient tends continuously to Acoef and lamf tends to lam."""
+    a = Acoef(cure)
+    if theta <= 0: return a
+    return np.expm1(theta * a) / theta
+
 def lamf(med, cure, k, theta):
     """Weibull scale anchored so the POPULATION (q=0) marginal median is `med`.
 
     The published component medians are already marginal over each source study's patient
     heterogeneity, so the frailty mixture must be re-anchored to reproduce them at zero selection.
     Anchoring the conditional (frailty=1) curve instead would double-count that heterogeneity."""
-    if theta <= 0: return lam(med, cure, k)
-    A = (0.5 - cure) / (1.0 - cure)
-    return med / (((A ** (-theta)) - 1.0) / theta) ** (1.0 / k)
+    return med / fcoef(cure, theta) ** (1.0 / k)
 
 def Scf(t, med, cure, k, theta, q):
     """Cure-mixture survival for the ENROLLED cohort under gamma-frailty eligibility selection."""
     s = (np.clip(t, 0, None) / lamf(med, cure, k, theta)) ** k
     if theta <= 0: return cure + (1 - cure) * np.exp(-s)
-    return cure + (1 - cure) * (1.0 + fsel(theta, q) * s) ** (-1.0 / theta)
+    # exp(-log1p(x)/theta) rather than (1+x)^(-1/theta): for tiny theta the base rounds to exactly
+    # 1 and the power form returns 1 for every t, losing the exponential limit that log1p keeps.
+    return cure + (1 - cure) * np.exp(-np.log1p(fsel(theta, q) * s) / theta)
 
 def sampf(n, theta, q, rng):
     """Draw enrolled-cohort frailties (all ones when theta = 0)."""
@@ -111,6 +125,27 @@ def sampNCf(med, cure, k, theta, u, z):
 # left-truncation, but on the CR2 clock rather than the trial clock, so its truncation point sits at
 # t = 0 exactly and it creates no guarantee interval on the trial clock.
 #
+# DEATH-ONLY APPROXIMATION. The real eligibility event is "still in CR2 at randomization", i.e.
+# relapse-free survival. This layer conditions on OVERALL survival, T > D, because the component
+# library carries OS only: no relapse hazard is available to condition on. A patient who relapses
+# inside the window but is still alive is therefore retained here, when the protocol would have
+# excluded them. Since relapse-free survival is below overall survival, the true denominator is
+# SMALLER than E_D[S(D)] and the true enrolled cohort is healthier than this layer makes it: the
+# approximation UNDERSTATES both the enrichment and the cure-fraction lift, and pushes the residual
+# it fails to explain into the fitted frailty variance. Read every "window enrichment" quantity
+# below -- the c / E_D[S(D)] cure lift especially -- as a death-only lower bound, not as the
+# protocol's stated in-CR2 criterion. Modelling the criterion as written needs a joint
+# relapse/death model, which the current single-endpoint component library cannot support.
+#
+# DELAY DISTRIBUTION IS AN ANALYST ASSUMPTION, NOT A PROTOCOL QUANTITY. dgrid discretises
+# Uniform[dmin, dmax] with a 1-6 month default, and neither endpoint is identified by the protocol.
+# Inclusion 7's four-week rule runs on the LAST RE-INDUCTION DOSE clock, not on time since CR2, so
+# it does not establish a one-month floor after CR2; inclusion 8's six months is an upper bound
+# only, and says nothing about the shape between. The uniform is a maximum-entropy choice on that
+# bound. The assumption is material -- see tests/test_v1_delayed_entry.py's dmin sensitivity, where
+# dropping the floor from 1 to 0 moves the BAT median by roughly half a month and the plateau
+# rejection rate by several points -- so dmin and dmax are exposed as sliders, not baked in.
+#
 # With entry delay D drawn before outcomes and independent of frailty, the enrolled cohort's
 # trial-clock survival is
 #
@@ -127,9 +162,13 @@ def dgrid(dmin, dmax):
     """Moment-matched three-point discretisation of Uniform[dmin, dmax].
 
     Same construction as the WP5 reporting-lag PMF: it preserves the mean and variance of the
-    continuous window while keeping the curve and sampler to three branches."""
-    a = max(float(dmin or 0.0), 0.0)
+    continuous window while keeping the curve and sampler to three branches.
+
+    The upper bound dominates: dmin is clamped to dmax so that dmax=0 disables the layer outright
+    (a single zero-delay point) whatever dmin is left at, rather than silently becoming a fixed
+    dmin-month delay."""
     b = max(float(dmax or 0.0), 0.0)
+    a = min(max(float(dmin or 0.0), 0.0), b)
     if b <= a:
         return np.array([a]), np.array([1.0])
     return np.array([a, 0.5 * (a + b), b]), np.array([1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0])
@@ -152,7 +191,7 @@ def _delay_parts(med, cure, k, theta, q, D, W, uncured_only):
     lm = lamf(med, cure, k, theta)
     ths = fsel(theta, q)
     sd = (np.asarray(D, dtype=float) / lm) ** k
-    uncured = np.exp(-sd) if theta <= 0 else (1.0 + ths * sd) ** (-1.0 / theta)
+    uncured = np.exp(-sd) if theta <= 0 else np.exp(-np.log1p(ths * sd) / theta)
     surv = cure + (1 - cure) * uncured
     # The entry delay is length-biased among enrollees: longer windows survive less often.
     mass = np.asarray(W, dtype=float) * ((1 - cure) * uncured if uncured_only else surv)
@@ -296,7 +335,7 @@ def bat_arm(cfg):
     DG, DW = dgrid(cfg.get("dmin", 0.0), cfg.get("dmax", 0.0))   # CR2 -> randomization entry window
     # Two selection layers, both applied before randomization and neither peeking at post-randomization
     # survival: eligibility screens on baseline frailty, and the entry window removes CR2 patients who
-    # die before they can be randomized. Both keep positive hazard at t=0.
+    # die before they can be randomized. Neither leaves a flat S(t)=1 interval at the origin.
     def Ssel(t, c):
         return Sdel(t, c["med"], c["cure"], c["k"], TH, F, DG, DW)
     def ecure(c):

@@ -36,6 +36,28 @@ class FrailtySelectionTest(unittest.TestCase):
                         R.Scf(ts, med, cure, k, 0.0, q), R.Sc(ts, med, cure, k)
                     )
 
+    def test_the_small_theta_limit_is_numerically_continuous(self):
+        """theta -> 0 must degrade gracefully, not fall off a numerical cliff.
+
+        lamf's coefficient (A^-theta - 1)/theta and Scf's (1+x)^(-1/theta) both evaluate to a
+        rounding-limited constant once theta nears machine epsilon: the first collapsed the scale
+        to zero and raised ZeroDivisionError at theta=1e-16, the second returned S=1 at every t.
+        The expm1/log1p forms converge to the unselected curve instead.
+        """
+        ts = np.array([0.5, 3.0, 6.0, 24.0, 96.0])
+        for med, cure, k in COMPONENTS:
+            base = R.Sc(ts, med, cure, k)
+            unselected_scale = R.lam(med, cure, k)
+            for theta in (1e-16, 1e-14, 1e-12, 1e-10, 1e-8):
+                for q in (0.0, 0.25, 0.5):
+                    with self.subTest(med=med, theta=theta, q=q):
+                        self.assertAlmostEqual(
+                            R.lamf(med, cure, k, theta), unselected_scale, places=6
+                        )
+                        np.testing.assert_allclose(
+                            R.Scf(ts, med, cure, k, theta, q), base, rtol=1e-6, atol=1e-9
+                        )
+
     def test_zero_selection_reproduces_the_published_component_median(self):
         """lambda is anchored on the population marginal, so q=0 is the face-value curve.
 
@@ -48,7 +70,12 @@ class FrailtySelectionTest(unittest.TestCase):
                 self.assertAlmostEqual(got, med, places=6)
 
     def test_selection_never_creates_a_guarantee_interval(self):
-        """The old clip pinned S(t)=1 out to the q-quantile; hazard must now be positive at 0."""
+        """The old clip pinned S(t)=1 out to the q-quantile; S must now fall for every t>0.
+
+        The invariant is the absence of a positive-length flat segment, not the hazard VALUE at
+        the origin: that value is infinite for Weibull shape k<1 and zero for k>1, so "positive
+        and finite at 0" would be false for the shapes this model actually uses.
+        """
         for med, cure, k in COMPONENTS:
             for q in (0.1, 0.25, 0.5):
                 with self.subTest(med=med, q=q):
