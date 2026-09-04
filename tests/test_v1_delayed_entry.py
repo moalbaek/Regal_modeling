@@ -12,8 +12,10 @@ Two caveats these tests also pin, because both are easy to lose track of:
 
 * The layer conditions on OVERALL survival, not on remaining in CR2. The component library
   carries no relapse hazard, so a patient who relapses inside the window but survives it is
-  retained. Relapse-free survival is below overall survival, so the true denominator is smaller
-  and the real cohort is healthier: this is a death-only LOWER bound on the enrichment.
+  retained. RFS <= OS makes the true denominator no larger, but that alone does NOT bound the
+  enrichment: S_trial is a ratio and its numerator moves with the joint relapse/death law too.
+  The test below pins the part that is provable and says so; the conservative direction is an
+  assumption recorded in the engine, not something these tests establish.
 * Uniform[1, 6] is an analyst assumption, not a protocol quantity. Inclusion 7 runs on the
   re-induction-dose clock rather than the CR2 clock and sets no floor after CR2; inclusion 8
   gives only an upper bound. The floor is material, so it is pinned as material below.
@@ -109,21 +111,54 @@ class DelayAssumptionTest(unittest.TestCase):
         for lo, hi in zip((2.0, 4.0, 6.0, 9.0), (4.0, 6.0, 9.0, 12.0)):
             self.assertGreaterEqual(med(dmin=0.0, dmax=hi), med(dmin=0.0, dmax=lo))
 
-    def test_the_layer_conditions_on_death_only_not_on_staying_in_CR2(self):
-        """Pins the approximation as an approximation: the denominator is OS, not RFS.
+    def test_the_entry_denominator_is_the_OS_curve_not_a_relapse_free_one(self):
+        """Pins the approximation as an approximation, and only what actually follows from it.
 
-        A relapse hazard would push the entry-survival denominator strictly below the
-        overall-survival one, raising the cure lift. Emulating that with an inflated hazard
-        shows the direction: the death-only denominator is an upper bound on the true one, so
-        the modelled enrichment is a lower bound on the true enrichment.
+        The eligibility event is "still in CR2", i.e. relapse-free survival, but the layer
+        conditions on overall survival because no relapse hazard exists to condition on. The
+        one consequence that follows without a joint model is monotonicity of the denominator:
+        any curve lying below OS produces a smaller E_D[S(D)] and hence a larger c/E_D[S(D)].
+
+        This deliberately does NOT assert that the modelled enrichment bounds the true
+        enrichment. S_trial is a ratio; substituting a lower curve moves its numerator as well,
+        and the net direction depends on the post-relapse death hazard this library does not
+        carry. Asserting the bound here would be asserting the very thing the missing model
+        would have to establish.
         """
         med, cure, k = 12.0, 0.15, 0.78
         grid, weights = R.dgrid(*WINDOW)
         os_denom = R.entry_survival(med, cure, k, THETA, Q, grid, weights)
-        # A shorter median stands in for "relapse-free survival is below overall survival".
-        rfs_denom = R.entry_survival(0.5 * med, cure, k, THETA, Q, grid, weights)
-        self.assertLess(rfs_denom, os_denom)
-        self.assertGreater(cure / rfs_denom, cure / os_denom)
+        # Any curve below OS stands in for a relapse-free one; the ordering is what is pinned.
+        for lower in (0.9, 0.5, 0.25):
+            with self.subTest(lower=lower):
+                rfs_denom = R.entry_survival(
+                    lower * med, cure, k, THETA, Q, grid, weights
+                )
+                self.assertLess(rfs_denom, os_denom)
+                self.assertGreater(cure / rfs_denom, cure / os_denom)
+
+
+class DelayWindowControlTest(unittest.TestCase):
+    """The shipped page must expose BOTH window bounds, not just the upper one.
+
+    The lower bound is an unsupported analyst choice that moves the headline by several
+    points, so burying it as a derived min(1, dmax) hid a material assumption behind a
+    control that did not mention it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(ROOT, "regal_explorer.html"), encoding="utf-8") as fh:
+            cls.page = fh.read()
+
+    def test_both_window_bounds_have_their_own_input(self):
+        for control in ('id="dmin"', 'id="dmax"'):
+            self.assertIn(control, self.page, f"{control} is not exposed on the page")
+
+    def test_the_config_reads_the_lower_bound_from_its_own_control(self):
+        """dmin must come from the dmin input, not be derived from dmax."""
+        self.assertIn('dmin:Math.min(+$("dmin").value,+$("dmax").value)', self.page)
+        self.assertNotIn('dmin:Math.min(1,+$("dmax").value)', self.page)
 
 
 class DelayedEntryTest(unittest.TestCase):

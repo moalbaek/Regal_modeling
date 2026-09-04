@@ -214,9 +214,11 @@
         <label for="fvar">Population frailty variance <span class="val" id="fvarL">0.53</span></label>
         <input type="range" id="fvar" min="0" max="3" step="0.01" value="0.53">
         <div class="sub">Unobserved prognostic spread available to select on. At 0 no screening can enrich the cohort, and the entry window below barely enriches either. Default 0.53 reproduces the legacy BAT median once the entry window carries its share.</div>
-        <label for="dmax">CR2 &rarr; randomization window <span class="val" id="dmaxL">1&ndash;6 mo</span></label>
+        <label for="dmax">CR2 &rarr; randomization window, upper bound <span class="val" id="dmaxL">6 mo</span></label>
         <input type="range" id="dmax" min="0" max="12" step="0.5" value="6">
-        <div class="sub">Entry delay between CR2 and randomization. Patients who die in this window never enrol, so survivors are enriched and the cure fraction rises. Set to 0 to disable. <b>Assumption, not a protocol quantity:</b> inclusion 7's &ge;4-week rule runs from the last re-induction dose, not from CR2, and inclusion 8's 6 months is an upper bound only &mdash; the uniform shape between them is an analyst choice, and the lower bound is material. <b>Death-only:</b> the protocol also excludes patients who <i>relapse</i> in the window, but only overall survival is available to condition on, so the enrichment shown here is a lower bound.</div>
+        <label for="dmin">CR2 &rarr; randomization window, lower bound <span class="val" id="dminL">1 mo</span></label>
+        <input type="range" id="dmin" min="0" max="12" step="0.5" value="1">
+        <div class="sub">Entry delay between CR2 and randomization, drawn Uniform[lower, upper]. Patients who die in this window never enrol, so survivors are enriched and the cure fraction rises. Set the upper bound to 0 to disable the layer; the lower bound is clamped to it. <b>Both bounds are yours to set</b> &mdash; the lower one is not a rounding detail: moving it from 1 to 0 shifts the BAT median by about half a month and the plateau rejection rate by several points. <b>Assumption, not a protocol quantity:</b> inclusion 7's &ge;4-week rule runs from the last re-induction dose, not from CR2, and inclusion 8's 6 months is an upper bound only &mdash; the uniform shape between them is an analyst choice, and the lower bound is material. <b>Death-only:</b> the protocol also excludes patients who <i>relapse</i> in the window, but only overall survival is available to condition on. Whether that makes the enrichment shown here conservative is an assumption, not a derived bound &mdash; the true denominator is provably no larger, but the numerator moves with the joint relapse/death law too.</div>
       </div>
       <div class="sub">The component medians above are for <b>all</b> CR2 transplant-ineligible patients, but the trial enrols a
         healthier subset. Two <b>pre-randomization</b> layers model that, and neither one looks at post-randomization survival.
@@ -225,6 +227,9 @@
         is <b>unchanged</b> and &theta;&nbsp;=&nbsp;0 means no screening can enrich anything. <b>(2) The CR2&nbsp;&rarr;&nbsp;randomization
         window</b> removes patients who do not survive to enrolment, which <i>does</i> raise the cure fraction, to c&nbsp;/&nbsp;E[S(D)].
         Both are applied <b>identically to both panels before the arm split</b>, so neither biases the within-trial comparison.
+        They act on the <i>literature-sourced</i> curves only &mdash; the BAT components and the non-responders on Observation. The
+        <i>fitted</i> GPS responder families are not transformed by either layer: they are fitted to milestones from the enrolled
+        cohort, so they already describe the post-selection population, and re-selecting them would double-count the screening.
         <b>Superseded:</b> earlier versions truncated the <i>outcome</i> instead, via <code>min(1, S/(1&minus;X))</code>, which
         conditioned on each patient's realized death time &mdash; something no screening process can observe. Its flat early segment
         and its c/(1&minus;X) cure inflation were artifacts of that, and both are gone.</div>
@@ -1870,7 +1875,10 @@ const sampf=(theta,q,rnd)=>theta<=0?1:sampGamma(1/theta,fsel(theta,q),rnd);
 // survival), but the component library carries OS only, so this conditions on T>D and retains a
 // patient who relapses inside the window yet survives it. RFS sits below OS, so the true
 // denominator is smaller and the real cohort healthier: every enrichment figure here, the cure
-// lift included, is a death-only LOWER bound rather than the protocol's stated criterion.
+// lift included, is a death-only approximation rather than the protocol's stated criterion. RFS<=OS
+// proves only that the true DENOMINATOR is no larger; S_trial is a ratio whose numerator also moves
+// with the joint relapse/death law, so "the modelled enrichment is conservative" is an assumption
+// we make (relapse in the window is strongly prognostic), not a bound this model derives.
 //
 // The Uniform[dmin,dmax] delay is an ANALYST ASSUMPTION, not a protocol quantity: inclusion 7's
 // four-week rule runs on the last-re-induction-dose clock rather than time since CR2 and sets no
@@ -1991,11 +1999,15 @@ function buildNoGPSCure(cfg){
   const batMed=median(t=>Sbat(t)*Snat(t,h));
   const fitShape=!cfg.shapeOverride;                       // AUTO fits sG; override holds the slider value fixed
   const MGLO=Math.min(isFinite(batMed)?batMed:60,110), MGHI=120, SGMIN=0.15, SGMAX=1.5;  // fit bounds
-  // GPS responder = a single NO-CURE Weibull under the same eligibility screen as BAT. The entry
-  // window is deliberately NOT applied: mG/sG are FITTED post-randomization quantities, and
-  // conditioning them on surviving the pre-randomization window would imply GPS acted before it was
-  // given. Literature-sourced components (BAT, and non-responders on Observation) do carry it.
-  const Sresp=(t,mG,sG)=>Scf(t,mG,0,sG,TH,F);
+  // GPS responder = a single NO-CURE Weibull describing the ENROLLED responders directly. NEITHER
+  // pre-randomization layer applies to it: mG/sG are FITTED to milestones observed in the enrolled
+  // cohort, so the fitted curve already IS the post-selection curve. Running it through Scf would
+  // re-anchor lambda on a population (q=0) marginal and re-select it, double-counting the screening
+  // and silently redefining mG as a population median rather than the responder median it is
+  // labelled and compared as. Parameterizing directly makes S_resp(mG)=0.5 by construction.
+  // Literature-sourced components (BAT, and non-responders on Observation) are CR2-clock population
+  // curves and do carry both layers.
+  const Sresp=(t,mG,sG)=>Sweib(t,wscale(mG,sG),sG);
   // GPS non-responders (fnr) track Observation — unchanged and identical to the plateau panel.
   const Sgps=(t,mG,sG)=>(1-fnr)*Sresp(t,mG,sG)+fnr*Ssel(t,obs);
   const Spool=(t,mG,sG)=>0.5*Sbat(t)+0.5*Sgps(t,mG,sG);
@@ -2084,7 +2096,7 @@ function mc(M,nsim){
         const obs=M.obs;
         if(arm[i]===1){
           if(rnd()<fnr) sv=sampdel(obs.med,obs.cure,obs.k,TH,F,G,rnd,false);
-          else if(M.kind==="nogpscure") sv=sampNCf(M.mG,0,M.sG,TH,rnd(),sampf(TH,F,rnd));   // fitted post-randomization responder
+          else if(M.kind==="nogpscure") sv=sampWeib(wscale(M.mG,M.sG),M.sG,rnd());   // enrolled responder, drawn bare to match Sresp
           else { if(rnd()<M.presp) sv=1e9; else {let v=rnd(),c=0;while(c<ncc.length-1&&v>ncc[c])c++;sv=sampdel(cm[c].med,cm[c].cure,cm[c].k,TH,F,G,rnd,true);} }
         } else { let v=rnd(),c=0;while(c<cwc.length-1&&v>cwc[c])c++; sv=sampdel(cm[c].med,cm[c].cure,cm[c].k,TH,F,G,rnd,false); }
       }
@@ -2420,7 +2432,7 @@ const $=id=>document.getElementById(id);
 const cfgFromUI=()=>({N:+$("N").value||126,FINAL:Math.max(2,+$("FINAL").value||2),HRC:+$("HRC").value||0.636,
   fnr:(+$("nr").value)/100,bl:+$("bl").value,shape:+$("shape").value,shapeOverride:$("shapeOverride").checked,
   ndr:(+$("ndr").value)/100,IA:+$("IA").value||60,futHR:+$("futHR").value||1.0,
-  drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,fvar:+$("fvar").value,dmin:Math.min(1,+$("dmax").value),dmax:+$("dmax").value,unweighted:$("unweighted").checked});
+  drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,fvar:+$("fvar").value,dmin:Math.min(+$("dmin").value,+$("dmax").value),dmax:+$("dmax").value,unweighted:$("unweighted").checked});
 const fmtMed=m=>m===Infinity?"NR":m.toFixed(0)+"mo";
 // Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts
 function fitCI(cfg,builder){
@@ -2477,7 +2489,7 @@ function render(){
       +metric("BAT @36mo (tail)",(100*bat36).toFixed(0)+"%")
       +metric("GPS cure / median",(100*M.pgps).toFixed(0)+"% <small>/ "+fmtMed(M.gpsMed)+"</small>")
       +metric("Cure-fraction gap","+"+(100*(M.pgps-M.pibat)).toFixed(0)+"<small>pp</small>")
-      +metric("Eligibility screen-out",Math.round((cfg.esel||0)*100)+"% <small>frailty var "+(+(cfg.fvar||0)).toFixed(2)+", entry "+((cfg.dmax||0)<=0?"off":Math.min(1,cfg.dmax)+"\u2013"+cfg.dmax+"mo")+"</small>")
+      +metric("Eligibility screen-out",Math.round((cfg.esel||0)*100)+"% <small>frailty var "+(+(cfg.fvar||0)).toFixed(2)+", entry "+((cfg.dmax||0)<=0?"off":Math.min(cfg.dmin||0,cfg.dmax)+"\u2013"+cfg.dmax+"mo")+"</small>")
       +metric("80th event reached",Math.round(r.reach*100)+"%")
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",iaVal)
       +metric("Alive @ 80th (GPS / BAT)",aliveVal);
@@ -2564,12 +2576,18 @@ $("ndr").addEventListener("input",e=>{$("ndrL").textContent=(+e.target.value).to
 $("drop").addEventListener("input",e=>{$("dropL").textContent=(+e.target.value).toFixed(1)+"%/yr";schedule();});
 $("esel").addEventListener("input",e=>{const v=+e.target.value;$("eselL").textContent=`screens out ${v}%`;schedule();});
 $("fvar").addEventListener("input",e=>{$("fvarL").textContent=(+e.target.value).toFixed(2);schedule();});
-$("dmax").addEventListener("input",e=>{const v=+e.target.value;$("dmaxL").textContent=v<=0?"disabled":`${Math.min(1,v)}\u2013${v} mo`;schedule();});
+function updWindowLabels(){
+  const hi=+$("dmax").value, lo=Math.min(+$("dmin").value,hi);   // dgrid clamps dmin to dmax
+  $("dmaxL").textContent = hi<=0?"disabled":`${hi} mo`;
+  $("dminL").textContent = hi<=0?"disabled":(lo<+$("dmin").value?`${lo} mo (clamped)`:`${lo} mo`);
+}
+$("dmax").addEventListener("input",()=>{updWindowLabels();schedule();});
+$("dmin").addEventListener("input",()=>{updWindowLabels();schedule();});
 $("unweighted").addEventListener("change",schedule);
 ["N","FINAL","HRC","IA","futHR"].forEach(id=>$(id).addEventListener("input",()=>{updBl();schedule();}));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-pressed",String(x===b));});render();}));
-$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="screens out 25%";$("fvar").value=0.53;$("fvarL").textContent="0.53";$("dmax").value=6;$("dmaxL").textContent="1\u20136 mo";$("unweighted").checked=false;$("vcure").value=15;$("vcL").textContent="15%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
+$("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=25;$("eselL").textContent="screens out 25%";$("fvar").value=0.53;$("fvarL").textContent="0.53";$("dmax").value=6;$("dmin").value=1;updWindowLabels();$("unweighted").checked=false;$("vcure").value=15;$("vcL").textContent="15%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
 // Charts render at a fixed pixel width read from the container, so a resize must re-render to

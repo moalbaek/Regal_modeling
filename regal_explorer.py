@@ -129,13 +129,20 @@ def sampNCf(med, cure, k, theta, u, z):
 # relapse-free survival. This layer conditions on OVERALL survival, T > D, because the component
 # library carries OS only: no relapse hazard is available to condition on. A patient who relapses
 # inside the window but is still alive is therefore retained here, when the protocol would have
-# excluded them. Since relapse-free survival is below overall survival, the true denominator is
-# SMALLER than E_D[S(D)] and the true enrolled cohort is healthier than this layer makes it: the
-# approximation UNDERSTATES both the enrichment and the cure-fraction lift, and pushes the residual
-# it fails to explain into the fitted frailty variance. Read every "window enrichment" quantity
-# below -- the c / E_D[S(D)] cure lift especially -- as a death-only lower bound, not as the
-# protocol's stated in-CR2 criterion. Modelling the criterion as written needs a joint
-# relapse/death model, which the current single-endpoint component library cannot support.
+# excluded them. Every window-enrichment quantity below -- the c / E_D[S(D)] cure lift especially --
+# is therefore a death-only approximation, not the protocol's stated in-CR2 criterion.
+#
+# What follows from that, and what does NOT. Provable: relapse-free survival is at or below overall
+# survival, so the true entry-survival DENOMINATOR is no larger than E_D[S(D)]. NOT provable from
+# here: that the modelled enrichment is a lower bound on the true enrichment. S_trial is a ratio and
+# the numerator moves too -- E_RFS[S(D+t)] depends on the post-relapse death hazard and on how
+# relapse and death are jointly distributed, none of which this library carries. The cure-fraction
+# direction needs a further assumption still, that a latent cured patient never relapses inside the
+# window. We ASSUME the net direction is conservative (true enrichment at least the modelled
+# enrichment, with the shortfall absorbed by the fitted frailty variance) because relapse inside the
+# window is strongly prognostic, but that is an analyst judgement, not a derived bound. Settling it
+# needs a joint relapse/death model, which the current single-endpoint component library cannot
+# support.
 #
 # DELAY DISTRIBUTION IS AN ANALYST ASSUMPTION, NOT A PROTOCOL QUANTITY. dgrid discretises
 # Uniform[dmin, dmax] with a 1-6 month default, and neither endpoint is identified by the protocol.
@@ -404,12 +411,19 @@ def build_no_gps_cure(cfg):
     bat_med = median(lambda t: Sbat(t) * Snat(t, h))
     fit_shape = not cfg.get("shapeOverride", False)       # AUTO fits sG; override holds the slider value fixed
     MGLO = min(bat_med if np.isfinite(bat_med) else 60.0, 110.0); MGHI = 120.0; SGMIN, SGMAX = 0.15, 1.5
-    # GPS responder = a single NO-CURE Weibull under the same eligibility screen as BAT. The entry
-    # window is deliberately NOT applied here: mG/sG are FITTED post-randomization quantities, and
-    # conditioning them on surviving the pre-randomization window would imply GPS was already acting
-    # before it was administered. Literature-sourced components (BAT, and GPS non-responders tracking
-    # Observation via Ssel) are CR2-clock curves and do carry the window.
-    def Sresp(t, mG, sG): return Scf(t, mG, 0.0, sG, TH, F)
+    # GPS responder = a single NO-CURE Weibull describing the ENROLLED responders directly. NEITHER
+    # pre-randomization layer is applied to it, and for one reason: mG/sG are FITTED to milestones
+    # observed in the enrolled cohort, so the fitted curve already IS the post-selection curve.
+    # Pushing it through Scf would re-anchor lambda on a population (q=0) marginal and then re-select
+    # it, which double-counts the screening and -- worse -- silently redefines mG. Under that form mG
+    # was the population-marginal median, not the responder median it is labelled and compared as:
+    # at the default fit S_resp(mG) was 0.544, with the true median 5.5 months higher. Parameterizing
+    # the enrolled curve directly makes S_resp(mG) = 0.5 by construction, so mG/batMed, the boundary
+    # messages and the effect sweeps all compare like with like.
+    # The same reasoning already excluded the entry window here; it applies to frailty screening too.
+    # Literature-sourced components (BAT, and GPS non-responders tracking Observation via Ssel) are
+    # CR2-clock population curves and do carry both layers.
+    def Sresp(t, mG, sG): return Sweib(t, wscale(mG, sG), sG)
     # GPS non-responders (fnr) track Observation — unchanged and identical to the plateau panel.
     def Sgps(t, mG, sG): return (1 - fnr) * Sresp(t, mG, sG) + fnr * Ssel(t, obs)
     def Spool(t, mG, sG): return 0.5 * Sbat(t) + 0.5 * Sgps(t, mG, sG)
@@ -422,7 +436,7 @@ def build_no_gps_cure(cfg):
         t may be any-shaped array. Returns t.shape + (len(mG),) via numpy broadcasting on a
         trailing grid axis, so the whole candidate grid is evaluated in one vectorized pass."""
         t = np.asarray(t, dtype=float); te = t[..., None]
-        Sr = Scf(te, mG, 0.0, sG, TH, F)
+        Sr = Sweib(te, wscale(mG, sG), sG)
         Sg = (1 - fnr) * Sr + fnr * Ssel(t, obs)[..., None]
         return 0.5 * Sbat(t)[..., None] + 0.5 * Sg
 
@@ -609,8 +623,9 @@ def mc(M, nsim=1500, seed=987654321):
         if nr.size:
             out[nr] = sampdel(nr.size, obs["med"], obs["cure"], obs["k"], TH, F, DG, DW, rng)
         if rs.size:
-            z = sampf(rs.size, TH, F, rng)
-            out[rs] = sampNCf(M["mG"], 0.0, M["sG"], TH, rng.random(rs.size), z)
+            # Matches Sresp: the enrolled responder curve is parameterized directly, so the draw is
+            # a bare Weibull with no frailty tilt and no entry-window conditioning.
+            out[rs] = sampWeib(wscale(M["mG"], M["sG"]), M["sG"], rng.random(rs.size))
         return out
 
     for _ in range(nsim):
@@ -926,10 +941,10 @@ def figure(path, nsim=1500, executor=None, base=None):
         bat_cure.append(100 * pib); bat_med.append(median(Sbq))
     bat_med = np.array(bat_med); mcap = 60.0                       # clip a "not reached" median for display
     med_plot = np.where(np.isfinite(bat_med), np.minimum(bat_med, mcap), mcap)
-    ix.axvspan(20, 35, color=GREY, alpha=.10)                      # defensible selection band (~fitness + guarantee-time)
+    ix.axvspan(20, 35, color=GREY, alpha=.10)                      # defensible screening band (fitness criteria)
     ix.text(27.5, 3, "defensible\n~20–35%", color=GREY, fontsize=7, ha="center", va="bottom")
     ix.plot(100 * qs, med_plot, color=NAVY, lw=2.4, marker="o", ms=2.5, label="BAT median OS (mo)")
-    ix.set_xlabel("enrollment selection q — drop weakest % "); ix.set_ylabel("BAT median OS (months)", color=NAVY)
+    ix.set_xlabel("eligibility screen-out q (% rejected on baseline frailty)"); ix.set_ylabel("BAT median OS (months)", color=NAVY)
     ix.tick_params(axis="y", labelcolor=NAVY); ix.set_xlim(0, 50); ix.set_ylim(0, mcap * 1.02)
     ix.axhline(mcap, color=NAVY, ls=":", lw=.8, alpha=.4)
     ix.text(1, mcap - 2, "≥60 / NR", color=NAVY, fontsize=6.8, va="top")
@@ -937,7 +952,9 @@ def figure(path, nsim=1500, executor=None, base=None):
     ix2.plot(100 * qs, bat_cure, color=TEAL, lw=2.2, ls="-.", marker="s", ms=2.5, label="BAT cure fraction (%)")
     ix2.set_ylabel("BAT cure fraction (%)", color=TEAL); ix2.tick_params(axis="y", labelcolor=TEAL)
     ix2.set_ylim(0, max(55.0, 1.15 * max(bat_cure)))
-    ix.set_title("(i) Enrollment selection q lifts BAT median OS & cure fraction",
+    # The median rises with q, but the cure fraction FALLS: frailty screening cannot move the cure
+    # fraction at all, and the entry window's c/E_D[S(D)] lift shrinks as the cohort gets healthier.
+    ix.set_title("(i) Screening q lifts BAT median OS; cure fraction edges down",
                  fontweight="bold", fontsize=9)
     h1, l1 = ix.get_legend_handles_labels(); h2, l2 = ix2.get_legend_handles_labels()
     ix.legend(h1 + h2, l1 + l2, fontsize=7.2, loc="upper left")
