@@ -25,7 +25,7 @@
     --warn-bg:#3a2220;--warn-fg:#f0897e;--ok-bg:#153a2b;--ok-fg:#63d99d;--mod-bg:#372c14;--mod-fg:#e6c05a;
     --shadow:0 1px 3px rgba(0,0,0,.5);--focus:#8fb4ef;--on-fg:#0e1420;}
   *{box-sizing:border-box}
-  html{color-scheme:light dark}
+  html{color-scheme:light dark;-webkit-text-size-adjust:100%;text-size-adjust:100%;scrollbar-gutter:stable}
   :root[data-theme="light"]{color-scheme:light}
   :root[data-theme="dark"]{color-scheme:dark}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;transition:background .15s,color .15s}
@@ -2602,7 +2602,9 @@ $("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=s
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}
 // Charts render at a fixed pixel width read from the container, so a resize must re-render to
 // re-measure — otherwise a narrowed window leaves the SVG wider than its container (overflow).
-window.addEventListener("resize",schedule);
+// Mobile browser chrome can fire resize events while V2 is visible. Rendering the hidden V1 panel
+// then makes every chart fall back to 600px; defer that work until V1 is visible again.
+window.addEventListener("resize",()=>{if(!$("panel-v1").hidden)schedule();});
 
 // ---------- model-version tabs ----------
 // Match the documentation tabs: hashes deep-link each view, V1 is the landing view,
