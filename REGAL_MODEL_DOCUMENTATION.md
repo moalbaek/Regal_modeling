@@ -783,6 +783,13 @@ futility threshold, and the mean **per-arm patients alive at the 80th event** (b
 e.g. ~33 GPS / ~13 BAT at the base preset. The alive-split is the same quantity external modelers use
 as a sanity check on the arm decomposition.
 
+The browser can also retain one **representative synthetic trial** from this same Monte-Carlo pass
+and display its arm-level Kaplan–Meier estimates. The retained trial is selected deterministically
+from simulations that reach the final trigger as the one whose final HR is closest to the median
+simulated final HR. The KM view therefore illustrates finite-sample steps, censoring, and changing
+risk sets under the selected assumptions; it is not observed or reconstructed REGAL patient data,
+and it is not an additional source of evidence. The smooth model-implied curves remain the default.
+
 ### 4.6 Component-mixture BAT and non-responders
 
 These replace any abstract π_BAT prior with clinically-grounded structure (Sections 2.5, 2.7).
@@ -957,7 +964,8 @@ the exact validated Python bundle; the browser performs no duplicate posterior c
 | `build_plateau` | Plateau (GPS-cure) scenario: shares `bat_arm`, fits `π_resp` to the milestones; returns per-arm curves, cures, and medians. |
 | `build_no_gps_cure` | Bounded no-GPS-cure alternative: shares `bat_arm`, fits GPS responder median `m_G` and tail shape `s_G` (auto) with GPS non-responders tracking Observation; emits the three-state fit status (A/B/C), boundary flags, and milestone residual (Section 4.7). |
 | `median(S)` | Bisection median of a survival function (`∞`/"NR" if never below 0.5 within 900 mo). |
-| `mc(M, nsim)` | Monte-Carlo trial: enrollment → per-arm death draws → censor at the 80th event → **log-rank/Cox score test**; returns P(significant), 80th-event-reached fraction, median HR (Section 4.5). |
+| `kaplan_meier(time, event)` | Product-limit step curve and censor locations for a captured synthetic arm, using deaths before censor removals at tied times. |
+| `mc(M, nsim, capture_km=False)` | Monte-Carlo trial: enrollment → per-arm death draws → censor at the 80th event → **log-rank/Cox score test**; returns P(significant), 80th-event-reached fraction, median HR, and optionally the reached trial closest to that median HR for the synthetic KM view (Section 4.5). |
 | `lan_demets_obrien_fleming_two_look` | V2 one-sided alpha-spending solve for the sequential 60/80 efficacy boundaries; separate from the v1 classical audit function. |
 | `stratified_logrank` | V2 beta-zero score test with independent risk sets inside combined protocol-factor strata and hypergeometric tie variance. |
 | `evaluate_event_driven_trial` | V2 patient-level 60/80-event decision path: interim efficacy/futility/continuation followed, when applicable, by the final stratified test. |

@@ -183,6 +183,18 @@ class StaticConsistencyTest(unittest.TestCase):
             ),
         )
 
+    def test_simulated_km_view_is_optional_and_explicitly_synthetic(self):
+        self.assertIn('id="curveViewTog"', self.html)
+        self.assertRegex(
+            self.html,
+            r'data-view="model"[^>]*class="on"[^>]*aria-pressed="true"',
+        )
+        self.assertIn('data-view="km"', self.html)
+        self.assertIn("Representative synthetic trial—not observed REGAL patient data", self.html)
+        self.assertIn("Number at risk", self.html)
+        self.assertIn("function kmCurve(example,armValue)", self.html)
+        self.assertRegex(self.html, r"mc\(Mc,600,curveView===\"km\"")
+
 
 if __name__ == "__main__":
     unittest.main()

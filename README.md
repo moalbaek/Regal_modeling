@@ -54,7 +54,7 @@ the distinction between total trial ineligibility and frailty-linked selection.
 
 | File | What it is |
 |------|------------|
-| `regal_explorer.html` | Self-contained tabbed interface — open in any browser, no build or dependencies. It lands on the interactive V1 scenario explorer and charts; the V2 tab renders the exact embedded Python result bundle. |
+| `regal_explorer.html` | Self-contained tabbed interface — open in any browser, no build or dependencies. It lands on the interactive V1 scenario explorer and charts, including an optional representative simulated Kaplan–Meier view with censor marks and numbers at risk; the V2 tab renders the exact embedded Python result bundle. |
 | `regal_explorer.py` | The v1 scenario engine in Python, plus audit-only interim-efficacy fields not computed by the browser. Prints five BAT presets and writes the 9-panel `regal_explorer_panel.png`. Requires `numpy` + `matplotlib`. |
 | `REGAL_MODEL_DOCUMENTATION.md` | Full methodology, parameter sourcing, and limitations. |
 | `BAT_CONTROL_ARM_RESEARCH.md` | The research basis for the default BAT-arm settings: component composition/weights (US/EU/China) and per-component mixture-cure survival parameters (median OS, cure fraction, Weibull shape), and how they map to `DEFAULT_COMP`. |
