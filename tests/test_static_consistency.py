@@ -196,6 +196,10 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertIn("Representative synthetic trial—not observed REGAL patient data", self.html)
         self.assertIn("Number at risk", self.html)
         self.assertIn("function kmCurve(example,armValue)", self.html)
+        self.assertIn("function kmBand(trials,armValue)", self.html)
+        self.assertIn("pointwise middle 80%", self.html)
+        self.assertIn("pointwise 10th–90th percentiles", self.html)
+        self.assertIn("with pointwise middle 80 percent simulation bands", self.html)
         self.assertRegex(self.html, r"mc\(Mc,600,curveView===\"km\"")
         self.assertIn('mode==="nogpscure"&&Ml.state==="C"', self.html)
 
@@ -236,6 +240,36 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertEqual(result["steps"], [[0, 1], [2, 0.75], [3, 0.375]])
         self.assertEqual(result["censors"], [[2, 0.75], [4, 0.375]])
         self.assertEqual(result["atRisk"], [4, 4, 2, 1])
+
+    def test_browser_km_band_is_pointwise_middle_eighty_percent(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is required for the browser KM behavior check")
+        match = re.search(
+            r"(function kmCurve\(example,armValue\)\{[\s\S]*?\n\})\n\nfunction chartKM",
+            self.html,
+        )
+        self.assertIsNotNone(match)
+        trials = []
+        for deaths in range(10):
+            trials.append({
+                "time": [1] * deaths + [4] * (10 - deaths),
+                "event": [1] * deaths + [0] * (10 - deaths),
+                "arm": [1] * 10,
+                "en": [0] * 10,
+                "cutoffMonth": 5,
+            })
+        script = match.group(1) + "\n" + (
+            f"const band=kmBand({json.dumps(trials)},1);"
+            "console.log(JSON.stringify(band.points.find(point=>point.time===2)));"
+        )
+        completed = subprocess.run(
+            [node, "-e", script], check=True, capture_output=True, text=True
+        )
+        point = json.loads(completed.stdout)
+        self.assertEqual(point["n"], 10)
+        self.assertAlmostEqual(point["lo"], 0.19)
+        self.assertAlmostEqual(point["hi"], 0.91)
 
 
 if __name__ == "__main__":

@@ -2169,9 +2169,12 @@ function mc(M,nsim,captureKM){
       time:entered.map(i=>selected.time[i]),event:entered.map(i=>selected.event[i]),
       arm:entered.map(i=>selected.arm[i]),en:entered.map(i=>selected.en[i])};
   }
+  const kmBands=captureKM&&kmTrials.length?{
+    gps:kmBand(kmTrials,1),bat:kmBand(kmTrials,0)
+  }:null;
   return {ps:reached?sig/reached:0, reach:reached/nsim, medHR, hrsAll:hrs,
     medHR_IA, futHR, futOK:medHR_IA<=futHR, aliveG:reached?aliveG/reached:NaN, aliveB:reached?aliveB/reached:NaN,
-    kmExample};
+    kmExample,kmBands};
 }
 
 // ---------- readable point labels: paint a card-colored halo behind text that may sit over a line ----------
@@ -2282,8 +2285,9 @@ function chartModel(M){
 // tested Python kaplan_meier() reference. Deaths at a tied time are applied before censor
 // removals, and censor marks are drawn at the resulting survival level.
 function kmCurve(example,armValue){
-  const rows=example.time.map((time,i)=>({time,event:example.event[i]}))
-    .filter((_,i)=>example.arm[i]===armValue).sort((a,b)=>a.time-b.time);
+  const rows=Array.from(example.time,(time,i)=>({time,event:example.event[i],arm:example.arm[i],
+    entered:!example.en||example.en[i]<=example.cutoffMonth}))
+    .filter(row=>row.arm===armValue&&row.entered).sort((a,b)=>a.time-b.time);
   let atRisk=rows.length,survival=1,i=0; const steps=[[0,1]],censors=[];
   while(i<rows.length){
     const t=rows[i].time; let deaths=0,censored=0;
@@ -2293,6 +2297,32 @@ function kmCurve(example,armValue){
     atRisk-=deaths+censored;
   }
   return {rows,steps,censors,atRisk:t=>rows.reduce((n,row)=>n+(row.time>=t?1:0),0)};
+}
+
+function kmValueAt(curve,t){
+  let s=1;for(const[time,value]of curve.steps){if(time>t)break;s=value;}return s;
+}
+
+function quantileSorted(values,q){
+  const pos=(values.length-1)*q,lo=Math.floor(pos),hi=Math.ceil(pos),f=pos-lo;
+  return values[lo]*(1-f)+values[hi]*f;
+}
+
+// Pointwise middle 80% of reached synthetic-trial KM estimates. A point is omitted once
+// fewer than 10 trials retain follow-up there, rather than extending unsupported KM tails.
+function kmBand(trials,armValue){
+  const curves=trials.map(trial=>kmCurve(trial,armValue)),points=[];
+  for(let t=0;t<=48;t+=1){
+    const values=[];
+    for(const curve of curves){
+      const last=curve.rows.length?curve.rows[curve.rows.length-1].time:-1;
+      if(last+1e-10>=t)values.push(kmValueAt(curve,t));
+    }
+    if(values.length<10)break;
+    values.sort((a,b)=>a-b);
+    points.push({time:t,lo:quantileSorted(values,.1),hi:quantileSorted(values,.9),n:values.length});
+  }
+  return {points,total:trials.length};
 }
 
 function chartKM(M,r){
@@ -2317,7 +2347,7 @@ function chartKM(M,r){
     return;
   }
   wrap.classList.remove("km-unavailable");
-  wrap.setAttribute("aria-label",`Representative synthetic Kaplan-Meier curves for GPS and BAT at the ${finalEvents}-event analysis`);
+  wrap.setAttribute("aria-label",`Representative synthetic Kaplan-Meier curves for GPS and BAT at the ${finalEvents}-event analysis, with pointwise middle 80 percent simulation bands`);
   const H=480,pl=88,pr=14,pt=12,pb=120,TMAX=48,plotBottom=H-pb;
   const W=chartW("chart",600,1000),iw=W-pl-pr,ih=plotBottom-pt;
   const X=t=>pl+Math.min(Math.max(t,0),TMAX)/TMAX*iw,Y=s=>pt+(1-s)*ih;
@@ -2328,6 +2358,13 @@ function chartKM(M,r){
     const last=Math.min(TMAX,curve.rows.length?curve.rows[curve.rows.length-1].time:0);return d+` H${X(last).toFixed(1)}`;
   };
   const modelPath=fn=>{let d="";for(let t=0;t<=TMAX;t+=.5)d+=(t===0?"M":"L")+X(t).toFixed(1)+" "+Y(fn(t)).toFixed(1)+" ";return d;};
+  const bandPath=band=>{
+    const points=band&&band.points||[];if(!points.length)return "";
+    let d=`M${X(points[0].time).toFixed(1)} ${Y(points[0].hi).toFixed(1)}`;
+    for(let i=1;i<points.length;i++)d+=` L${X(points[i].time).toFixed(1)} ${Y(points[i].hi).toFixed(1)}`;
+    for(let i=points.length-1;i>=0;i--)d+=` L${X(points[i].time).toFixed(1)} ${Y(points[i].lo).toFixed(1)}`;
+    return d+" Z";
+  };
   const censorMarks=(curve,color)=>curve.censors.filter(([t])=>t>0&&t<=TMAX).map(([t,s])=>`<line x1="${X(t)}" y1="${Y(s)-3}" x2="${X(t)}" y2="${Y(s)+3}" stroke="${color}" stroke-width="1.1" opacity=".8"/>`).join("");
   let grid="";
   for(let s=0;s<=1.0001;s+=.25){const y=Y(s);grid+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="var(--grid)"/><text x="${pl-6}" y="${y+3}" text-anchor="end" font-size="11.5" fill="var(--axis)">${(s*100)|0}%</text>`;}
@@ -2335,12 +2372,13 @@ function chartKM(M,r){
   for(const t of riskTimes){const x=X(t);grid+=`<line x1="${x}" y1="${pt}" x2="${x}" y2="${plotBottom}" stroke="var(--grid2)"/><text x="${x}" y="${plotBottom+16}" text-anchor="middle" font-size="11.5" fill="var(--axis)">${t}</text>`;}
   let risk=`<text x="${pl}" y="${plotBottom+43}" font-size="11.5" font-weight="600" fill="var(--ink2)">Number at risk</text><text x="${pl-20}" y="${plotBottom+67}" text-anchor="end" font-size="11.5" fill="var(--navy)">GPS</text><text x="${pl-20}" y="${plotBottom+91}" text-anchor="end" font-size="11.5" fill="var(--red)">BAT</text>`;
   for(const t of riskTimes){risk+=`<text x="${X(t)}" y="${plotBottom+67}" text-anchor="middle" font-size="11.5" fill="var(--ink)">${gps.atRisk(t)}</text><text x="${X(t)}" y="${plotBottom+91}" text-anchor="middle" font-size="11.5" fill="var(--ink)">${bat.atRisk(t)}</text>`;}
-  const curves=`<path d="${modelPath(M.Sgps)}" fill="none" stroke="var(--navy)" stroke-width="1.2" stroke-dasharray="4 4" opacity=".35"/><path d="${modelPath(M.Sbat)}" fill="none" stroke="var(--red)" stroke-width="1.2" stroke-dasharray="4 4" opacity=".35"/><path d="${stepPath(gps)}" fill="none" stroke="var(--navy)" stroke-width="2.4"/><path d="${stepPath(bat)}" fill="none" stroke="var(--red)" stroke-width="2.4"/>`;
+  const bands=r.kmBands?`<path d="${bandPath(r.kmBands.gps)}" fill="var(--navy)" opacity=".12"/><path d="${bandPath(r.kmBands.bat)}" fill="var(--red)" opacity=".11"/>`:"";
+  const curves=`${bands}<path d="${modelPath(M.Sgps)}" fill="none" stroke="var(--navy)" stroke-width="1.2" stroke-dasharray="4 4" opacity=".55"/><path d="${modelPath(M.Sbat)}" fill="none" stroke="var(--red)" stroke-width="1.2" stroke-dasharray="4 4" opacity=".55"/><path d="${stepPath(gps)}" fill="none" stroke="var(--navy)" stroke-width="2.4"/><path d="${stepPath(bat)}" fill="none" stroke="var(--red)" stroke-width="2.4"/>`;
   const yTitle=pt+ih/2;
   wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;height:${H}px;display:block;margin:0 auto" aria-hidden="true">${grid}${curves}${censorMarks(gps,"var(--navy)")}${censorMarks(bat,"var(--red)")}${risk}<text x="18" y="${yTitle}" text-anchor="middle" font-size="11.5" fill="var(--axis)" transform="rotate(-90 18 ${yTitle})">% alive</text><text x="${W-pr}" y="${plotBottom+38}" text-anchor="end" font-size="11.5" fill="var(--axis)">months from randomization</text></svg>`;
-  legend.innerHTML=`<span><i style="background:var(--navy)"></i>GPS simulated KM</span><span><i style="background:var(--red)"></i>BAT simulated KM</span><span><i style="height:0;border-top:2px dashed var(--grey);background:none"></i>generating model curve</span><span>│ censoring</span>`;
+  legend.innerHTML=`<span><i style="background:var(--navy)"></i>GPS example KM</span><span><i style="background:var(--red)"></i>BAT example KM</span><span><i style="height:8px;background:var(--grey);opacity:.22"></i>pointwise middle 80%</span><span><i style="height:0;border-top:2px dashed var(--grey);background:none"></i>generating model curve</span><span>│ censoring</span>`;
   const deaths=example.event.reduce((a,x)=>a+x,0),reach=Math.round(100*r.reach);
-  disclosure.innerHTML=`<strong>Representative synthetic trial—not observed REGAL patient data.</strong> Selected deterministically from reached simulations (${reach}% reached the final trigger) as the trial closest to the median final HR (shown HR <b>${example.hr.toFixed(2)}</b>; ${deaths}-event cutoff ${monthLabel(example.cutoffMonth)}).`;
+  disclosure.innerHTML=`<strong>Representative synthetic trial—not observed REGAL patient data.</strong> Selected deterministically from reached simulations (${reach}% reached the final trigger) as the trial closest to the median final HR (shown HR <b>${example.hr.toFixed(2)}</b>; ${deaths}-event cutoff ${monthLabel(example.cutoffMonth)}). Shading spans the pointwise 10th–90th percentiles of reached simulated KM curves with follow-up at each month; it is not a simultaneous confidence interval.`;
 }
 
 function chart(M,r){

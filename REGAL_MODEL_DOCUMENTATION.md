@@ -789,8 +789,10 @@ from simulations that reach the final trigger as the one whose final HR is close
 simulated final HR. Only patients randomized on or before that trial's event-trigger cutoff enter its
 KM curves and risk table. The KM view therefore illustrates finite-sample steps, censoring, and
 changing risk sets under the selected assumptions; it is not observed or reconstructed REGAL
-patient data, and it is not an additional source of evidence. The smooth model-implied curves remain
-the default.
+patient data, and it is not an additional source of evidence. Pointwise 10th–90th percentile ribbons
+from reached simulations show how much individual KM curves can vary around the generating model;
+they are simulation envelopes, not simultaneous confidence intervals. The smooth model-implied
+curves remain the default.
 
 ### 4.6 Component-mixture BAT and non-responders
 
