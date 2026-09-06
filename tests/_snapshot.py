@@ -23,7 +23,8 @@ NSIM = 400   # fixed MC budget for reproducible scenario rates; mc() seeds deter
 # Under gamma-frailty eligibility selection plus the CR2 entry window the real presets split
 # between State A and State C, and none exercises State B. These synthetic configs — a base scenario with
 # only the blinded milestones swapped — deliberately drive the fit to each status, pinning the
-# categorical A/B/C logic. Each sits well clear of its flip boundary:
+# categorical A/B/C logic. The A/C fixtures sit clear of their flip boundaries; State B occupies
+# a narrow pocket under the current defaults, so its named-state regression assertion is the guard:
 #   A_upper_boundary — milestones stall, so the bounded Weibull runs to its median cap
 #                      and heavy-tail edge (compatibility cureReq=True subtype).
 #   A_light_edge    — bunched milestones want an ever-lighter (increasing-hazard) tail,

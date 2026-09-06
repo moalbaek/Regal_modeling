@@ -157,12 +157,31 @@ class StaticConsistencyTest(unittest.TestCase):
             r'location\.hash\.replace\(/\^#/,\s*["\']{2}\)\s*\|\|\s*["\']v1["\']',
         )
         self.assertIn('window.addEventListener("hashchange"', self.html)
-        self.assertRegex(
+        select_tab = re.search(
+            r"function\s+selectModelTab\([^)]*\)\s*\{(?P<body>.*?)\n\}",
             self.html,
-            r'if\s*\(\s*view\.id\s*===\s*["\']v1["\']\s*&&\s*v1WasHidden\s*\)\s*schedule\(\)',
+            re.DOTALL,
+        )
+        self.assertIsNotNone(select_tab, "model-tab selection function not found")
+        self.assertRegex(
+            select_tab.group("body"),
+            r'view\.id\s*===\s*["\']v1["\'][\s\S]*?schedule\(\)',
         )
         for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
             self.assertIn(f'e.key==="{key}"', self.html)
+
+    def test_tab_switches_keep_the_v1_layout_scale_stable(self):
+        compact = re.sub(r"\s+", "", self.html)
+        self.assertIn("-webkit-text-size-adjust:100%", compact)
+        self.assertIn("text-size-adjust:100%", compact)
+        self.assertIn("scrollbar-gutter:stable", compact)
+        self.assertRegex(
+            self.html,
+            re.compile(
+                r'window\.addEventListener\(\s*["\']resize["\'][\s\S]*?'
+                r'panel-v1[\s\S]*?\.hidden[\s\S]*?schedule\(\)',
+            ),
+        )
 
 
 if __name__ == "__main__":
