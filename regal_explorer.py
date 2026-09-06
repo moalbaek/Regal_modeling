@@ -550,6 +550,7 @@ def fit_ci(cfg, builder):
 def kaplan_meier(time, event):
     """Return a right-continuous Kaplan-Meier step curve and censor locations.
 
+    This is the tested reference for the browser's ``kmCurve()`` implementation.
     ``time`` is follow-up from randomization and ``event`` is one for an observed
     death and zero for censoring. Tied deaths are applied before censor removals,
     matching the usual product-limit convention. The returned step coordinates
@@ -717,6 +718,7 @@ def mc(M, nsim=1500, seed=987654321, capture_km=False):
                     time=time.copy(),
                     event=ev.copy(),
                     arm=arm.copy(),
+                    enrollment_month=en.copy(),
                 ))
         # Preserve v1's median-IA-HR conditioning on trials that also reach FINAL.
         if hr_ia_trial is not None: hrsIA.append(hr_ia_trial)
@@ -738,8 +740,20 @@ def mc(M, nsim=1500, seed=987654321, capture_km=False):
                 aliveG=(aliveG / reached if reached else np.nan),
                 aliveB=(aliveB / reached if reached else np.nan))
     if capture_km:
-        result["kmExample"] = (min(km_trials, key=lambda trial: abs(trial["hr"] - med_hr))
-                               if km_trials else None)
+        if km_trials:
+            selected = min(km_trials, key=lambda trial: abs(trial["hr"] - med_hr))
+            # A patient enters a KM risk set only once randomized. Equality is
+            # intentional: someone randomized exactly at the cutoff is at risk at t=0.
+            entered = selected["enrollment_month"] <= selected["cutoff_month"]
+            result["kmExample"] = {
+                **selected,
+                "time": selected["time"][entered],
+                "event": selected["event"][entered],
+                "arm": selected["arm"][entered],
+                "enrollment_month": selected["enrollment_month"][entered],
+            }
+        else:
+            result["kmExample"] = None
     return result
 
 # ---------------------------------------------------------------- parallel batch execution

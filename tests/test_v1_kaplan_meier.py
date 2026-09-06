@@ -28,19 +28,21 @@ class KaplanMeierTest(unittest.TestCase):
             self.assertEqual(plain[key], captured[key])
         np.testing.assert_array_equal(plain["hrsAll"], captured["hrsAll"])
 
-    def test_representative_trial_is_complete_and_nearest_median_hr(self):
+    def test_representative_trial_is_entered_cohort_and_nearest_median_hr(self):
         cfg = regal.default_cfg()
         result = regal.mc(regal.build_plateau(cfg), nsim=120, seed=987654321,
                           capture_km=True)
         example = result["kmExample"]
 
         self.assertIsNotNone(example)
-        self.assertEqual(len(example["time"]), cfg["N"])
-        self.assertEqual(len(example["event"]), cfg["N"])
-        self.assertEqual(len(example["arm"]), cfg["N"])
+        n_entered = len(example["time"])
+        self.assertLessEqual(n_entered, cfg["N"])
+        self.assertEqual(len(example["event"]), n_entered)
+        self.assertEqual(len(example["arm"]), n_entered)
+        self.assertEqual(len(example["enrollment_month"]), n_entered)
         self.assertEqual(int(example["event"].sum()), cfg["FINAL"])
-        self.assertEqual(int(example["arm"].sum()), cfg["N"] // 2)
         self.assertTrue(np.all(example["time"] >= 0))
+        self.assertTrue(np.all(example["enrollment_month"] <= example["cutoff_month"]))
 
         nearest = min(abs(hr - result["medHR"]) for hr in result["hrsAll"])
         self.assertAlmostEqual(abs(example["hr"] - result["medHR"]), nearest)
@@ -52,6 +54,17 @@ class KaplanMeierTest(unittest.TestCase):
             self.assertTrue(np.all(np.diff(curve["survival"]) <= 0))
             self.assertGreaterEqual(curve["survival"].min(), 0.0)
             self.assertLessEqual(curve["survival"].max(), 1.0)
+
+    def test_early_cutoff_excludes_patients_not_yet_randomized(self):
+        cfg = regal.default_cfg(FINAL=10, IA=5)
+        result = regal.mc(regal.build_plateau(cfg), nsim=80, seed=24680,
+                          capture_km=True)
+        example = result["kmExample"]
+
+        self.assertIsNotNone(example)
+        self.assertLess(len(example["time"]), cfg["N"])
+        self.assertEqual(int(example["event"].sum()), cfg["FINAL"])
+        self.assertTrue(np.all(example["enrollment_month"] <= example["cutoff_month"]))
 
     def test_capture_returns_none_when_final_trigger_cannot_be_reached(self):
         cfg = regal.default_cfg(FINAL=200)
