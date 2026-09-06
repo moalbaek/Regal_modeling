@@ -118,6 +118,9 @@
   .metric .v small{font-size:11px;color:var(--muted);font-weight:500}
   svg{width:100%;height:auto;display:block}
   .chartbox{position:relative}
+  #chart.km-view{min-height:480px}
+  #chart.km-view.km-unavailable{display:flex;align-items:center}
+  #chart.km-view.km-unavailable .spread{width:100%}
   .chartgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(600px,100%),1fr));gap:26px 34px}
   .chartgroup{min-width:0}
   .hoverbox{position:absolute;pointer-events:none;transform:translate(-50%,0);background:var(--card);
@@ -127,6 +130,9 @@
   .hoverbox b{font-variant-numeric:tabular-nums}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ink2);margin-top:4px}
   .legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+  .chart-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:2px 0 8px;color:var(--muted);font-size:11.5px}
+  .chart-disclosure{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .chart-disclosure strong{color:var(--ink2)}
   .fitnote{font-size:11.5px;color:var(--muted);margin-top:8px}
   .subhead{font-size:11.5px;font-weight:600;color:var(--ink2);margin:14px 0 2px}
   .subhead:first-child{margin-top:0}
@@ -327,13 +333,20 @@
         <span class="toggle" id="modeTog" role="group" aria-label="Detail panel mode" style="float:right;margin-top:-4px">
           <button type="button" data-mode="plateau" class="on" aria-pressed="true">Plateau (GPS cure)</button><button type="button" data-mode="nogpscure" aria-pressed="false">No-GPS-cure alternative</button></span>
       </h2>
+      <div class="chart-toolbar">
+        <span>View</span>
+        <span class="toggle" id="curveViewTog" role="group" aria-label="Survival chart view">
+          <button type="button" data-view="model" class="on" aria-pressed="true">Model curves</button><button type="button" data-view="km" aria-pressed="false">Simulated KM</button>
+        </span>
+      </div>
       <div id="chart" class="chartbox" role="img" aria-label="Survival curves: BAT, GPS, and pooled survival probability over time"></div>
-      <div class="legend">
+      <div class="legend" id="chartLegend">
         <span><i style="background:var(--red)"></i>BAT (control)</span>
         <span><i style="background:var(--navy)"></i>GPS</span>
         <span><i style="background:var(--pool);opacity:.6"></i>Pooled (blinded)</span>
         <span><i style="background:var(--orange)"></i>event-fraction levels</span>
       </div>
+      <div class="chart-disclosure" id="chartDisclosure">Smooth model-implied survival distributions under the selected v1 assumptions.</div>
       <div class="metrics" id="metrics"></div>
       <div class="fitnote" id="fit"></div>
     </div>
@@ -1940,7 +1953,7 @@ const DEFAULT_COMP=[{name:"Observation",w:27,med:6,cure:3,k:1.1},{name:"Hydroxyu
   {name:"HMA",w:22,med:12,cure:10,k:1},{name:"Venetoclax",w:35,med:12,cure:15,k:0.78},{name:"LDAC",w:8,med:7,cure:8,k:1.1}];
 const DEFAULT_EV=[{label:"60 events",y:2024,m:12,d:10,n:60},{label:"72 events",y:2025,m:12,d:26,n:72},{label:"78 events",y:2026,m:5,d:11,n:78}];
 const PRESETS={base:{w:[27,8,22,35,8],vc:15},low:{w:[33,12,30,15,10],vc:15},dom:{w:[8,4,18,60,10],vc:15},bear:{w:[5,3,12,70,10],vc:25},bull:{w:[40,10,25,15,10],vc:10}};
-let comp=structuredClone(DEFAULT_COMP), ev=structuredClone(DEFAULT_EV), mode="plateau";
+let comp=structuredClone(DEFAULT_COMP), ev=structuredClone(DEFAULT_EV), mode="plateau", curveView="model";
 
 function enroll(b,N){
   const win=[[2020,9,2020,12,1.2,0.8],[2021,1,2021,12,1.8,0.9],[2022,1,2022,12,2.8,2.2],[2023,1,2023,11,4.2,5.6],[2023,12,2024,3,6.2,6.2]];
@@ -2071,7 +2084,7 @@ function buildNoGPSCure(cfg){
     degenerate,edRaw:ed,Sbat:Sb,Sgps:Sg,Spool:Sp,gpsMed:median(Sg),ed:t=>ed(t,mG,sG)};
 }
 // ---------- shared Monte-Carlo ----------
-function mc(M,nsim){
+function mc(M,nsim,captureKM){
   const {N,HRC,fnr}=M.cfg, FINAL=Math.max(2,Math.round(M.cfg.FINAL||2)), ZC=Math.abs(Math.log(HRC))*Math.sqrt(FINAL)/2;
   const IA=Math.max(1,Math.min(Math.round(M.cfg.IA||60),FINAL-1)); // interim-analysis event count
   const futHR=M.cfg.futHR||1.0;                          // interim futility HR threshold
@@ -2086,7 +2099,7 @@ function mc(M,nsim){
   const ecw=cm.map(c=>c.cure/entrySurvival(c.med,c.cure,c.k,TH,F,G));   // cure among enrollees
   const ncw=cm.map((c,i)=>w[i]*(1-ecw[i]));const ns=ncw.reduce((a,b)=>a+b,0)||1;let a2=0;const ncc=ncw.map(x=>a2+=x/ns);
   const surv=new Float64Array(N),time=new Float64Array(N),ev2=new Int8Array(N),arm=new Int8Array(N),dcal=new Float64Array(N),en=new Float64Array(N),isdeath=new Int8Array(N),rawcal=new Float64Array(N);
-  let sig=0,reached=0,aliveG=0,aliveB=0; const hrs=[],hrsIA=[];
+  let sig=0,reached=0,aliveG=0,aliveB=0; const hrs=[],hrsIA=[],kmTrials=[];
   // Cox/log-rank score at a calendar cutoff -> [num, varr]
   const scoreAt=tcut=>{
     for(let i=0;i<N;i++){ ev2[i]=(isdeath[i]&&dcal[i]<=tcut)?1:0; time[i]=Math.min(surv[i],Math.max(tcut-en[i],0)); }
@@ -2121,15 +2134,33 @@ function mc(M,nsim){
     if(fin.length<FINAL) continue; fin.sort((a,b)=>a-b); reached++;
     const t80=fin[FINAL-1];
     const [num,varr]=scoreAt(t80);                              // final-analysis test
-    if(varr>0){ const z=-num/Math.sqrt(varr); if(z>ZC)sig++; hrs.push(Math.exp(num/varr)); }
+    if(varr>0){
+      const z=-num/Math.sqrt(varr), hrTrial=Math.exp(num/varr); if(z>ZC)sig++; hrs.push(hrTrial);
+      if(captureKM) kmTrials.push({hr:hrTrial,cutoffMonth:t80,
+        time:time.slice(),event:ev2.slice(),arm:arm.slice(),en:en.slice()});
+    }
     const [numIA,varrIA]=scoreAt(fin[IA-1]);                    // implied HR at the interim
     if(varrIA>0) hrsIA.push(Math.exp(numIA/varrIA));
     for(let i=0;i<N;i++){ if(rawcal[i]>t80){ if(arm[i]===1)aliveG++; else aliveB++; } }  // alive at the 80th (pre-censoring)
   }
   hrs.sort((a,b)=>a-b); hrsIA.sort((a,b)=>a-b);
   const medHR_IA=hrsIA.length?hrsIA[hrsIA.length>>1]:NaN;
-  return {ps:reached?sig/reached:0, reach:reached/nsim, medHR:hrs.length?hrs[hrs.length>>1]:NaN, hrsAll:hrs,
-    medHR_IA, futHR, futOK:medHR_IA<=futHR, aliveG:reached?aliveG/reached:NaN, aliveB:reached?aliveB/reached:NaN};
+  const medHR=hrs.length?hrs[hrs.length>>1]:NaN;
+  const selected=captureKM&&kmTrials.length
+    ? kmTrials.reduce((best,trial)=>Math.abs(trial.hr-medHR)<Math.abs(best.hr-medHR)?trial:best,kmTrials[0])
+    : null;
+  // Retain typed arrays while ranking trials; box only the selected trial, and exclude patients
+  // not yet randomized at the event-trigger cutoff from its KM risk sets.
+  let kmExample=null;
+  if(selected){
+    const entered=[];for(let i=0;i<N;i++)if(selected.en[i]<=selected.cutoffMonth)entered.push(i);
+    kmExample={hr:selected.hr,cutoffMonth:selected.cutoffMonth,
+      time:entered.map(i=>selected.time[i]),event:entered.map(i=>selected.event[i]),
+      arm:entered.map(i=>selected.arm[i]),en:entered.map(i=>selected.en[i])};
+  }
+  return {ps:reached?sig/reached:0, reach:reached/nsim, medHR, hrsAll:hrs,
+    medHR_IA, futHR, futOK:medHR_IA<=futHR, aliveG:reached?aliveG/reached:NaN, aliveB:reached?aliveB/reached:NaN,
+    kmExample};
 }
 
 // ---------- readable point labels: paint a card-colored halo behind text that may sit over a line ----------
@@ -2207,8 +2238,10 @@ function wireHover(id,cfg){
   wireTouch(catchRect,onMove,hide);
 }
 
-// ---------- chart ----------
-function chart(M){
+// ---------- model-implied survival chart ----------
+function chartModel(M){
+  const wrap=document.getElementById("chart");
+  wrap.classList.remove("km-view","km-unavailable");
   const H=400,pl=42,pr=14,pt=12,pb=28,TMAX=48;
   const W=chartW("chart",600,1000), iw=W-pl-pr, ih=H-pt-pb;
   const X=t=>pl+t/TMAX*iw, Y=s=>pt+(1-s)*ih;
@@ -2223,12 +2256,84 @@ function chart(M){
   const curves=`<path d="${path(M.Sbat)}" fill="none" stroke="var(--red)" stroke-width="2.4"/><path d="${path(M.Sgps)}" fill="none" stroke="var(--navy)" stroke-width="2.4"/><path d="${path(M.Spool)}" fill="none" stroke="var(--pool)" stroke-width="1.6" stroke-dasharray="5 3" opacity="var(--pool-op)"/>`;
   const b36=M.Sbat(36),mx=X(36),my=Y(b36);
   const mark=`<line x1="${mx}" y1="${my}" x2="${mx}" y2="${H-pb}" stroke="var(--red)" stroke-dasharray="2 2" opacity=".4"/><circle cx="${mx}" cy="${my}" r="3.6" fill="var(--red)" stroke="var(--ring)" stroke-width="1.4"/><text x="${mx-5}" y="${my-5}" text-anchor="end" font-size="11.5" fill="var(--red)" font-weight="600" ${HALO}>BAT@36mo ${(100*b36).toFixed(0)}%</text>`;
-  document.getElementById("chart").innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;height:${H}px;display:block;margin:0 auto" aria-hidden="true">${g}${refs}${curves}${mark}<text x="${pl-30}" y="${pt-2}" font-size="11.5" fill="var(--axis)">% alive</text><text x="${W-pr}" y="${H-2}" text-anchor="end" font-size="11.5" fill="var(--axis)">months from randomization</text></svg>`;
+  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;height:${H}px;display:block;margin:0 auto" aria-hidden="true">${g}${refs}${curves}${mark}<text x="${pl-30}" y="${pt-2}" font-size="11.5" fill="var(--axis)">% alive</text><text x="${W-pr}" y="${H-2}" text-anchor="end" font-size="11.5" fill="var(--axis)">months from randomization</text></svg>`;
+  wrap.setAttribute("aria-label","Model-implied survival curves for BAT, GPS, and the blinded pooled population");
+  document.getElementById("chartLegend").innerHTML=`<span><i style="background:var(--red)"></i>BAT (control)</span><span><i style="background:var(--navy)"></i>GPS</span><span><i style="background:var(--pool);opacity:.6"></i>Pooled (blinded)</span><span><i style="background:var(--orange)"></i>event-fraction levels</span>`;
+  document.getElementById("chartDisclosure").textContent="Smooth model-implied survival distributions under the selected v1 assumptions.";
   wireHover("chart",{W,H,pl,pr,pt,pb,xMax:TMAX,xFmt:x=>x.toFixed(0)+" mo",series:[
     {get:M.Sbat,Y,color:"var(--red)",label:"BAT",fmt:v=>(100*v).toFixed(0)+"%"},
     {get:M.Sgps,Y,color:"var(--navy)",label:"GPS",fmt:v=>(100*v).toFixed(0)+"%"},
     {get:M.Spool,Y,color:"var(--pool)",label:"Pooled",fmt:v=>(100*v).toFixed(0)+"%"},
   ]});
+}
+
+// Product-limit estimate for one arm in a synthetic trial. Keep this in lockstep with the
+// tested Python kaplan_meier() reference. Deaths at a tied time are applied before censor
+// removals, and censor marks are drawn at the resulting survival level.
+function kmCurve(example,armValue){
+  const rows=example.time.map((time,i)=>({time,event:example.event[i]}))
+    .filter((_,i)=>example.arm[i]===armValue).sort((a,b)=>a.time-b.time);
+  let atRisk=rows.length,survival=1,i=0; const steps=[[0,1]],censors=[];
+  while(i<rows.length){
+    const t=rows[i].time; let deaths=0,censored=0;
+    while(i<rows.length&&Math.abs(rows[i].time-t)<1e-10){rows[i].event?deaths++:censored++;i++;}
+    if(deaths&&atRisk>0){survival*=1-deaths/atRisk;steps.push([t,survival]);}
+    for(let j=0;j<censored;j++)censors.push([t,survival]);
+    atRisk-=deaths+censored;
+  }
+  return {rows,steps,censors,atRisk:t=>rows.reduce((n,row)=>n+(row.time>=t?1:0),0)};
+}
+
+function chartKM(M,r){
+  const wrap=document.getElementById("chart"), legend=document.getElementById("chartLegend"), disclosure=document.getElementById("chartDisclosure");
+  const finalEvents=Math.max(2,Math.round(M.cfg.FINAL||2));
+  wrap.classList.add("km-view");
+  if(M.kind==="nogpscure"&&M.state!=="C"){
+    wrap.classList.add("km-unavailable");
+    wrap.setAttribute("aria-label",`Simulated Kaplan-Meier view withheld because the no-GPS-cure model has fit status ${M.state}`);
+    wrap.innerHTML=`<div class="spread warn" style="margin:18px 0">Simulated KM view withheld because the bounded no-GPS-cure alternative is fit status ${M.state}. Switch to Model curves to inspect the diagnostic fit.</div>`;
+    legend.textContent="";
+    disclosure.innerHTML="<strong>No synthetic trial is presented for a boundary or residual-misfit alternative.</strong>";
+    return;
+  }
+  const example=r&&r.kmExample;
+  if(!example){
+    wrap.classList.add("km-unavailable");
+    wrap.setAttribute("aria-label",`No simulated trial reached the ${finalEvents}-event analysis; the Kaplan-Meier view is unavailable`);
+    wrap.innerHTML=`<div class="spread warn" style="margin:18px 0">No simulated trial reached the ${finalEvents}-event analysis, so a representative Kaplan–Meier plot is unavailable.</div>`;
+    legend.textContent="";
+    disclosure.innerHTML="<strong>The KM view is conditional on the final event trigger being reached.</strong>";
+    return;
+  }
+  wrap.classList.remove("km-unavailable");
+  wrap.setAttribute("aria-label",`Representative synthetic Kaplan-Meier curves for GPS and BAT at the ${finalEvents}-event analysis`);
+  const H=480,pl=88,pr=14,pt=12,pb=120,TMAX=48,plotBottom=H-pb;
+  const W=chartW("chart",600,1000),iw=W-pl-pr,ih=plotBottom-pt;
+  const X=t=>pl+Math.min(Math.max(t,0),TMAX)/TMAX*iw,Y=s=>pt+(1-s)*ih;
+  const gps=kmCurve(example,1),bat=kmCurve(example,0);
+  const stepPath=curve=>{
+    let d=`M${X(0).toFixed(1)} ${Y(1).toFixed(1)}`;
+    for(let i=1;i<curve.steps.length;i++){const[t,s]=curve.steps[i];if(t>TMAX)break;d+=` H${X(t).toFixed(1)} V${Y(s).toFixed(1)}`;}
+    const last=Math.min(TMAX,curve.rows.length?curve.rows[curve.rows.length-1].time:0);return d+` H${X(last).toFixed(1)}`;
+  };
+  const modelPath=fn=>{let d="";for(let t=0;t<=TMAX;t+=.5)d+=(t===0?"M":"L")+X(t).toFixed(1)+" "+Y(fn(t)).toFixed(1)+" ";return d;};
+  const censorMarks=(curve,color)=>curve.censors.filter(([t])=>t>0&&t<=TMAX).map(([t,s])=>`<line x1="${X(t)}" y1="${Y(s)-3}" x2="${X(t)}" y2="${Y(s)+3}" stroke="${color}" stroke-width="1.1" opacity=".8"/>`).join("");
+  let grid="";
+  for(let s=0;s<=1.0001;s+=.25){const y=Y(s);grid+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="var(--grid)"/><text x="${pl-6}" y="${y+3}" text-anchor="end" font-size="11.5" fill="var(--axis)">${(s*100)|0}%</text>`;}
+  const riskTimes=[0,12,24,36,48];
+  for(const t of riskTimes){const x=X(t);grid+=`<line x1="${x}" y1="${pt}" x2="${x}" y2="${plotBottom}" stroke="var(--grid2)"/><text x="${x}" y="${plotBottom+16}" text-anchor="middle" font-size="11.5" fill="var(--axis)">${t}</text>`;}
+  let risk=`<text x="${pl}" y="${plotBottom+43}" font-size="11.5" font-weight="600" fill="var(--ink2)">Number at risk</text><text x="${pl-20}" y="${plotBottom+67}" text-anchor="end" font-size="11.5" fill="var(--navy)">GPS</text><text x="${pl-20}" y="${plotBottom+91}" text-anchor="end" font-size="11.5" fill="var(--red)">BAT</text>`;
+  for(const t of riskTimes){risk+=`<text x="${X(t)}" y="${plotBottom+67}" text-anchor="middle" font-size="11.5" fill="var(--ink)">${gps.atRisk(t)}</text><text x="${X(t)}" y="${plotBottom+91}" text-anchor="middle" font-size="11.5" fill="var(--ink)">${bat.atRisk(t)}</text>`;}
+  const curves=`<path d="${modelPath(M.Sgps)}" fill="none" stroke="var(--navy)" stroke-width="1.2" stroke-dasharray="4 4" opacity=".35"/><path d="${modelPath(M.Sbat)}" fill="none" stroke="var(--red)" stroke-width="1.2" stroke-dasharray="4 4" opacity=".35"/><path d="${stepPath(gps)}" fill="none" stroke="var(--navy)" stroke-width="2.4"/><path d="${stepPath(bat)}" fill="none" stroke="var(--red)" stroke-width="2.4"/>`;
+  const yTitle=pt+ih/2;
+  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;height:${H}px;display:block;margin:0 auto" aria-hidden="true">${grid}${curves}${censorMarks(gps,"var(--navy)")}${censorMarks(bat,"var(--red)")}${risk}<text x="18" y="${yTitle}" text-anchor="middle" font-size="11.5" fill="var(--axis)" transform="rotate(-90 18 ${yTitle})">% alive</text><text x="${W-pr}" y="${plotBottom+38}" text-anchor="end" font-size="11.5" fill="var(--axis)">months from randomization</text></svg>`;
+  legend.innerHTML=`<span><i style="background:var(--navy)"></i>GPS simulated KM</span><span><i style="background:var(--red)"></i>BAT simulated KM</span><span><i style="height:0;border-top:2px dashed var(--grey);background:none"></i>generating model curve</span><span>│ censoring</span>`;
+  const deaths=example.event.reduce((a,x)=>a+x,0),reach=Math.round(100*r.reach);
+  disclosure.innerHTML=`<strong>Representative synthetic trial—not observed REGAL patient data.</strong> Selected deterministically from reached simulations (${reach}% reached the final trigger) as the trial closest to the median final HR (shown HR <b>${example.hr.toFixed(2)}</b>; ${deaths}-event cutoff ${monthLabel(example.cutoffMonth)}).`;
+}
+
+function chart(M,r){
+  if(curveView==="km")chartKM(M,r);else chartModel(M);
 }
 
 // first calendar month (from BASE) where cumulative events ed(t) reaches target, or null if it stalls below it
@@ -2455,7 +2560,8 @@ function fitCI(cfg,builder){
 function render(){
   const cfg=cfgFromUI();
   const Mc=buildPlateau(cfg), Ml=buildNoGPSCure(cfg);   // two v1 fixed-scenario model families
-  const rc=mc(Mc,600), rl=mc(Ml,600);
+  const rc=mc(Mc,600,curveView==="km"&&mode==="plateau"),
+        rl=mc(Ml,600,curveView==="km"&&mode==="nogpscure"&&Ml.state==="C");
   const state=Ml.state;   // A/B = diagnostic only; C = adequate fit with a scenario rate
   const pc=Math.round(rc.ps*100), pn=Math.round(rl.ps*100);
   $("psucc").textContent=pc+"%";
@@ -2549,7 +2655,7 @@ function render(){
   // enrollment readout under its slider
   const ec=Mc.coh;
   $("enrollInfo").innerHTML=`Median <b>${monthLabel(medEnroll(ec))}</b>; cumulative ${cumEnroll(ec,2022,4).toFixed(0)} / ${cumEnroll(ec,2023,11).toFixed(0)} / ${cumEnroll(ec,2024,4).toFixed(0)} by Apr 2022 / Nov 2023 / Apr 2024.`;
-  chart(M);
+  chart(M,r);
   chartAccrual(Mc,Ml,cfg);   // (d) event-accrual timeline
   chartHist(rc,rl,cfg);      // (e) distribution of simulated final HRs
   chartDiverge(Mc,Ml,cfg);   // (f) GPS-cure vs no-GPS-cure pooled divergence band
@@ -2597,6 +2703,7 @@ $("unweighted").addEventListener("change",schedule);
 ["N","FINAL","HRC","IA","futHR"].forEach(id=>$(id).addEventListener("input",()=>{updBl();schedule();}));
 document.querySelectorAll("#presets button").forEach(b=>b.addEventListener("click",()=>{const p=PRESETS[b.dataset.preset];p.w.forEach((v,i)=>{comp[i].w=v;const el=$("w"+i);if(el)el.value=v;});comp[3].cure=p.vc;$("vcure").value=p.vc;$("vcL").textContent=p.vc+"%";const el=$("cc3");if(el)el.value=p.vc;updWeights();schedule();}));
 document.querySelectorAll("#modeTog button").forEach(b=>b.addEventListener("click",()=>{mode=b.dataset.mode;document.querySelectorAll("#modeTog button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-pressed",String(x===b));});render();}));
+document.querySelectorAll("#curveViewTog button").forEach(b=>b.addEventListener("click",()=>{curveView=b.dataset.view;document.querySelectorAll("#curveViewTog button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-pressed",String(x===b));});render();}));
 $("reset").addEventListener("click",()=>{comp=structuredClone(DEFAULT_COMP);ev=structuredClone(DEFAULT_EV);$("nr").value=20;$("nrL").textContent="20%";$("bl").value=0.5;$("ndr").value=2;$("ndrL").textContent="2.0%/yr";$("shape").value=0.6;$("shapeOverride").checked=false;$("bL").textContent="fitted";$("N").value=126;$("FINAL").value=80;$("HRC").value=0.636;$("IA").value=60;$("futHR").value=1.0;$("drop").value=0;$("dropL").textContent="0.0%/yr";$("esel").value=20;$("eselL").textContent="screens out 20%";$("fvar").value=0.35;$("fvarL").textContent="0.35";$("dmax").value=6;$("dmin").value=1;updWindowLabels();$("unweighted").checked=false;$("vcure").value=15;$("vcL").textContent="15%";buildWeightSliders();buildCompTable();buildEvTable();updBl();render();});
 
 let timer=null; function schedule(){if(timer)clearTimeout(timer);timer=setTimeout(render,130);}

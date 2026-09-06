@@ -1,8 +1,11 @@
 """Static invariants for user-facing defaults and scenario-model disclosure."""
 
 from decimal import Decimal
+import json
 import os
 import re
+import shutil
+import subprocess
 import unittest
 
 
@@ -182,6 +185,46 @@ class StaticConsistencyTest(unittest.TestCase):
                 r'panel-v1[\s\S]*?\.hidden[\s\S]*?schedule\(\)',
             ),
         )
+
+    def test_simulated_km_view_is_optional_and_explicitly_synthetic(self):
+        self.assertIn('id="curveViewTog"', self.html)
+        self.assertRegex(
+            self.html,
+            r'data-view="model"[^>]*class="on"[^>]*aria-pressed="true"',
+        )
+        self.assertIn('data-view="km"', self.html)
+        self.assertIn("Representative synthetic trial—not observed REGAL patient data", self.html)
+        self.assertIn("Number at risk", self.html)
+        self.assertIn("function kmCurve(example,armValue)", self.html)
+        self.assertRegex(self.html, r"mc\(Mc,600,curveView===\"km\"")
+        self.assertIn('mode==="nogpscure"&&Ml.state==="C"', self.html)
+
+    def test_browser_km_estimator_matches_product_limit_fixture(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is required for the browser KM behavior check")
+        match = re.search(
+            r"(function kmCurve\(example,armValue\)\{[\s\S]*?\n\})\n\nfunction chartKM",
+            self.html,
+        )
+        self.assertIsNotNone(match)
+        fixture = {
+            "time": [2.0, 2.0, 3.0, 4.0],
+            "event": [1, 0, 1, 0],
+            "arm": [1, 1, 1, 1],
+        }
+        script = match.group(1) + "\n" + (
+            f"const curve=kmCurve({json.dumps(fixture)},1);"
+            "console.log(JSON.stringify({steps:curve.steps,censors:curve.censors,"
+            "atRisk:[0,2,3,4].map(curve.atRisk)}));"
+        )
+        completed = subprocess.run(
+            [node, "-e", script], check=True, capture_output=True, text=True
+        )
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["steps"], [[0, 1], [2, 0.75], [3, 0.375]])
+        self.assertEqual(result["censors"], [[2, 0.75], [4, 0.375]])
+        self.assertEqual(result["atRisk"], [4, 4, 2, 1])
 
 
 if __name__ == "__main__":

@@ -547,7 +547,47 @@ def fit_ci(cfg, builder):
     return refit(+1), refit(-1)
 
 # ---------------------------------------------------------------- shared Monte-Carlo
-def mc(M, nsim=1500, seed=987654321):
+def kaplan_meier(time, event):
+    """Return a right-continuous Kaplan-Meier step curve and censor locations.
+
+    This is the tested reference for the browser's ``kmCurve()`` implementation.
+    ``time`` is follow-up from randomization and ``event`` is one for an observed
+    death and zero for censoring. Tied deaths are applied before censor removals,
+    matching the usual product-limit convention. The returned step coordinates
+    begin at (0, 1); censor survival values are suitable for plotting tick marks.
+    """
+    time = np.asarray(time, dtype=float)
+    event = np.asarray(event, dtype=int)
+    if time.ndim != 1 or event.ndim != 1 or time.size != event.size:
+        raise ValueError("time and event must be equal-length one-dimensional arrays")
+    if np.any(~np.isfinite(time)) or np.any(time < 0):
+        raise ValueError("follow-up times must be finite and non-negative")
+    if np.any((event != 0) & (event != 1)):
+        raise ValueError("event indicators must be zero or one")
+
+    step_t = [0.0]
+    step_s = [1.0]
+    censor_t = []
+    censor_s = []
+    survival = 1.0
+    at_risk = int(time.size)
+    for t in np.unique(time):
+        at_t = time == t
+        deaths = int(np.sum(event[at_t] == 1))
+        censored = int(np.sum(event[at_t] == 0))
+        if deaths and at_risk:
+            survival *= 1.0 - deaths / at_risk
+            step_t.append(float(t))
+            step_s.append(float(survival))
+        if censored:
+            censor_t.extend([float(t)] * censored)
+            censor_s.extend([float(survival)] * censored)
+        at_risk -= deaths + censored
+    return dict(times=np.asarray(step_t), survival=np.asarray(step_s),
+                censor_times=np.asarray(censor_t), censor_survival=np.asarray(censor_s))
+
+
+def mc(M, nsim=1500, seed=987654321, capture_km=False):
     """Enrollment -> per-arm death draws -> censor at FINAL-th event -> log-rank test.
     ``ps`` is the v1 fixed-scenario final rejection rate conditional on reaching
     FINAL. The return value also exposes an unconditional interim efficacy-crossing
@@ -576,6 +616,7 @@ def mc(M, nsim=1500, seed=987654321):
     z_ia_efficacy = ia_design["interim_z"]
     sig = reached = ia_reached = ia_efficacy = 0
     hrs = []; hrsIA = []; aliveG = aliveB = 0.0
+    km_trials = []
 
     def score(time, ev):                                          # log-rank/Cox score test (num, var)
         idx = np.argsort(time, kind="mergesort")
@@ -668,7 +709,17 @@ def mc(M, nsim=1500, seed=987654321):
         if varr > 0:
             z = -num / np.sqrt(varr)
             if z > ZC: sig += 1
-            hrs.append(np.exp(num / varr))
+            hr_trial = float(np.exp(num / varr))
+            hrs.append(hr_trial)
+            if capture_km:
+                km_trials.append(dict(
+                    hr=hr_trial,
+                    cutoff_month=float(t80),
+                    time=time.copy(),
+                    event=ev.copy(),
+                    arm=arm.copy(),
+                    enrollment_month=en.copy(),
+                ))
         # Preserve v1's median-IA-HR conditioning on trials that also reach FINAL.
         if hr_ia_trial is not None: hrsIA.append(hr_ia_trial)
         # per-arm patients still alive at the 80th event (feature 3, before censoring)
@@ -676,9 +727,10 @@ def mc(M, nsim=1500, seed=987654321):
         aliveB += np.sum((arm == 0) & (rawcal > t80))
     hrs.sort(); hrsIA.sort()
     medHR_IA = hrsIA[len(hrsIA) // 2] if hrsIA else np.nan
-    return dict(ps=(sig / reached if reached else 0.0),
+    med_hr = hrs[len(hrs) // 2] if hrs else np.nan
+    result = dict(ps=(sig / reached if reached else 0.0),
                 reach=reached / nsim,
-                medHR=(hrs[len(hrs) // 2] if hrs else np.nan),
+                medHR=med_hr,
                 hrsAll=np.array(hrs),                          # full final-HR distribution (for the histogram)
                 medHR_IA=medHR_IA, futHR=futHR, futOK=bool(medHR_IA <= futHR),
                 reach_IA=ia_reached / nsim,
@@ -687,6 +739,22 @@ def mc(M, nsim=1500, seed=987654321):
                 z_IA_efficacy=z_ia_efficacy,
                 aliveG=(aliveG / reached if reached else np.nan),
                 aliveB=(aliveB / reached if reached else np.nan))
+    if capture_km:
+        if km_trials:
+            selected = min(km_trials, key=lambda trial: abs(trial["hr"] - med_hr))
+            # A patient enters a KM risk set only once randomized. Equality is
+            # intentional: someone randomized exactly at the cutoff is at risk at t=0.
+            entered = selected["enrollment_month"] <= selected["cutoff_month"]
+            result["kmExample"] = {
+                **selected,
+                "time": selected["time"][entered],
+                "event": selected["event"][entered],
+                "arm": selected["arm"][entered],
+                "enrollment_month": selected["enrollment_month"][entered],
+            }
+        else:
+            result["kmExample"] = None
+    return result
 
 # ---------------------------------------------------------------- parallel batch execution
 def _mc_task(kind, cfg, nsim, seed=987654321, override=None):
