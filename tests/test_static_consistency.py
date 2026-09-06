@@ -199,6 +199,17 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertRegex(self.html, r"mc\(Mc,600,curveView===\"km\"")
         self.assertIn('mode==="nogpscure"&&Ml.state==="C"', self.html)
 
+    def test_survival_view_controls_remain_tappable_on_mobile(self):
+        compact = re.sub(r"\s+", "", self.html)
+        self.assertIn('<divclass="survival-heading">', compact)
+        self.assertNotRegex(
+            self.html,
+            r'id="modeTog"[^>]*style="[^"]*float',
+        )
+        self.assertIn(".chart-toolbar{display:grid;grid-template-columns:autominmax(0,1fr)", compact)
+        self.assertIn("#curveViewTog{display:flex;width:100%;min-width:0", compact)
+        self.assertIn("#curveViewTogbutton{flex:1;min-width:0", compact)
+
     def test_browser_km_estimator_matches_product_limit_fixture(self):
         node = shutil.which("node")
         if node is None:
