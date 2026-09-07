@@ -196,8 +196,23 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertIn("Representative synthetic trial—not observed REGAL patient data", self.html)
         self.assertIn("Number at risk", self.html)
         self.assertIn("function kmCurve(example,armValue)", self.html)
+        self.assertIn("function kmSimultaneousEnvelope(trials,medHR)", self.html)
+        self.assertIn("simultaneous middle 80%", self.html)
+        self.assertIn("empirical simultaneous predictive envelope", self.html)
+        self.assertIn("within a simultaneous middle 80 percent predictive envelope", self.html)
         self.assertRegex(self.html, r"mc\(Mc,600,curveView===\"km\"")
         self.assertIn('mode==="nogpscure"&&Ml.state==="C"', self.html)
+
+    def test_survival_view_controls_remain_tappable_on_mobile(self):
+        compact = re.sub(r"\s+", "", self.html)
+        self.assertIn('<divclass="survival-heading">', compact)
+        self.assertNotRegex(
+            self.html,
+            r'id="modeTog"[^>]*style="[^"]*float',
+        )
+        self.assertIn(".chart-toolbar{display:grid;grid-template-columns:autominmax(0,1fr)", compact)
+        self.assertIn("#curveViewTog{display:flex;width:100%;min-width:0", compact)
+        self.assertIn("#curveViewTogbutton{flex:1;min-width:0", compact)
 
     def test_browser_km_estimator_matches_product_limit_fixture(self):
         node = shutil.which("node")
@@ -225,6 +240,41 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertEqual(result["steps"], [[0, 1], [2, 0.75], [3, 0.375]])
         self.assertEqual(result["censors"], [[2, 0.75], [4, 0.375]])
         self.assertEqual(result["atRisk"], [4, 4, 2, 1])
+
+    def test_browser_km_envelope_contains_selected_central_trajectory(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is required for the browser KM behavior check")
+        match = re.search(
+            r"(function kmCurve\(example,armValue\)\{[\s\S]*?\n\})\n\nfunction chartKM",
+            self.html,
+        )
+        self.assertIsNotNone(match)
+        trials = []
+        for deaths in range(10):
+            trials.append({
+                "hr": 1 + deaths / 100,
+                "time": ([1] * deaths + [4] * (10 - deaths)) * 2,
+                "event": ([1] * deaths + [0] * (10 - deaths)) * 2,
+                "arm": [1] * 10 + [0] * 10,
+                "en": [0] * 20,
+                "cutoffMonth": 5,
+            })
+        script = match.group(1) + "\n" + (
+            f"const trials={json.dumps(trials)},env=kmSimultaneousEnvelope(trials,1.05);"
+            "const curve=kmCurve(trials[env.selectedIndex],1);"
+            "const checks=env.gps.points.filter(point=>point.time<=4).map(point=>{"
+            "const value=kmValueAt(curve,point.time);return value>=point.lo&&value<=point.hi;});"
+            "console.log(JSON.stringify({centralCount:env.centralCount,total:env.total,"
+            "selectedIndex:env.selectedIndex,inside:checks.every(Boolean)}));"
+        )
+        completed = subprocess.run(
+            [node, "-e", script], check=True, capture_output=True, text=True
+        )
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["centralCount"], 8)
+        self.assertEqual(result["total"], 10)
+        self.assertTrue(result["inside"])
 
 
 if __name__ == "__main__":

@@ -789,8 +789,12 @@ from simulations that reach the final trigger as the one whose final HR is close
 simulated final HR. Only patients randomized on or before that trial's event-trigger cutoff enter its
 KM curves and risk table. The KM view therefore illustrates finite-sample steps, censoring, and
 changing risk sets under the selected assumptions; it is not observed or reconstructed REGAL
-patient data, and it is not an additional source of evidence. The smooth model-implied curves remain
-the default.
+patient data, and it is not an additional source of evidence. A simultaneous predictive envelope is
+built by ranking paired GPS/BAT trajectories on their largest standardized departure from the
+simulation median and bounding the central 80%; the displayed example is selected from that central
+set by proximity to the median final HR. The envelope therefore contains the complete displayed
+trajectory over its supported follow-up, but it is a simulation envelope rather than a confidence
+interval. The smooth model-implied curves remain the default.
 
 ### 4.6 Component-mixture BAT and non-responders
 
