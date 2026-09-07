@@ -196,10 +196,10 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertIn("Representative synthetic trial—not observed REGAL patient data", self.html)
         self.assertIn("Number at risk", self.html)
         self.assertIn("function kmCurve(example,armValue)", self.html)
-        self.assertIn("function kmBand(trials,armValue)", self.html)
-        self.assertIn("pointwise middle 80%", self.html)
-        self.assertIn("pointwise 10th–90th percentiles", self.html)
-        self.assertIn("with pointwise middle 80 percent simulation bands", self.html)
+        self.assertIn("function kmSimultaneousEnvelope(trials,medHR)", self.html)
+        self.assertIn("simultaneous middle 80%", self.html)
+        self.assertIn("empirical simultaneous predictive envelope", self.html)
+        self.assertIn("within a simultaneous middle 80 percent predictive envelope", self.html)
         self.assertRegex(self.html, r"mc\(Mc,600,curveView===\"km\"")
         self.assertIn('mode==="nogpscure"&&Ml.state==="C"', self.html)
 
@@ -241,7 +241,7 @@ class StaticConsistencyTest(unittest.TestCase):
         self.assertEqual(result["censors"], [[2, 0.75], [4, 0.375]])
         self.assertEqual(result["atRisk"], [4, 4, 2, 1])
 
-    def test_browser_km_band_is_pointwise_middle_eighty_percent(self):
+    def test_browser_km_envelope_contains_selected_central_trajectory(self):
         node = shutil.which("node")
         if node is None:
             self.skipTest("Node.js is required for the browser KM behavior check")
@@ -253,23 +253,28 @@ class StaticConsistencyTest(unittest.TestCase):
         trials = []
         for deaths in range(10):
             trials.append({
-                "time": [1] * deaths + [4] * (10 - deaths),
-                "event": [1] * deaths + [0] * (10 - deaths),
-                "arm": [1] * 10,
-                "en": [0] * 10,
+                "hr": 1 + deaths / 100,
+                "time": ([1] * deaths + [4] * (10 - deaths)) * 2,
+                "event": ([1] * deaths + [0] * (10 - deaths)) * 2,
+                "arm": [1] * 10 + [0] * 10,
+                "en": [0] * 20,
                 "cutoffMonth": 5,
             })
         script = match.group(1) + "\n" + (
-            f"const band=kmBand({json.dumps(trials)},1);"
-            "console.log(JSON.stringify(band.points.find(point=>point.time===2)));"
+            f"const trials={json.dumps(trials)},env=kmSimultaneousEnvelope(trials,1.05);"
+            "const curve=kmCurve(trials[env.selectedIndex],1);"
+            "const checks=env.gps.points.filter(point=>point.time<=4).map(point=>{"
+            "const value=kmValueAt(curve,point.time);return value>=point.lo&&value<=point.hi;});"
+            "console.log(JSON.stringify({centralCount:env.centralCount,total:env.total,"
+            "selectedIndex:env.selectedIndex,inside:checks.every(Boolean)}));"
         )
         completed = subprocess.run(
             [node, "-e", script], check=True, capture_output=True, text=True
         )
-        point = json.loads(completed.stdout)
-        self.assertEqual(point["n"], 10)
-        self.assertAlmostEqual(point["lo"], 0.19)
-        self.assertAlmostEqual(point["hi"], 0.91)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["centralCount"], 8)
+        self.assertEqual(result["total"], 10)
+        self.assertTrue(result["inside"])
 
 
 if __name__ == "__main__":
