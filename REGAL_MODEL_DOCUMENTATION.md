@@ -317,6 +317,33 @@ At the evidence-informed defaults, the enrolled cohort's mean frailty multiplier
 accepted. This combined enrichment is more interpretable than either input alone and should be
 reported whenever the sliders are changed.
 
+**Criterion-specific corroboration: platelet and lymphocyte recovery.** REGAL requires platelets
+`>20 × 10^9/L` and an absolute lymphocyte count (ALC) `>0.3 × 10^9/L` [R1]. Those floors make the
+direction of frailty-linked enrichment clinically plausible, but they do not separately identify
+`q` or `θ`. In the most directly relevant platelet study, a pre-allogeneic-transplant cohort in
+second or later remission had 36-month OS of 58% with complete platelet recovery versus 31% in
+CR2p, with an OS HR of 1.9 for CR2p [R16]. That is an upper-bound signal rather than a REGAL effect:
+CRp meant platelets below `100 × 10^9/L`, not failure of REGAL's much lower
+`20 × 10^9/L` floor, and every patient proceeded to transplant. A separate pretransplant cohort
+found no material survival difference among CR, CRp, and morphologic leukemia-free state, reinforcing
+the setting dependence [R17].
+
+ALC recovery is also prognostic in some AML cohorts. In 103 newly diagnosed adults, maintaining ALC
+`≥0.5 × 10^9/L` at four post-induction landmarks was associated with OS not reached versus 13
+months and LFS not reached versus 11 months [R18]. In a pediatric AML subset, day-28 ALC
+`<0.35 × 10^9/L`—close to REGAL's numerical cutoff—was associated with 5-year RFS of 10% and
+HR 3.7 [R19]. Neither study represents adult, non-transplant CR2 maintenance or a single enrollment
+measurement, so neither effect size should be imported into the model.
+
+As an explicitly analyst-derived translation [A], the platelet and ALC screens together support
+testing a 0–15% reduction in mortality hazard versus a broad, otherwise comparable CR2 population,
+with 7% as the central case. The central multiplier of `0.93` is nearly identical to v1's default
+combined frailty multiplier of `0.925`. It therefore **corroborates the existing default rather than
+creating an additional adjustment**: multiplying another `0.93` on top would double-count the same
+marrow/immune-recovery signal. Platelet count, ALC, ANC, treatment recovery, performance status, and
+organ function share causes and prognostic information; where a source survival cohort already
+applied similar count-recovery criteria, the incremental multiplier should be moved toward 1.00.
+
 **Mechanism (gamma-frailty eligibility selection).** Selection acts on **baseline frailty**, which
 merely correlates with survival — never on the realized death time. Population frailty
 `Z ~ Gamma(mean 1, variance θ)` multiplies the **uncured** hazard, and eligibility accepts a patient
@@ -1151,6 +1178,23 @@ dates matter.
   after transplant in high-risk AML and MDS patients,” *Blood Advances* 2020;4:5580–5588. Reports
   233 eligibility failures among 561 screened patients and separates patient/physician refusal from
   eligibility failures. https://doi.org/10.1182/bloodadvances.2020002544
+- **[R16]** Alatrash et al., “Platelet recovery before allogeneic stem cell transplantation
+  predicts posttransplantation outcomes in patients with acute myelogenous leukemia and
+  myelodysplastic syndrome,” *Biology of Blood and Marrow Transplantation* 2011;17:1841–1845.
+  Includes separate CR2/CR2p survival estimates; CRp uses the `100 × 10^9/L` platelet boundary.
+  https://doi.org/10.1016/j.bbmt.2011.05.018
+- **[R17]** Rashidi et al., “Hematologic recovery after pretransplant chemotherapy does not influence
+  survival after allogeneic hematopoietic cell transplantation in acute myeloid leukemia,”
+  *Biology of Blood and Marrow Transplantation* 2015;21:1425–1430. Provides platelet-recovery
+  counterevidence in another transplant cohort. https://pubmed.ncbi.nlm.nih.gov/25840336/
+- **[R18]** Behl et al., “Absolute lymphocyte count recovery after induction chemotherapy predicts
+  superior survival in acute myelogenous leukemia,” *Leukemia* 2006;20:29–34. Serial ALC
+  `≥0.5 × 10^9/L` was independently associated with OS and LFS in newly diagnosed adults.
+  https://doi.org/10.1038/sj.leu.2404032
+- **[R19]** De Angulo et al., “Absolute lymphocyte count is a novel prognostic indicator in ALL and
+  AML: implications for risk stratification and future studies,” *Cancer* 2008;112:407–415.
+  Reports the near-threshold day-28 AML result in patients aged 21 years or younger.
+  https://doi.org/10.1002/cncr.23168
 
 *Comparator literature anchors for [A] component survival (Section 2.5) were drawn from published
 AML CR2 / R/R venetoclax-HMA and azacitidine-maintenance outcome studies; the specific
