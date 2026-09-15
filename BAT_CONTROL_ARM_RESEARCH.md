@@ -238,23 +238,30 @@ window separately handles deaths before randomization—the working default is 2
 for sensitivity analysis. The default pair yields `E[Z | eligible] = 0.8^0.35 = 0.925`, a 7.5%
 reduction in mean uncured disease hazard among accepted patients.
 
-REGAL's platelet `>20 × 10^9/L` and ALC `>0.3 × 10^9/L` floors provide criterion-specific
-corroboration for that direction. In a pretransplant AML/MDS cohort, patients in second or later
-remission had 36-month OS of 58% with complete platelet recovery versus 31% in CR2p (OS HR 1.9 for
-CR2p; https://doi.org/10.1016/j.bbmt.2011.05.018), although CRp used the much higher
-`100 × 10^9/L` boundary and transplantation makes this an upper-bound signal for REGAL. For ALC,
-serial recovery to `≥0.5 × 10^9/L` after induction predicted superior OS and LFS in 103 newly
-diagnosed adults (https://doi.org/10.1038/sj.leu.2404032), while a pediatric AML analysis found
-day-28 ALC `<0.35 × 10^9/L` associated with 5-year RFS of 10% and HR 3.7
-(https://doi.org/10.1002/cncr.23168).
+REGAL's platelet `>20 × 10^9/L` and ALC `>0.3 × 10^9/L` floors add
+criterion-specific context, but the available studies estimate related prognostic contrasts rather
+than those eligibility boundaries. REGAL enrolls both CR2 and CRp2 and stratifies by that category,
+so the principal CR2/CR2p platelet result describes heterogeneity within the eligible population
+(relevant to `θ`), not the screen-out fraction `q`. In a pretransplant AML/MDS cohort, patients
+in second or later remission had OS of 53% with complete platelet recovery versus 31% in CR2p at a
+median follow-up of 60 months (OS HR 1.9 for CR2p;
+https://doi.org/10.1016/j.bbmt.2011.05.018). CRp used the much higher `100 × 10^9/L` boundary,
+most of that group would remain REGAL-eligible, and transplantation further limits transportability.
 
-None of these studies estimates the effect of REGAL's exact floors in adult non-transplant CR2.
-A transparent analyst synthesis therefore uses 0%, 7%, and 15% lower mortality hazard as low/base/high
-cases for both count screens together. Its base multiplier, `0.93`, is effectively the same as the
-model's existing `0.925`; it supports that default and must **not** be multiplied on top of it.
-Correlated recovery, performance-status, organ-function, and other eligibility signals make the
-platelet and ALC contributions non-additive. Full interpretation and counterevidence are documented
-in Section 2.5.1 of `REGAL_MODEL_DOCUMENTATION.md`.
+For ALC, serial recovery to `≥0.5 × 10^9/L` after induction predicted superior OS and LFS in 103
+newly diagnosed adults (https://doi.org/10.1038/sj.leu.2404032), while a pediatric AML analysis
+found day-28 ALC `<0.35 × 10^9/L` associated with 5-year RFS of 10% and HR 3.7
+(https://doi.org/10.1002/cncr.23168). These results support ALC-linked heterogeneity and the
+direction of selection, but neither estimates REGAL's one-time threshold in adult non-transplant
+CR2.
+
+A transparent analyst synthesis uses 0%, 7%, and 15% lower mortality hazard as low/base/high cases
+for both count screens together; no publication directly estimates those values. The base multiplier
+of `0.93` is **consistent with** the model's existing `0.925`, but this is agreement between
+modeling judgments rather than independent confirmation. It must not be multiplied on top of the
+existing selection effect. Correlated count recovery, performance status, organ function, and other
+eligibility signals make the platelet and ALC contributions non-additive. Full interpretation and
+counterevidence are documented in Section 2.5.1 of `REGAL_MODEL_DOCUMENTATION.md`.
 
 | Component | Weight | Median OS | Cure π | Weibull k |
 |-----------|--------|-----------|--------|-----------|
