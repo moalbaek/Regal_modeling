@@ -46,9 +46,13 @@ The v1 eligibility-selection controls now use evidence-informed working defaults
 frailty-linked screen-out and **0.35** population frailty variance. Together they imply an enrolled
 mean frailty multiplier of `0.8^0.35 = 0.925`, or a 7.5% lower mean uncured disease hazard. These are
 analyst assumptions rather than directly measured REGAL parameters; the documented sensitivity
-ranges are 10–30% and 0.20–0.60. See
-[`BAT_CONTROL_ARM_RESEARCH.md`](BAT_CONTROL_ARM_RESEARCH.md) for the supporting AML/CR2 studies and
-the distinction between total trial ineligibility and frailty-linked selection.
+ranges are 10–30% and 0.20–0.60. Platelet- and lymphocyte-recovery literature supports
+prognostic heterogeneity and the direction of selection, but does not estimate REGAL's exact
+screen-out effect. An analyst-derived 7% central hazard enrichment for both count screens together
+is consistent with the existing 7.5% default and is not applied on top of it.
+See [`BAT_CONTROL_ARM_RESEARCH.md`](BAT_CONTROL_ARM_RESEARCH.md) and Section 2.5.1 of
+[`REGAL_MODEL_DOCUMENTATION.md`](REGAL_MODEL_DOCUMENTATION.md) for the evidence, limits, and the
+distinction between total trial ineligibility and frailty-linked selection.
 
 ## Files
 
