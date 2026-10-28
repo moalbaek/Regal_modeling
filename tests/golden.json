@@ -244,6 +244,13 @@
       "sG": 1.125,
       "state": "B"
     },
+    "B_near_tolerance_four": {
+      "cureReq": false,
+      "mG": 75.6760276089241,
+      "rmsResid": 1.8323797332533698,
+      "sG": 1.2,
+      "state": "B"
+    },
     "C_interior": {
       "cureReq": false,
       "mG": 73.78869887707813,

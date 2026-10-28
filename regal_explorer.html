@@ -305,7 +305,8 @@
         <input type="range" id="drop" min="0" max="10" step="0.5" value="0">
       </div>
       <div class="sub">Administrative censoring / dropout: patients who leave the study before dying are censored (no event),
-        which slows event accrual and can stall the 80th-event trigger. 0 = complete follow-up; trials of this type run ~3–10%.</div>
+        which reduces observed event accrual in the simulations. Poor reproduction of the announced
+        80-event milestone is a scenario-consistency warning. 0 = complete follow-up; trials of this type run ~3–10%.</div>
       <div class="sub" style="margin-top:14px;font-weight:600;color:var(--ink2)">Event data &amp; design</div>
       <table id="evTable" style="margin-top:8px"><thead><tr><th scope="col">Milestone</th><th scope="col">Date</th><th scope="col">Deaths</th></tr></thead><tbody></tbody></table>
       <div class="sub">SELLAS <a href="https://www.globenewswire.com/news-release/2026/10/28/3390187/0/en/sellas-life-sciences-reaches-80th-event-in-phase-3-regal-trial-of-galinpepimut-s-gps-in-acute-myeloid-leukemia.html" target="_blank" rel="noopener noreferrer">announced event 80 on 28 Oct 2026</a>.
@@ -339,7 +340,7 @@
           <div class="sub">Bounded no-GPS-cure alternative&nbsp;<span id="bsh"></span></div><div class="hr">HR <b id="hrLL">–</b></div></div>
       </div>
       <div class="spread" id="spread"></div>
-      <div class="sub" style="margin-top:8px">Both conditional on the 80th event occurring · threshold HR ≤ <span id="hrc2">0.636</span> (one-sided 0.025).</div>
+      <div class="sub" style="margin-top:8px">Both rates conditional on simulated final-analysis reach · threshold HR ≤ <span id="hrc2">0.636</span> (one-sided 0.025).</div>
     </div>
 
     <div class="card">
@@ -1989,6 +1990,14 @@ function common(cfg){
 }
 const median=(S)=>{ if(S(900)>=0.5) return Infinity; let lo=.01,hi=900; for(let i=0;i<60;i++){const m=(lo+hi)/2;S(m)>.5?lo=m:hi=m;} return (lo+hi)/2; };
 
+// Preserve the original three-row sum-of-squared-error allowance (12 deaths squared).
+function fitResiduals(predicted,observed){
+  if(!predicted.length||predicted.length!==observed.length)throw Error("predicted and observed must be nonempty equal-length vectors");
+  const residual=predicted.map((x,i)=>x-observed[i]);
+  const rmsResid=Math.sqrt(residual.reduce((a,x)=>a+x*x,0)/residual.length);
+  const maxResid=Math.max(...residual.map(Math.abs)),rmsTol=2*Math.sqrt(3/residual.length),offTol=3;
+  return {rmsResid,maxResid,rmsTol,offTol,residualMisfit:rmsResid>rmsTol||maxResid>offTol};
+}
 // ---------- shared BAT arm (identical in BOTH panels; only the GPS responder differs) ----------
 // Factored out so the two panels are literally one biological lever apart: same per-component
 // medians, cures, shapes and pre-randomization selection layers. There is no second BAT construction.
@@ -2067,8 +2076,7 @@ function buildNoGPSCure(cfg){
       const e=resid(mG,sG); if(e<bs){bs=e;best=[mG,sG];}}}
   const[mG,sG]=best;
   const edv=MT.map(t=>ed(t,mG,sG));
-  const rmsResid=Math.sqrt(edv.reduce((a,x,i)=>a+(x-MOBS[i])**2,0)/MT.length);
-  const maxOff=Math.max(...edv.map((x,i)=>Math.abs(x-MOBS[i])));
+  const diagnostics=fitResiduals(edv,MOBS),{rmsResid,maxResid:maxOff,rmsTol,offTol,residualMisfit}=diagnostics;
   // §5 boundary detection on the GPS knobs (mG cap/track, sG edges).
   const mgCap=mG>=MGHI-0.5, mgFloor=mG<=MGLO+0.5, sgHeavy=fitShape&&sG<=SGMIN+0.01, sgLight=fitShape&&sG>=SGMAX-0.01;
   // boundary-tracking diagnostic: raise the mG cap; if the fit tracks it, mG is unidentified.
@@ -2076,10 +2084,8 @@ function buildNoGPSCure(cfg){
   if(mgCap){const MGHI2=MGHI*1.6;let m2=mG,b2=1e18;for(let mi=0;mi<=20;mi++){const mm=MGLO+(MGHI2-MGLO)*mi/20;const e=resid(mm,sG);if(e<b2){b2=e;m2=mm;}}mgTrack=m2>MGHI+1;}
   // §5 fit status. All non-interior fits are non-identified (State A) and show no scenario rate.
   // The compatibility cureReq flag only distinguishes upper/heavy boundaries from the light-edge boundary;
-  // neither subtype is a formal test of a biological mechanism. Fit-status tolerance is RMS-based
-  // (the weighted fit deliberately trades the middle milestone for the most-recent one, so a
-  // single-milestone miss must not by itself trip State B).
-  const RMS_TOL=2.0, OFF_TOL=3;
+  // neither subtype is a formal test of a biological mechanism. fitResiduals preserves the
+  // three-row squared-error allowance: a well-fitted extra row cannot dilute earlier misfit.
   const cureBound=mgCap||mgTrack||sgHeavy;                 // compatibility upper/heavy-boundary subtype
   let state, reason, cureReq=false;
   if(cureBound){ state="A"; cureReq=true;
@@ -2087,15 +2093,15 @@ function buildNoGPSCure(cfg){
       : ("tail shape pinned at the heavy edge ("+SGMIN+") — the fit is non-identified at its lower shape bound"); }
   else if(sgLight){ state="A"; cureReq=false;
     reason = "GPS tail pinned at the light edge ("+SGMAX+"): the milestones want an even lighter (sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. This boundary does not identify whether a GPS-specific cure exists"; }
-  else if(rmsResid>RMS_TOL||maxOff>OFF_TOL){ state="B";
-    reason = "residual RMS "+rmsResid.toFixed(1)+" (modeled "+edv.map(x=>x.toFixed(0)).join("/")+" vs "+MOBS.join("/")+")"; }
+  else if(residualMisfit){ state="B";
+    reason = "residual RMS "+rmsResid.toFixed(2)+" (limit "+rmsTol.toFixed(2)+"), max residual "+maxOff.toFixed(2)+" (limit "+offTol.toFixed(2)+"); modeled "+edv.map(x=>x.toFixed(0)).join("/")+" vs "+MOBS.join("/"); }
   else { state="C";
     reason = mgFloor ? ("GPS ≈ BAT — essentially no GPS separation needed (median "+mG.toFixed(0)+"mo)")
       : ("interior fit (median "+mG.toFixed(0)+"mo, tail shape "+sG.toFixed(2)+")"); }
   const degenerate=(state==="A"||state==="B");            // A/B render fit status, not a scenario rate
   const Sb=t=>Sbat(t)*Snat(t,h), Sg=t=>Sgps(t,mG,sG)*Snat(t,h), Sp=t=>Spool(t,mG,sG)*Snat(t,h);
   return {kind:"nogpscure",cfg,w,cm,coh,MT,MOBS,WT,h,pibat,obs,fnr,mG,sG,fitShape,
-    batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,state,reason,cureReq,
+    batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,...diagnostics,state,reason,cureReq,
     degenerate,edRaw:ed,Sbat:Sb,Sgps:Sg,Spool:Sp,gpsMed:median(Sg),ed:t=>ed(t,mG,sG)};
 }
 // ---------- shared Monte-Carlo ----------
@@ -2420,7 +2426,8 @@ function chart(M,r){
   if(curveView==="km")chartKM(M,r);else chartModel(M);
 }
 
-// first calendar month (from BASE) where cumulative events ed(t) reaches target, or null if it stalls below it
+// Modeled calendar crossing, or null when this scenario under-produces events over the window.
+// REGAL has already announced event 80; this is a scenario diagnostic, not a future trial milestone.
 function projCross(edFn,target,t0,t1){
   if(edFn(t1)<target) return null;
   let lo=t0,hi=t1; for(let i=0;i<50;i++){const m=(lo+hi)/2; edFn(m)<target?lo=m:hi=m;} return (lo+hi)/2;
@@ -2648,6 +2655,15 @@ function fitCI(cfg,builder){
   try{return [refit(1),refit(-1)].sort((a,b)=>a-b);}
   finally{ev=saved;}  // restore the full history even if a refit fails
 }
+function reachWarning(M,reach){
+  const percent=Math.round(100*reach),target=M.cfg.FINAL;
+  if(percent>=70)return "";
+  const observed=M.MOBS.some(n=>n>=target);
+  const detail=observed
+    ? `The ${target}-event milestone is already in the fitted history, so low simulated reach signals under-production of deaths for this scenario.`
+    : "This percentage describes event reach over the full simulated follow-up.";
+  return `<span class="warn">⚠ Only ${percent}% of scenario simulations reach ${target} deaths over their full simulated follow-up. ${detail}</span> `;
+}
 function render(){
   const cfg=cfgFromUI();
   const Mc=buildPlateau(cfg), Ml=buildNoGPSCure(cfg);   // two v1 fixed-scenario model families
@@ -2697,7 +2713,7 @@ function render(){
       +metric("GPS cure / median",(100*M.pgps).toFixed(0)+"% <small>/ "+fmtMed(M.gpsMed)+"</small>")
       +metric("Cure-fraction gap","+"+(100*(M.pgps-M.pibat)).toFixed(0)+"<small>pp</small>")
       +metric("Eligibility screen-out",Math.round((cfg.esel||0)*100)+"% <small>frailty var "+(+(cfg.fvar||0)).toFixed(2)+", entry "+((cfg.dmax||0)<=0?"off":Math.min(cfg.dmin||0,cfg.dmax)+"\u2013"+cfg.dmax+"mo")+"</small>")
-      +metric("80th event reached",Math.round(r.reach*100)+"%")
+      +metric(cfg.FINAL+"-event reach <small>(MC eventual)</small>",Math.round(r.reach*100)+"%")
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",iaVal)
       +metric("Alive @ 80th (GPS / BAT)",aliveVal);
   } else {
@@ -2710,22 +2726,20 @@ function render(){
       +metric("GPS tail shape <small>(fitted)</small>",g(M.sG.toFixed(2)+(M.fitShape?"":" ovr")))
       +metric("Median ratio <small>(derived)</small>",g((isFinite(M.ratio)?M.ratio.toFixed(1):"–")+"×"))
       +metric("No-GPS-cure fit status",stateLbl)
-      +metric("Milestone residual",g("RMS "+M.rmsResid.toFixed(1)))
-      +metric("80th event reached",Math.round(r.reach*100)+"%")
+      +metric("Milestone residual",g("RMS "+M.rmsResid.toFixed(2)+" / limit "+M.rmsTol.toFixed(2)))
+      +metric(cfg.FINAL+"-event reach <small>(MC eventual)</small>",Math.round(r.reach*100)+"%")
       +metric("Implied HR @ IA ("+cfg.IA+" ev)",g(iaVal))
       +metric("Alive @ 80th (GPS / BAT)",g(aliveVal));
   }
   $("metrics").innerHTML=mhtml;
   const edv=M.MT.map(t=>M.ed(t));
   let note="Fit check — modeled deaths: "+edv.map(x=>`<b>${x.toFixed(0)}</b>`).join(" / ")+" vs observed "+M.MOBS.join(" / ")+". ";
-  if(mode==="plateau"){ const rch=Math.round(r.reach*100);
-    note += rch<70 ? `<span class="warn">⚠ 80th event reached in only ${rch}% of sims — survival so high the trigger may stall.</span> ` : "";
+  note += reachWarning(M,r.reach);
+  if(mode==="plateau"){
     const q=Math.round((cfg.esel||0)*100), th=+(cfg.fvar||0);
     note += `BAT longevity is the component medians plus <b>${q}%</b> eligibility screen-out at frailty variance <b>${th.toFixed(2)}</b>. `
       + ((q===0||th===0) ? `With no screening (or no frailty spread to screen on) the raw medians tend to over-produce early deaths, so a residual misfit here is the signal that some selection is needed.` : `Selection removes frailer patients before randomization, which is what explains the milestone deceleration.`);
   } else {
-    const rch=Math.round(r.reach*100);
-    note += rch<70 ? `<span class="warn">⚠ 80th event reached in only ${rch}% of sims — survival so high the trigger may stall.</span> ` : "";
     if(M.state==="A" && M.cureReq){
       note += `<span class="warn">⚠ Bounded no-GPS-cure fit is non-identified (${M.reason}).</span> The optimizer reached an upper/heavy parameter boundary, so the alternative's scenario rejection rate is withheld. A boundary fit does not establish a biological mechanism. `;
     } else if(M.state==="A"){

@@ -37,6 +37,32 @@ class CountSensitivityTest(unittest.TestCase):
                                  {k:v for k,v in original['ev'][i].items() if k!='n'})
 
 
+class ResidualToleranceTest(unittest.TestCase):
+    def test_zero_residual_row_cannot_hide_three_row_misfit(self):
+        before = R.fit_residuals([2.05]*3, [0]*3)
+        after = R.fit_residuals([2.05]*3+[0], [0]*4)
+        self.assertTrue(before['residualMisfit'])
+        self.assertTrue(after['residualMisfit'])
+        self.assertLess(after['rmsResid'], 2.0)  # The old four-row rule missed this.
+        self.assertAlmostEqual(before['rmsTol'], 2.0)
+        self.assertAlmostEqual(after['rmsTol'], 3.0**0.5)
+        self.assertAlmostEqual(after['rmsTol']**2*4, before['rmsTol']**2*3)
+
+    def test_adequate_residuals_and_maximum_residual_guard_are_preserved(self):
+        for count in (3, 4, 8):
+            good = R.fit_residuals([1.95]*3+[0]*(count-3), [0]*count)
+            self.assertFalse(good['residualMisfit'])
+            single_miss = R.fit_residuals([3.01]+[0]*(count-1), [0]*count)
+            self.assertLess(single_miss['rmsResid'], single_miss['rmsTol'])
+            self.assertTrue(single_miss['residualMisfit'])
+
+    def test_projection_failure_describes_the_scenario_not_a_pending_trial_event(self):
+        self.assertIsNone(R.proj_cross(lambda t: 70.0, 80, 0, 90))
+        self.assertAlmostEqual(R.proj_cross(lambda t: t, 80, 0, 90), 80)
+        self.assertIn('scenario', R.proj_cross.__doc__)
+        self.assertNotIn('event stalls', R.proj_cross.__doc__)
+
+
 @unittest.skipUnless(shutil.which('node'), 'Node.js required for browser behavior checks')
 class BrowserReviewTest(unittest.TestCase):
     @classmethod
@@ -94,6 +120,64 @@ console.log(JSON.stringify({valid,invalid,initialMarkup,correctedMarkup:nodes.bo
         self.assertIn('min="2026-05-12" max="2026-10-28"', result['initialMarkup'])
         self.assertEqual(result['bounds'], {'min':'2026-06-01','max':'2026-11-03'})
         self.assertIn('min="2026-06-01" max="2026-11-03"', result['correctedMarkup'])
+
+    def test_browser_residual_diagnostics_match_python_with_three_and_four_rows(self):
+        cases = [[2.05]*3, [2.05]*3+[0], [1.95]*3+[0], [3.01]+[0]*7]
+        script = 'const cases='+json.dumps(cases)+''';
+console.log(JSON.stringify(cases.map(x=>fitResiduals(x,x.map(()=>0)))));
+'''
+        actual = self.run_js(script)
+        for values, got in zip(cases, actual):
+            expected = R.fit_residuals(values, [0]*len(values))
+            self.assertEqual(got['residualMisfit'], expected['residualMisfit'])
+            for key in ('rmsResid','rmsTol','maxResid','offTol'):
+                self.assertAlmostEqual(got[key], expected[key], places=12)
+
+    def test_four_row_fit_near_old_cutoff_withholds_the_alternative_rate(self):
+        cfg = R.default_cfg()
+        for event,count in zip(cfg['ev'], [58,76,76,80]):
+            event['n'] = count
+        expected = R.build_no_gps_cure(cfg)
+        result = self.run_js('const cfg='+json.dumps(cfg)+''';
+comp=cfg.comp;ev=cfg.ev;
+const M=buildNoGPSCure(cfg);
+console.log(JSON.stringify({state:M.state,degenerate:M.degenerate,rms:M.rmsResid,
+  limit:M.rmsTol,max:M.maxResid,shape:M.sG}));
+''')
+        self.assertEqual(result['state'], 'B')
+        self.assertTrue(result['degenerate'])
+        self.assertGreater(result['rms'], result['limit'])
+        self.assertLess(result['rms'], 2.0)
+        self.assertLess(result['max'], 3.0)
+        self.assertTrue(0.16 < result['shape'] < 1.49)
+        self.assertEqual(result['state'], expected['state'])
+        self.assertAlmostEqual(result['rms'], expected['rmsResid'], places=9)
+        self.assertAlmostEqual(result['limit'], expected['rmsTol'], places=12)
+
+    def test_reach_warning_describes_full_followup_for_both_scenarios(self):
+        start = self.html.index('function reachWarning(')
+        warning = self.html[start:self.html.index('function render(){',start)]
+        result = self.run_js(warning+'''
+const models=['plateau','nogpscure'].map(kind=>({kind,cfg:{FINAL:80},MOBS:[60,72,78,80]}));
+console.log(JSON.stringify({low:models.map(M=>reachWarning(M,0.45)),
+  high:[0.7,1].map(r=>reachWarning(models[0],r)),
+  custom:reachWarning({cfg:{FINAL:100},MOBS:[60,72,78,80]},0.4)}));
+''')
+        self.assertEqual(result['low'][0], result['low'][1])
+        for note in result['low']:
+            self.assertIn('45%', note)
+            self.assertIn('full simulated follow-up', note)
+            self.assertIn('already in the fitted history', note)
+            self.assertIn('under-production of deaths', note)
+            self.assertNotIn('stall', note)
+            self.assertNotIn('by the', note)
+        self.assertEqual(result['high'], ['', ''])
+        self.assertNotIn('already', result['custom'])
+        render = self.html[self.html.index('function render(){'):]
+        note = render[render.index('let note='):render.index('const showFit =')]
+        self.assertEqual(note.count('reachWarning(M,r.reach)'), 1)
+        self.assertLess(note.index('reachWarning('), note.index('if(mode==='))
+        self.assertNotIn('trigger may stall', self.html)
 
     def test_sweep_uses_the_weights_returned_by_the_model(self):
         start = self.html.index('function powerSweep(')

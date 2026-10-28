@@ -35,7 +35,11 @@ least-squares fit uses all four rows, with analyst weights **1/2/4/8** or equal 
 approximation, not an assertion that the 80th death occurred on 28 October or that exactly 80 deaths
 were observed that day. The browser exposes this row's date for sensitivity; 14–28 October represents
 an assumed 0–14 day reporting lag, not a disclosed range. Python callers can edit `cfg["ev"][-1]`.
-The residual RMS divides by the actual milestone count, and the sweep scores include every row.
+The residual RMS divides by the actual milestone count; its acceptance limit scales as
+`2*sqrt(3/n)` to retain the original total squared-error allowance. Sweep scores include every row.
+MC reach is eventual simulated reach over full follow-up, not reach by the announcement date.
+Since event 80 has been announced, low simulated reach flags under-production of deaths by the
+scenario; it does not forecast that REGAL's event trigger might fail to occur.
 The fixed-date count-sensitivity display perturbs only as-of counts (72/78); exact threshold counts
 (60/80) are held fixed. It is a heuristic range without a confidence level. The separate date control
 explores reporting lag; no 0–14 day range is inferred from the release.
@@ -628,7 +632,7 @@ per component rather than removing background mortality altogether.
 **V1 sensitivity.** In the reproduced base run, changing the v1 overlay from 0% to 2% moves
 the 80-event reach fraction from about **70% to 100%** and the fitted median HR from about **0.359 to
 0.316**, while the fixed-scenario rejection rate barely moves, about **98.7% to 99.7%**. The overlay
-therefore changes the event-stall narrative and fitted effect much more than the scenario
+therefore changes simulated event reach and the fitted effect much more than the scenario
 power. These values characterize the flawed v1 comparison; the corrected v2 mixture must be refitted.
 The earlier documentation's ~82% reach value at 0% was stale.
 
@@ -696,7 +700,7 @@ milestone fit: the expected *observed* deaths by a date use
 (closed-form reduces to `1−S(τ)` when `h_c = 0`), so the fit stays calibrated to 60/72/78 with the
 underlying disease survival adjusted for the censoring. At default 0 the model is unchanged.
 
-**Effect.** Dropout lowers the scenario rejection rate and can stall the trigger: at the evidence-informed
+**Effect.** Dropout lowers the scenario rejection rate and reduces simulated event reach: at the evidence-informed
 base preset the plateau rate falls ~97% → 96% → 93% → 75% across 0 / 3 / 5 / 10 %/yr, and the
 80th-event "reached" fraction falls to ~84% at 10%. It is non-differential, so it dilutes the contrast
 and removes events; unlike natural death it does not bring the trigger forward. The sensitivity is
@@ -877,6 +881,16 @@ responder family to a no-cure Weibull. Its fitted parameters are responder media
 `m_G ∈ [median_BAT, 120]` months and shape `s_G ∈ [0.15, 1.5]`; non-responders continue to track
 Observation. Because BAT is fixed and the parameter box and residual tolerances are analyst choices,
 this is a bounded sensitivity analysis rather than a formal statistical null.
+
+The residual tolerance preserves the original three-row total squared-error allowance:
+`sum(residual²) <= 12` (equivalently `RMS <= 2*sqrt(3/n)`) and maximum absolute residual `<= 3`
+deaths. Thus the RMS limit is 2.0 for three rows and 1.732 for four. Adding a row with zero residual
+cannot turn a residual-misfit diagnosis into an adequate fit by diluting the RMS denominator.
+The maximum-residual limit remains a separate per-row safeguard. These are analyst-chosen
+compatibility diagnostics, not statistically calibrated confidence or hypothesis-test thresholds.
+The four-row fixture `[58,76,76,80]` has an interior fit with RMS 1.832 and max residual 2.728:
+it passed the former fixed RMS limit of 2.0, but fails the preserved-error limit of 1.732 and is
+State B, so its alternative scenario rate is withheld. The default fit remains State C (RMS 0.967).
 
 The A/B/C status is deliberately descriptive:
 

@@ -48,6 +48,8 @@ VERDICT_FIXTURES = {
     "A_light_edge_four": {"ev_dates": [(2024, 12, 10), (2025, 3, 26),
                                       (2025, 5, 11), (2025, 7, 28)]},
     "B_inconsistent_four": {"ev_counts": [55, 78, 79, 80]},
+    # Old n=4 RMS <= 2 would show a rate here; preserving SSE <= 12 withholds it.
+    "B_near_tolerance_four": {"ev_counts": [58, 76, 76, 80]},
     "C_interior_four": {"ev_counts": [62, 74, 78, 80]},
 }
 

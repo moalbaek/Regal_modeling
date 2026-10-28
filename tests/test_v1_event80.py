@@ -58,7 +58,7 @@ class Event80Test(unittest.TestCase):
 console.log(JSON.stringify(cases.map(cfg=>{
   comp=cfg.comp; ev=cfg.ev;
   const p=buildPlateau(cfg), n=buildNoGPSCure(cfg);
-  return {presp:p.presp,edv:p.MT.map(p.ed),mG:n.mG,sG:n.sG,rms:n.rmsResid,state:n.state,weights:[p.WT,n.WT]};
+  return {presp:p.presp,edv:p.MT.map(p.ed),mG:n.mG,sG:n.sG,rms:n.rmsResid,rmsTol:n.rmsTol,max:n.maxResid,state:n.state,weights:[p.WT,n.WT]};
 })));'''
         completed = subprocess.run([shutil.which('node'), '-e', script],
                                    text=True, capture_output=True, check=True)
@@ -66,7 +66,7 @@ console.log(JSON.stringify(cases.map(cfg=>{
             p, n = R.build_plateau(cfg), R.build_no_gps_cure(cfg)
             self.assertAlmostEqual(actual['presp'], p['presp'], places=10)
             np.testing.assert_allclose(actual['edv'], [p['ed'](t) for t in p['MT']], atol=1e-9)
-            for key, value in [('mG', n['mG']), ('sG', n['sG']), ('rms', n['rmsResid'])]:
+            for key, value in [('mG', n['mG']), ('sG', n['sG']), ('rms', n['rmsResid']), ('rmsTol', n['rmsTol']), ('max', n['maxResid'])]:
                 self.assertAlmostEqual(actual[key], value, places=8)
             self.assertEqual(actual['state'], n['state'])
             for weights in actual['weights']:
