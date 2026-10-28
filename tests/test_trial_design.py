@@ -80,13 +80,14 @@ class TrialDesignTest(unittest.TestCase):
                 )
 
     def test_equal_strata_replay_characterization(self):
+        # Recalibrated to 60/72/78 plus the Oct 28 event-80 announcement proxy.
         result = replay(nsim=1000)
         self.assertEqual(result["bat_weights"], [135 / 7, 40 / 7, 25.0, 25.0, 25.0])
-        self.assertAlmostEqual(result["interim_efficacy_crossing"], 0.836, delta=0.02)
+        self.assertAlmostEqual(result["interim_efficacy_crossing"], 0.770, delta=0.02)
         self.assertAlmostEqual(
-            result["final_scenario_rejection_rate_given_reach"], 0.984, delta=0.03
+            result["final_scenario_rejection_rate_given_reach"], 0.971, delta=0.03
         )
-        self.assertAlmostEqual(result["median_final_hr"], 0.371, delta=0.03)
+        self.assertAlmostEqual(result["median_final_hr"], 0.392, delta=0.03)
 
 
 class V2LanDeMetsBoundaryTest(unittest.TestCase):

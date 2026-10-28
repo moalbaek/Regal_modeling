@@ -1,6 +1,6 @@
 """REGAL v1 scenario explorer — Python engine (port of regal_explorer.html).
 
-The blinded milestones (60/72/78 deaths) constrain assumed pooled survival families;
+The blinded milestones (60/72/78/80 deaths) constrain assumed pooled survival families;
 the arm split remains assumption-driven. The engine compares two fixed scenarios
 using an identical BAT arm and changing only the GPS responder component:
 
@@ -251,9 +251,13 @@ DEFAULT_COMP = [
     {"name": "LDAC",         "w": 8,  "med": 7.0,  "cure": 8,  "k": 1.1},
 ]
 DEFAULT_EV = [
-    {"label": "60 events", "y": 2024, "m": 12, "d": 10, "n": 60},
+    {"label": "60 events", "y": 2024, "m": 12, "d": 10, "n": 60, "threshold": True},
     {"label": "72 events", "y": 2025, "m": 12, "d": 26, "n": 72},
     {"label": "78 events", "y": 2026, "m": 5,  "d": 11, "n": 78},
+    # Announcement-date proxy: SELLAS confirmed event 80 on Oct 28, but did not
+    # disclose its occurrence date. Edit this date for reporting-lag sensitivity.
+    {"label": "80 events (announced)", "y": 2026, "m": 10, "d": 28, "n": 80,
+     "dateProxy": True, "threshold": True},
 ]
 PRESETS = {
     "base": {"w": [27, 8, 22, 35, 8], "vc": 15},
@@ -305,7 +309,7 @@ def common(cfg):
     coh = enroll(cfg["bl"], cfg["N"])
     MT = np.array([mo(e["y"], e["m"], e["d"]) for e in cfg["ev"]])
     MOBS = np.array([e["n"] for e in cfg["ev"]], float)
-    WT = np.array([1.0, 1.0, 1.0]) if cfg.get("unweighted") else np.array([1.0, 2.0, 4.0])
+    WT = np.ones(len(MT)) if cfg.get("unweighted") else 2.0 ** np.arange(len(MT))
     return w, cm, coh, MT, MOBS, WT
 
 def median(S):
@@ -330,6 +334,25 @@ def month_label(m):
 def cum_enroll(coh, y, m, d=28):
     """Cumulative patients enrolled by a calendar date (for the sourced PR anchors)."""
     return float(coh[coh[:, 0] <= mo(y, m, d), 1].sum())
+
+def fit_residuals(predicted, observed):
+    """V1 heuristic diagnostics with the original three-row total-error allowance.
+
+    Three-row RMS <= 2 means sum(residual**2) <= 12. Preserve that allowance
+    as rows are added: RMS limit = 2*sqrt(3/n), with max absolute residual <= 3.
+    This is an analyst diagnostic, not a calibrated statistical test.
+    """
+    predicted = np.asarray(predicted, dtype=float)
+    observed = np.asarray(observed, dtype=float)
+    if predicted.ndim != 1 or predicted.size == 0 or predicted.shape != observed.shape:
+        raise ValueError("predicted and observed must be nonempty equal-length vectors")
+    residual = predicted - observed
+    rms = float(np.sqrt(np.mean(residual ** 2)))
+    max_off = float(np.max(np.abs(residual)))
+    rms_tol = float(2.0 * np.sqrt(3.0 / residual.size))
+    return dict(rmsResid=rms, maxResid=max_off, rmsTol=rms_tol, offTol=3.0,
+                residualMisfit=bool(rms > rms_tol or max_off > 3.0))
+
 
 # ---------------------------------------------------------------- shared BAT arm (both panels)
 def bat_arm(cfg):
@@ -377,13 +400,13 @@ def build_plateau(cfg):
     best, bs = 0.6, 1e18
     for ki in range(91):
         pr = ki / 90.0
-        e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(3))
+        e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(len(MT)))
         if e < bs: bs, best = e, pr
     for it in range(3):
         st = 0.05 / (it + 1)
         for dp in range(-4, 5):
             pr = min(0.985, max(0.0, best + dp * st))
-            e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(3))
+            e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(len(MT)))
             if e < bs: bs, best = e, pr
     presp = best
     pgps = (1 - fnr) * presp + fnr * ecure(obs)
@@ -441,7 +464,7 @@ def build_no_gps_cure(cfg):
         return 0.5 * Sbat(t)[..., None] + 0.5 * Sg
 
     def resid_grid(mG, sG):
-        """The milestone-fit residual (WT-weighted squared miss on ed() at each of the 3
+        """The milestone-fit residual (WT-weighted squared miss on ed() at each of the configured
         milestones), evaluated across an entire (mG, sG) candidate grid in one vectorized pass.
         The fit loops below need this at ~600-800 grid points; doing that one scalar call at a
         time (walking ~40 cohort rows through obs_frac()'s tiny numpy ops per call) made the fit
@@ -466,7 +489,7 @@ def build_no_gps_cure(cfg):
             e += Wt * ((wts[:, None] * frac).sum(axis=0) - Mo) ** 2
         return e
 
-    # §2/§3: fit the GPS responder median mG and (auto) tail shape sG to the 3 milestones. §3: BAT is
+    # §2/§3: fit the GPS responder median mG and (auto) tail shape sG to all configured milestones. §3: BAT is
     # FIXED on purpose here while varying the GPS responder family; sG is free to go heavy.
     sgN = 18 if fit_shape else 0
     best, bs = (min(MGHI, (bat_med or 12.0) * 2), 0.6 if fit_shape else cfg["shape"]), 1e18
@@ -487,8 +510,8 @@ def build_no_gps_cure(cfg):
         if e_ref[k] < bs: bs, best = float(e_ref[k]), (float(mgc[k]), float(sgc[k]))
     mG, sG = best
     edv = [ed(t, mG, sG) for t in MT]
-    rms_resid = float(np.sqrt(sum((edv[i] - MOBS[i]) ** 2 for i in range(3)) / 3.0))
-    max_off = float(max(abs(edv[i] - MOBS[i]) for i in range(3)))
+    diagnostics = fit_residuals(edv, MOBS)
+    rms_resid, max_off = diagnostics["rmsResid"], diagnostics["maxResid"]
     # §5 boundary detection on the GPS knobs (mG cap/track, sG edges).
     mg_cap = mG >= MGHI - 0.5; mg_floor = mG <= MGLO + 0.5
     sg_heavy = fit_shape and sG <= SGMIN + 0.01; sg_light = fit_shape and sG >= SGMAX - 0.01
@@ -501,9 +524,8 @@ def build_no_gps_cure(cfg):
         mg_track = m2b > MGHI + 1.0
     # §5 fit status. All non-interior fits are non-identified (State A) with no reported scenario
     # rate. The compatibility cureReq field only separates upper/heavy from light-edge boundaries; neither
-    # subtype is a formal test of a biological mechanism. RMS-based tolerance ensures the
-    # weighted fit's deliberate middle-milestone trade-off does not by itself trip State B.
-    RMS_TOL, OFF_TOL = 2.0, 3.0
+    # subtype is a formal test of a biological mechanism. fit_residuals preserves the
+    # three-row squared-error allowance so an added near-zero residual cannot hide misfit.
     cure_bound = mg_cap or mg_track or sg_heavy
     cure_req = False
     if cure_bound:
@@ -516,9 +538,11 @@ def build_no_gps_cure(cfg):
         reason = ("GPS tail pinned at the light edge (%.2f): the milestones want an even lighter "
                   "(sharper, increasing-hazard) responder tail, so the no-cure fit is unidentified here. "
                   "This boundary does not identify whether a GPS-specific cure exists" % SGMAX)
-    elif rms_resid > RMS_TOL or max_off > OFF_TOL:
+    elif diagnostics["residualMisfit"]:
         state = "B"
-        reason = "residual RMS %.1f (modeled %s vs %s)" % (rms_resid, "/".join("%.0f" % x for x in edv), "/".join("%.0f" % x for x in MOBS))
+        reason = "residual RMS %.2f (limit %.2f), max residual %.2f (limit %.2f); modeled %s vs %s" % (
+            rms_resid, diagnostics["rmsTol"], max_off, diagnostics["offTol"],
+            "/".join("%.0f" % x for x in edv), "/".join("%.0f" % x for x in MOBS))
     else:
         state = "C"
         reason = ("GPS ~= BAT — essentially no GPS separation needed (median %.0fmo)" % mG) if mg_floor \
@@ -530,21 +554,34 @@ def build_no_gps_cure(cfg):
     return dict(kind="nogpscure", cfg=cfg, w=w, cm=cm, coh=coh, MT=MT, MOBS=MOBS, WT=WT,
                 h=h, pibat=pibat, obs=obs, fnr=fnr, mG=mG, sG=sG, fitShape=fit_shape,
                 batMed=bat_med, ratio=(mG / bat_med if np.isfinite(bat_med) else np.nan),
-                edv=edv, rmsResid=rms_resid, state=state, reason=reason,
+                edv=edv, **diagnostics, state=state, reason=reason,
                 cureReq=cure_req, degenerate=degenerate, ed_raw=ed,
                 Sbat=Sb, Sgps=Sg, Spool=Sp,
                 gpsMed=median(Sg), ed=lambda t: ed(t, mG, sG))
 
 # ---------------------------------------------------------------- fit uncertainty
 def fit_ci(cfg, builder):
-    """Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts.
-    Returns (med_more, med_fewer): more deaths -> shorter GPS median; fewer deaths -> longer (often NR)."""
+    """Fixed-date count-sensitivity range, not a confidence interval.
+
+    Perturb only as-of counts by +/-sqrt(n), clipped to adjacent fixed thresholds
+    and N to preserve cumulative-count ordering. Threshold counts (60/80) stay fixed.
+    Dates, BAT assumptions and model family are held fixed. Reporting-lag sensitivity
+    is explored separately by editing the announcement-date proxy in cfg["ev"].
+    The historical function name is retained for callers.
+    """
+    def is_threshold(e):
+        return e.get("threshold") or e.get("dateProxy")
+
     def refit(sign):
         c = dict(cfg); c["ev"] = [dict(e) for e in cfg["ev"]]
-        for e in c["ev"]:
-            e["n"] = max(1.0, e["n"] + sign * np.sqrt(e["n"]))
+        for i, e in enumerate(c["ev"]):
+            if not is_threshold(e):
+                lower = max([1.0] + [a["n"] for a in cfg["ev"][:i] if is_threshold(a)])
+                upper = min([cfg["N"]] + [a["n"] for a in cfg["ev"][i+1:] if is_threshold(a)])
+                # Preserve cumulative-count ordering around the fixed thresholds.
+                e["n"] = min(upper, max(lower, e["n"] + sign * np.sqrt(e["n"])))
         return builder(c)["gpsMed"]
-    return refit(+1), refit(-1)
+    return tuple(sorted((refit(+1), refit(-1))))
 
 # ---------------------------------------------------------------- shared Monte-Carlo
 def kaplan_meier(time, event):
@@ -590,8 +627,11 @@ def kaplan_meier(time, event):
 def mc(M, nsim=1500, seed=987654321, capture_km=False):
     """Enrollment -> per-arm death draws -> censor at FINAL-th event -> log-rank test.
     ``ps`` is the v1 fixed-scenario final rejection rate conditional on reaching
-    FINAL. The return value also exposes an unconditional interim efficacy-crossing
-    diagnostic using the committed two-look O'Brien-Fleming boundary."""
+    FINAL. ``reach`` counts eventual events over full simulated follow-up, not by
+    an observation/announcement date. Low reach flags under-production of deaths
+    relative to an already observed final-event milestone. The return value also
+    exposes an unconditional interim efficacy-crossing diagnostic using the
+    committed two-look O'Brien-Fleming boundary."""
     cfg = M["cfg"]; N, FINAL, HRC, fnr = cfg["N"], cfg["FINAL"], cfg["HRC"], cfg["fnr"]
     FINAL = max(2, int(FINAL))                                    # engine-level guard for notebook/API callers
     h = natH(cfg.get("ndr", 0.0))                                  # background mortality competing risk (an event)
@@ -780,7 +820,7 @@ def _mc_task(kind, cfg, nsim, seed=987654321, override=None):
             M[k] = v
         args = (M["presp"],) if kind == "plateau" else (M["mG"], M["sG"])
         extra["E"] = sum(M["WT"][j] * (M["ed_raw"](M["MT"][j], *args) - M["MOBS"][j]) ** 2
-                          for j in range(3))
+                          for j in range(len(M["MT"])))
     run_mc = override is not None or kind == "plateau" or M.get("state") == "C"
     r = {**mc(M, nsim, seed), **extra} if run_mc else None
     # every curve/closure in M is callable and nothing else is, so this strips exactly the
@@ -804,7 +844,10 @@ NAVY = "#0b2545"; RED = "#9e2b25"; TEAL = "#197278"; GREY = "#6b6f72"; ORANGE = 
 
 def proj_cross(ed_fn, target, t0, t1):
     """First month-from-BASE where cumulative events ed_fn(t) reaches target, or None if it never does
-    within [t0,t1] (a plateau curve can asymptote below the trigger -> the 80th event stalls)."""
+    within [t0,t1]. This is a modeled crossing, not a forecast that REGAL's already
+    announced 80th event might fail to occur. A missing crossing flags under-production
+    of events by this scenario over the modeled calendar window.
+    """
     if ed_fn(t1) < target:
         return None
     lo, hi = t0, t1
@@ -892,17 +935,17 @@ def figure(path, nsim=1500, executor=None, base=None):
     d.plot(dts, edc, color=NAVY, lw=2.2, label="Plateau (GPS-cure) accrual")
     d.plot(dts, edl, color=ORANGE, lw=2.0, ls="-.", label=f"No-GPS-cure accrual (State {Ml['state']})")
     d.scatter([_to_date(t) for t in Mc["MT"]], Mc["MOBS"], color=RED, s=34, zorder=5,
-              label="Blinded milestones (60/72/78)")
+              label="Blinded milestones (60/72/78/80)")
     d.axhline(FINAL, color=RED, ls="--", lw=1, alpha=.6)
     d.text(dts[2], FINAL + 1.5, f"{FINAL}-event trigger", color=RED, fontsize=7.5)
     for ed_fn, col in [(Mc["ed"], NAVY), (Ml["ed"], ORANGE)]:
-        tc = proj_cross(ed_fn, FINAL, float(Mc["MT"][-1]), t1)
+        tc = proj_cross(ed_fn, FINAL, t0, t1)
         if tc is not None:
             d.axvline(_to_date(tc), color=col, ls=":", lw=1, alpha=.65)
             d.text(_to_date(tc), 6, _to_date(tc).strftime("%b %Y"), color=col,
                    fontsize=7, rotation=90, va="bottom", ha="right")
     d.set_ylim(0, max(95.0, float(edc.max()), float(edl.max())) * 1.03); d.set_ylabel("cumulative deaths")
-    d.set_title("(d) When does the 80th event fire? Plateau accrual can stall",
+    d.set_title("(d) Model event timing vs reported milestones",
                 fontweight="bold", fontsize=9)
     d.legend(fontsize=7.2, loc="lower right")
     for lab in d.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
@@ -1042,21 +1085,22 @@ if __name__ == "__main__":
         base = apply_preset(default_cfg(), "base")
         Mc, Ml = build_plateau(base), build_no_gps_cure(base)
         rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)   # Mc/Ml already built live; routing through the pool would rebuild for nothing
-        wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
+        wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4/8"
         print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
               f"loss-to-FU {100*base['drop']:.0f}%/yr, eligibility screen-out {100*base['esel']:.0f}% "
               f"(frailty var {base['fvar']:.2f}), CR2 entry window {base['dmin']:.0f}-{base['dmax']:.0f}mo, "
               f"fit {wmode})")
         print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
-        ci_more, ci_few = fit_ci(base, build_plateau)
+        ci_low, ci_high = fit_ci(base, build_plateau)
         print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
-        print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
+        print(f"         GPS median count-sensitivity range [{fmt_med(ci_low)} .. {fmt_med(ci_high)}] (as-of counts +/- sqrt(n); threshold counts fixed; dates fixed)")
         print(f"  pool : median {fmt_med(Mc['poolMed'])}")
         coh = Mc['coh']
         print(f"  enrol: median {month_label(med_enroll(coh))}  "
               f"cum {cum_enroll(coh,2022,4):.0f}/{cum_enroll(coh,2023,11):.0f}/{cum_enroll(coh,2024,4):.0f} "
               f"by Apr22/Nov23/Apr24 (sourced ~20/104/126)")
         edv = [Mc['ed'](t) for t in Mc['MT']]
+        print("  event 80: Oct 28 2026 announcement-date proxy; occurrence date undisclosed")
         print(f"  fit  : modeled deaths {'/'.join(f'{x:.0f}' for x in edv)}  vs observed {'/'.join(f'{x:.0f}' for x in Mc['MOBS'])}")
         # the interim HR is undefined when no sim reaches the 80th event; only flag a real breach
         if np.isfinite(rc['medHR_IA']):
@@ -1064,7 +1108,7 @@ if __name__ == "__main__":
             ia = f"{rc['medHR_IA']:.2f} (futility {fut})"
         else:
             ia = "n/a (80th not reached)"
-        print(f"\n  PLATEAU SCENARIO : rejection rate {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   reached {100*rc['reach']:.0f}%")
+        print(f"\n  PLATEAU SCENARIO : rejection rate {100*rc['ps']:.0f}%   medHR {rc['medHR']:.2f}   eventual simulated reach {100*rc['reach']:.0f}%")
         print(f"         interim: implied HR@{base['IA']} {ia}   "
               f"@80th: {rc['aliveG']:.0f} GPS alive / {rc['aliveB']:.0f} BAT alive")
         sh_tag = "fitted" if Ml['fitShape'] else "override"

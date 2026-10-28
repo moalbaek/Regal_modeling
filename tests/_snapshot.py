@@ -43,6 +43,14 @@ VERDICT_FIXTURES = {
     "A_light_edge": {"ev_dates": [(2024, 12, 10), (2025, 3, 26), (2025, 5, 11)]},
     "B_inconsistent": {"ev_counts": [60, 65, 73]},
     "C_interior": {"ev_counts": [62, 74, 78]},
+    # Four-row variants exercise each diagnostic with the updated milestone count.
+    "A_upper_boundary_four": {"ev_counts": [70, 72, 73, 74]},
+    "A_light_edge_four": {"ev_dates": [(2024, 12, 10), (2025, 3, 26),
+                                      (2025, 5, 11), (2025, 7, 28)]},
+    "B_inconsistent_four": {"ev_counts": [55, 78, 79, 80]},
+    # Old n=4 RMS <= 2 would show a rate here; preserving SSE <= 12 withholds it.
+    "B_near_tolerance_four": {"ev_counts": [58, 76, 76, 80]},
+    "C_interior_four": {"ev_counts": [62, 74, 78, 80]},
 }
 
 
@@ -88,7 +96,9 @@ def _nogpscure_row(cfg):
 def _fixture_cfg(spec):
     """Base preset with only the blinded milestones (`ev`) overridden per the fixture."""
     cfg = R.apply_preset(R.default_cfg(), "base")
-    ev = [dict(e) for e in cfg["ev"]]
+    # Explicit fixture lengths retain old three-row coverage alongside four-row cases.
+    nrows = max(len(spec.get("ev_counts", [])), len(spec.get("ev_dates", [])))
+    ev = [dict(e) for e in cfg["ev"][:nrows]]
     for i, n in enumerate(spec.get("ev_counts", [])):
         ev[i]["n"] = n
     for i, (y, m, d) in enumerate(spec.get("ev_dates", [])):

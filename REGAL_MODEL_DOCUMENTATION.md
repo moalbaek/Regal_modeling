@@ -24,7 +24,42 @@ likelihood/posterior modules, and the strict Python-generated
 > every release gate. See
 > [`V2_IMPLEMENTATION_PLAN.md`](V2_IMPLEMENTATION_PLAN.md) for the rebuild status.
 
-**Last updated:** 2026-09-04 · **Status:** research/analysis tool, not investment advice.
+**Last updated:** 2026-10-28 · **Status:** research/analysis tool, not investment advice.
+
+### 28 October 2026: V1 event-80 update
+
+SELLAS [announced that REGAL reached its 80th death](https://www.globenewswire.com/news-release/2026/10/28/3390187/0/en/sellas-life-sciences-reaches-80th-event-in-phase-3-regal-trial-of-galinpepimut-s-gps-in-acute-myeloid-leukemia.html),
+triggering final analysis. The release gives no separate occurrence date, arm split, HR or efficacy result.
+V1 adds `(2026-10-28, 80)` as an **announcement-date proxy** alongside 60/72/78. Its expected-count
+least-squares fit uses all four rows, with analyst weights **1/2/4/8** or equal weights. This is an
+approximation, not an assertion that the 80th death occurred on 28 October or that exactly 80 deaths
+were observed that day. The browser exposes this row's date for sensitivity; 14–28 October represents
+an assumed 0–14 day reporting lag, not a disclosed range. Python callers can edit `cfg["ev"][-1]`.
+The residual RMS divides by the actual milestone count; its acceptance limit scales as
+`2*sqrt(3/n)` to retain the original total squared-error allowance. Sweep scores include every row.
+MC reach is eventual simulated reach over full follow-up, not reach by the announcement date.
+Since event 80 has been announced, low simulated reach flags under-production of deaths by the
+scenario; it does not forecast that REGAL's event trigger might fail to occur.
+The fixed-date count-sensitivity display perturbs only as-of counts (72/78); exact threshold counts
+(60/80) are held fixed. It is a heuristic range without a confidence level. The separate date control
+explores reporting lag; no 0–14 day range is inferred from the release.
+
+Updated base-preset illustration (default 1–6 month entry window, 400 fixed-seed simulations):
+
+| Quantity | Four-milestone V1 result |
+|---|---|
+| Plateau GPS median / responder cure | 67.9 months / 66.7% |
+| Plateau modeled deaths vs disclosed milestones | 64.7 / 75.2 / 77.3 / 79.4 vs 60 / 72 / 78 / 80 |
+| Plateau fixed-scenario rejection rate | 95.75%; simulation rate, not posterior probability |
+| Bounded no-cure fit | State C; responder median 73.7 months, shape 1.238, RMS 0.967 deaths |
+| Bounded no-cure fixed-scenario rejection rate | 99.25%; simulation rate, not posterior probability |
+| Equal-weight plateau GPS median | 95.2 months; weighting remains material |
+| Fixed-date count-sensitivity range | 52.1–125.9 months; as-of counts ±√n clipped to adjacent fixed thresholds, with no confidence level |
+
+**Scope and historical examples:** V2's public-history data, right-censor likelihood and committed
+result bundle retain their August 2026 evidence snapshot. They have not been updated or rerun here.
+Older numerical selection, mortality and dropout examples below were calculated using 60/72/78;
+they illustrate mechanisms and should not be read as updated four-milestone results.
 
 ---
 
@@ -34,7 +69,7 @@ The single most important structural fact: **REGAL is blinded.** Public disclosu
 *pooled* number of deaths at several dates, never the per-arm split. Consequently:
 
 - The event milestones constrain several enrollment-weighted integrals of the pooled survival
-  curve, but three aggregate counts do **not** identify the curve or its long-term shape.
+  curve, but four aggregate counts do **not** identify the curve or its long-term shape.
 - The **decomposition into GPS and BAT arms is *not* identifiable** from blinded data. It requires
   assumptions about the BAT arm and the GPS effect family. Every v1 rejection-rate value is therefore a
   fixed-scenario operating characteristic, not a claim to know the confidential outcome.
@@ -128,7 +163,8 @@ Notation: **[S]** = directly sourced from a public disclosure (see References);
 | Announced 2024-12-10 | 60 | 47.6% | [S] threshold hit | SELLAS announced that the prespecified threshold had been reached, but did not disclose the exact threshold date [R9]. WP5 integrates a 0/7/14-day PMF with weights 4/21, 13/21, and 4/21; IDMC continuation was announced Jan 2025 [R4][R5]. |
 | 2025-12-26 | 72 | 57.1% | [S] exact/as-of | CRO count as of 26 Dec, announced by SELLAS 29 Dec 2025 [R3]. |
 | 2026-05-11 | 78 | 61.9% | [S] | SEC 8-K exhibit 99.1 and Q1-2026 release, 12 May 2026 [R6]. |
-| 2026-08-11 | 80 not announced; last exact count remains 78 | — | [S]/right censor | SELLAS said REGAL was still approaching event 80 and would announce when it occurs [R8]. WP5 treats this as censoring of the announcement process with the same 0/7/14-day PMF, not as an invented event count on 11 Aug. |
+| 2026-10-28 (announcement-date proxy, V1) | 80 reached | 63.5% | [S] count / [A] proxy date | SELLAS 28 October 2026 announcement linked above; occurrence date undisclosed. |
+| 2026-08-11 (historical V2 snapshot) | 80 not announced; last exact count remains 78 | — | [S]/right censor | SELLAS said REGAL was still approaching event 80 and would announce when it occurs [R8]. WP5 treats this as censoring of the announcement process with the same 0/7/14-day PMF, not as an invented event count on 11 Aug. |
 
 The exact-count increments were 12 deaths over roughly 12.5 months and then six over roughly 4.5
 months. Event 80 remained unannounced on 11 Aug 2026. These sparse cumulative disclosures strongly
@@ -596,7 +632,7 @@ per component rather than removing background mortality altogether.
 **V1 sensitivity.** In the reproduced base run, changing the v1 overlay from 0% to 2% moves
 the 80-event reach fraction from about **70% to 100%** and the fitted median HR from about **0.359 to
 0.316**, while the fixed-scenario rejection rate barely moves, about **98.7% to 99.7%**. The overlay
-therefore changes the event-stall narrative and fitted effect much more than the scenario
+therefore changes simulated event reach and the fitted effect much more than the scenario
 power. These values characterize the flawed v1 comparison; the corrected v2 mixture must be refitted.
 The earlier documentation's ~82% reach value at 0% was stale.
 
@@ -664,7 +700,7 @@ milestone fit: the expected *observed* deaths by a date use
 (closed-form reduces to `1−S(τ)` when `h_c = 0`), so the fit stays calibrated to 60/72/78 with the
 underlying disease survival adjusted for the censoring. At default 0 the model is unchanged.
 
-**Effect.** Dropout lowers the scenario rejection rate and can stall the trigger: at the evidence-informed
+**Effect.** Dropout lowers the scenario rejection rate and reduces simulated event reach: at the evidence-informed
 base preset the plateau rate falls ~97% → 96% → 93% → 75% across 0 / 3 / 5 / 10 %/yr, and the
 80th-event "reached" fraction falls to ~84% at 10%. It is non-differential, so it dilutes the contrast
 and removes events; unlike natural death it does not bring the trigger forward. The sensitivity is
@@ -679,19 +715,19 @@ it is the key thing to internalize about what this control does.
 
 ### 2.12 Milestone weighting and fit uncertainty
 
-The pooled fit minimizes a weighted squared error over the three milestones (Section 4.3). Two
+The pooled fit minimizes a weighted squared error over the four V1 milestones (Section 4.3). Two
 controls expose the robustness of that fit:
 
 | Control | Default | Type | Role |
 |---------|---------|------|------|
-| Milestone weighting | weighted 1 / 2 / 4 (toggle to equal 1 / 1 / 1) | [A] | The default up-weights the most recent (most informative) milestone; the **unweighted** toggle treats 60/72/78 equally, testing whether the weighting choice drives the answer. At the evidence-informed selection default, equal weights move the GPS median ~88 → ~103 mo (`π_resp` 0.70 → 0.72), so the choice is materially load-bearing. |
-| GPS-median Poisson interval | reported, not set | [D] | The event counts carry Poisson sampling noise, so the explorer refits at each count ±√n and reports the resulting **~68% interval on the derived GPS median** (about 22–231 mo at base). Its width shows how weakly three counts constrain the tail. |
+| Milestone weighting | weighted 1 / 2 / 4 / 8 (toggle to equal 1 / 1 / 1 / 1) | [A] | The default up-weights the most recent (most informative) milestone; the **unweighted** toggle treats 60/72/78/80 equally, testing whether the weighting choice drives the answer. At the current four-count default, equal weights move the GPS median 67.9 → 95.2 mo (`π_resp` 0.667 → 0.711), so the choice is materially load-bearing. |
+| GPS-median count-sensitivity range | reported, not set | [A]/[D] | Heuristic refits at as-of counts (72/78) ±√n, clipped to adjacent fixed thresholds and N to preserve count ordering. Threshold counts (60/80) stay fixed. Dates are held fixed; use the event-80 date control separately for reporting-lag sensitivity. This is **not a confidence interval**, has no calibrated coverage, and excludes model uncertainty. |
 
 ---
 
 ## 3. Calibrated / derived outputs [D]
 
-Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, fitted GPS tail s<sub>G</sub>,
+**Historical three-count illustration (before the event-80 update).** Representative values at the **base preset** (f_nr = 20%, natural death 2%/yr, fitted GPS tail s<sub>G</sub>,
 enrollment selection q = 20%, frailty variance θ = 0.35, 0% loss-to-follow-up, weighted fit); every number is a function of the user controls in Sections
 2.5–2.12, so treat these as a centre point, not a
 fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the default sim budget.
@@ -701,7 +737,7 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Median enrollment date | ≈ Mar 2023 (cumulative ≈ 30 / 102 / 126 by Apr 2022 / Nov 2023 / Apr 2024) | `enroll` |
 | BAT cure / median | ~12% · **10.7 mo** at the evidence-informed default; at θ = 0.35, the 1–6 mo entry window plus q=0 → 20% → 50% screening moves the median 10.0 → 10.7 → 12.3 mo. The cured fraction moves only through the entry window and edges down 12.16% → 11.92% → 11.48% as screening makes survival through the window less selective (Section 2.5.1). | `build_plateau` |
 | GPS cure / median | ~57% · ~88 mo all-cause (disease-only plateau is never reached); both fall as selection rises and `π_resp` re-fits down | `build_plateau` |
-| GPS median Poisson 68% CI | ~22–231 mo from 60/72/78 ±√n; wide because three pooled counts barely pin the tail | `fit_ci` |
+| Historical all-count perturbation range (formerly labeled Poisson 68% CI) | ~22–231 mo from the old 60/72/78 ±√n calculation; superseded by the fixed-threshold sensitivity range in Section 2.12 | historical `fit_ci` |
 | Pooled long-term-survivor fraction | ~0.34 (disease plateau; all-cause survival decays below it) | `build_plateau` |
 | Pooled median OS | **~19 mo** (above the ≥13.5 floor) | `build_plateau` |
 | Implied HR at the 60-event interim | ~0.45 (clears the 1.00 futility threshold); drifts toward 1 as selection rises | `mc` |
@@ -769,14 +805,16 @@ natural causes, and patients who left before dying.
 
 ### 4.3 Pooled calibration
 
-The pooled curve is `0.5·S_BAT + 0.5·S_GPS`. The explorer fits its free parameters to the three
-(date, deaths) milestones by **weighted least squares**, with weights `WT = [1, 2, 4]` that
+The pooled curve is `0.5·S_BAT + 0.5·S_GPS`. The explorer fits its free parameters to all four
+(date, deaths) milestones by **weighted least squares**, with weights `WT = [1, 2, 4, 8]` that
 up-weight the most recent (and most informative) milestone (a **toggle** switches to equal weights
-`[1, 1, 1]` to test the choice; at base it shifts the GPS median by ~15 mo, ~88 → ~103, so the choice
+`[1, 1, 1, 1]` to test the choice; at base it shifts the GPS median by ~27 mo, 67.9 → 95.2, so the choice
 **is** load-bearing and should be reported alongside any headline that depends on it), over
-a coarse grid followed by three local-refinement passes. Sampling uncertainty in the counts is
-propagated by refitting at each milestone ±√n, giving a ~68% Poisson interval on the derived medians
-(Section 2.12). For the plateau model there is a **single** free parameter — the GPS responder
+a coarse grid followed by three local-refinement passes. A fixed-date count-sensitivity range is
+computed by refitting the as-of counts (72/78) at ±√n, clipped to adjacent fixed thresholds
+and N to preserve cumulative-count ordering; threshold counts (60/80) remain fixed.
+This heuristic range has no calibrated confidence level and excludes reporting-lag and model
+uncertainty. Date sensitivity is explored separately with the event-80 date control (Section 2.12). For the plateau model there is a **single** free parameter — the GPS responder
 cure `π_resp` — fit over a 1-D grid plus local refinement. The BAT arm is fully determined by the
 component medians and the enrollment-selection fraction `q` (Section 2.5.1): any longevity the
 milestones demand beyond the raw component medians is supplied *explicitly* by `q` — a healthier
@@ -843,6 +881,16 @@ responder family to a no-cure Weibull. Its fitted parameters are responder media
 `m_G ∈ [median_BAT, 120]` months and shape `s_G ∈ [0.15, 1.5]`; non-responders continue to track
 Observation. Because BAT is fixed and the parameter box and residual tolerances are analyst choices,
 this is a bounded sensitivity analysis rather than a formal statistical null.
+
+The residual tolerance preserves the original three-row total squared-error allowance:
+`sum(residual²) <= 12` (equivalently `RMS <= 2*sqrt(3/n)`) and maximum absolute residual `<= 3`
+deaths. Thus the RMS limit is 2.0 for three rows and 1.732 for four. Adding a row with zero residual
+cannot turn a residual-misfit diagnosis into an adequate fit by diluting the RMS denominator.
+The maximum-residual limit remains a separate per-row safeguard. These are analyst-chosen
+compatibility diagnostics, not statistically calibrated confidence or hypothesis-test thresholds.
+The four-row fixture `[58,76,76,80]` has an interior fit with RMS 1.832 and max residual 2.728:
+it passed the former fixed RMS limit of 2.0, but fails the preserved-error limit of 1.732 and is
+State B, so its alternative scenario rate is withheld. The default fit remains State C (RMS 0.967).
 
 The A/B/C status is deliberately descriptive:
 
@@ -1094,7 +1142,7 @@ the exact validated Python bundle; the browser performs no duplicate posterior c
   does not assume a screening accuracy no real criterion has. The evidence-informed defaults are
   `θ = 0.35` and `q = 20%`, based on the contextual AML/CR2 heterogeneity and screen-failure evidence
   in [R12]–[R15]. Those studies do not directly estimate either parameter in REGAL's population.
-  `θ`, `q`, and the window length are only weakly separately identified from three aggregate event
+  `θ`, `q`, and the window length are only weakly separately identified from four aggregate event
   counts, so report the combined mean-frailty multiplier `(1−q)^θ` and treat 0.20–0.60 for `θ` and
   10–30% for `q` as sensitivity ranges rather than confidence intervals.
 - **The entry window conditions each component on its own hazard.** A patient is not yet on their
