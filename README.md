@@ -33,7 +33,7 @@ waning/piecewise (and marginally for delayed proportional hazards), so those row
 ESS gate through the 150,000-draw budget—not because the base proposal is uniformly more efficient
 for every conditional estimand.
 
-The blinded death-event milestones (60/72/78) constrain only the *pooled* survival trajectory, so the
+The V1 blinded death-event milestones (60/72/78/80) constrain only the *pooled* survival trajectory, so the
 split between arms is an explicit assumption. The tool calibrates assumed pooled curve families to
 the milestones, decomposes them into arms under user-controlled assumptions, and simulates the
 pre-specified final test. It compares a GPS cure-mixture scenario with a bounded no-GPS-cure
@@ -41,6 +41,15 @@ alternative using the same BAT arm. Their percentages are fixed-scenario rejecti
 alternative's State A/B/C result means boundary fit, residual misfit, or adequate interior fit; it is
 a model diagnostic rather than a formal hypothesis test or evidence that any biological mechanism
 has been established.
+
+V1 includes the **80th event announced on 28 October 2026**, using that date as an
+explicit **announcement-date proxy**, not a disclosed death date. The [SELLAS announcement](https://www.globenewswire.com/news-release/2026/10/28/3390187/0/en/sellas-life-sciences-reaches-80th-event-in-phase-3-regal-trial-of-galinpepimut-s-gps-in-acute-myeloid-leukemia.html)
+confirms the final-analysis trigger but gives no arm split or efficacy result. Both V1 engines fit
+all four milestones with analyst weights **1/2/4/8**, or equal weights when selected. The browser's
+80-event date is editable for reporting-lag sensitivity (for example 14–28 October under an assumed
+0–14 day lag); Python callers can edit `cfg["ev"][-1]`. This remains approximate expected-count
+calibration, not an exact event-date likelihood. V2 retains its separately dated August evidence
+snapshot and has not been rerun with this announcement.
 
 The v1 eligibility-selection controls now use evidence-informed working defaults: **20%**
 frailty-linked screen-out and **0.35** population frailty variance. Together they imply an enrolled

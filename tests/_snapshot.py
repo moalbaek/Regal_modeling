@@ -88,7 +88,9 @@ def _nogpscure_row(cfg):
 def _fixture_cfg(spec):
     """Base preset with only the blinded milestones (`ev`) overridden per the fixture."""
     cfg = R.apply_preset(R.default_cfg(), "base")
-    ev = [dict(e) for e in cfg["ev"]]
+    # These synthetic branch fixtures specify three-point histories; keep them
+    # independent of new public milestones used by the real preset snapshots.
+    ev = [dict(e) for e in cfg["ev"][:3]]
     for i, n in enumerate(spec.get("ev_counts", [])):
         ev[i]["n"] = n
     for i, (y, m, d) in enumerate(spec.get("ev_dates", [])):

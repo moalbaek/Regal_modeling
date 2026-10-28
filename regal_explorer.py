@@ -1,6 +1,6 @@
 """REGAL v1 scenario explorer — Python engine (port of regal_explorer.html).
 
-The blinded milestones (60/72/78 deaths) constrain assumed pooled survival families;
+The blinded milestones (60/72/78/80 deaths) constrain assumed pooled survival families;
 the arm split remains assumption-driven. The engine compares two fixed scenarios
 using an identical BAT arm and changing only the GPS responder component:
 
@@ -254,6 +254,10 @@ DEFAULT_EV = [
     {"label": "60 events", "y": 2024, "m": 12, "d": 10, "n": 60},
     {"label": "72 events", "y": 2025, "m": 12, "d": 26, "n": 72},
     {"label": "78 events", "y": 2026, "m": 5,  "d": 11, "n": 78},
+    # Announcement-date proxy: SELLAS confirmed event 80 on Oct 28, but did not
+    # disclose its occurrence date. Edit this date for reporting-lag sensitivity.
+    {"label": "80 events (announced)", "y": 2026, "m": 10, "d": 28, "n": 80,
+     "dateProxy": True},
 ]
 PRESETS = {
     "base": {"w": [27, 8, 22, 35, 8], "vc": 15},
@@ -305,7 +309,7 @@ def common(cfg):
     coh = enroll(cfg["bl"], cfg["N"])
     MT = np.array([mo(e["y"], e["m"], e["d"]) for e in cfg["ev"]])
     MOBS = np.array([e["n"] for e in cfg["ev"]], float)
-    WT = np.array([1.0, 1.0, 1.0]) if cfg.get("unweighted") else np.array([1.0, 2.0, 4.0])
+    WT = np.ones(len(MT)) if cfg.get("unweighted") else 2.0 ** np.arange(len(MT))
     return w, cm, coh, MT, MOBS, WT
 
 def median(S):
@@ -377,13 +381,13 @@ def build_plateau(cfg):
     best, bs = 0.6, 1e18
     for ki in range(91):
         pr = ki / 90.0
-        e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(3))
+        e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(len(MT)))
         if e < bs: bs, best = e, pr
     for it in range(3):
         st = 0.05 / (it + 1)
         for dp in range(-4, 5):
             pr = min(0.985, max(0.0, best + dp * st))
-            e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(3))
+            e = sum(WT[j] * (ed(MT[j], pr) - MOBS[j]) ** 2 for j in range(len(MT)))
             if e < bs: bs, best = e, pr
     presp = best
     pgps = (1 - fnr) * presp + fnr * ecure(obs)
@@ -441,7 +445,7 @@ def build_no_gps_cure(cfg):
         return 0.5 * Sbat(t)[..., None] + 0.5 * Sg
 
     def resid_grid(mG, sG):
-        """The milestone-fit residual (WT-weighted squared miss on ed() at each of the 3
+        """The milestone-fit residual (WT-weighted squared miss on ed() at each of the configured
         milestones), evaluated across an entire (mG, sG) candidate grid in one vectorized pass.
         The fit loops below need this at ~600-800 grid points; doing that one scalar call at a
         time (walking ~40 cohort rows through obs_frac()'s tiny numpy ops per call) made the fit
@@ -466,7 +470,7 @@ def build_no_gps_cure(cfg):
             e += Wt * ((wts[:, None] * frac).sum(axis=0) - Mo) ** 2
         return e
 
-    # §2/§3: fit the GPS responder median mG and (auto) tail shape sG to the 3 milestones. §3: BAT is
+    # §2/§3: fit the GPS responder median mG and (auto) tail shape sG to all configured milestones. §3: BAT is
     # FIXED on purpose here while varying the GPS responder family; sG is free to go heavy.
     sgN = 18 if fit_shape else 0
     best, bs = (min(MGHI, (bat_med or 12.0) * 2), 0.6 if fit_shape else cfg["shape"]), 1e18
@@ -487,8 +491,8 @@ def build_no_gps_cure(cfg):
         if e_ref[k] < bs: bs, best = float(e_ref[k]), (float(mgc[k]), float(sgc[k]))
     mG, sG = best
     edv = [ed(t, mG, sG) for t in MT]
-    rms_resid = float(np.sqrt(sum((edv[i] - MOBS[i]) ** 2 for i in range(3)) / 3.0))
-    max_off = float(max(abs(edv[i] - MOBS[i]) for i in range(3)))
+    rms_resid = float(np.sqrt(np.mean((edv - MOBS) ** 2)))
+    max_off = float(np.max(np.abs(edv - MOBS)))
     # §5 boundary detection on the GPS knobs (mG cap/track, sG edges).
     mg_cap = mG >= MGHI - 0.5; mg_floor = mG <= MGLO + 0.5
     sg_heavy = fit_shape and sG <= SGMIN + 0.01; sg_light = fit_shape and sG >= SGMAX - 0.01
@@ -780,7 +784,7 @@ def _mc_task(kind, cfg, nsim, seed=987654321, override=None):
             M[k] = v
         args = (M["presp"],) if kind == "plateau" else (M["mG"], M["sG"])
         extra["E"] = sum(M["WT"][j] * (M["ed_raw"](M["MT"][j], *args) - M["MOBS"][j]) ** 2
-                          for j in range(3))
+                          for j in range(len(M["MT"])))
     run_mc = override is not None or kind == "plateau" or M.get("state") == "C"
     r = {**mc(M, nsim, seed), **extra} if run_mc else None
     # every curve/closure in M is callable and nothing else is, so this strips exactly the
@@ -892,17 +896,17 @@ def figure(path, nsim=1500, executor=None, base=None):
     d.plot(dts, edc, color=NAVY, lw=2.2, label="Plateau (GPS-cure) accrual")
     d.plot(dts, edl, color=ORANGE, lw=2.0, ls="-.", label=f"No-GPS-cure accrual (State {Ml['state']})")
     d.scatter([_to_date(t) for t in Mc["MT"]], Mc["MOBS"], color=RED, s=34, zorder=5,
-              label="Blinded milestones (60/72/78)")
+              label="Blinded milestones (60/72/78/80)")
     d.axhline(FINAL, color=RED, ls="--", lw=1, alpha=.6)
     d.text(dts[2], FINAL + 1.5, f"{FINAL}-event trigger", color=RED, fontsize=7.5)
     for ed_fn, col in [(Mc["ed"], NAVY), (Ml["ed"], ORANGE)]:
-        tc = proj_cross(ed_fn, FINAL, float(Mc["MT"][-1]), t1)
+        tc = proj_cross(ed_fn, FINAL, t0, t1)
         if tc is not None:
             d.axvline(_to_date(tc), color=col, ls=":", lw=1, alpha=.65)
             d.text(_to_date(tc), 6, _to_date(tc).strftime("%b %Y"), color=col,
                    fontsize=7, rotation=90, va="bottom", ha="right")
     d.set_ylim(0, max(95.0, float(edc.max()), float(edl.max())) * 1.03); d.set_ylabel("cumulative deaths")
-    d.set_title("(d) When does the 80th event fire? Plateau accrual can stall",
+    d.set_title("(d) Model event timing vs reported milestones",
                 fontweight="bold", fontsize=9)
     d.legend(fontsize=7.2, loc="lower right")
     for lab in d.get_xticklabels(): lab.set_rotation(25); lab.set_ha("right"); lab.set_fontsize(7.5)
@@ -1042,7 +1046,7 @@ if __name__ == "__main__":
         base = apply_preset(default_cfg(), "base")
         Mc, Ml = build_plateau(base), build_no_gps_cure(base)
         rc, rl = mc(Mc, NSIM), mc(Ml, NSIM)   # Mc/Ml already built live; routing through the pool would rebuild for nothing
-        wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4"
+        wmode = "unweighted" if base["unweighted"] else "weighted 1/2/4/8"
         print(f"REGAL Scenario Explorer (base preset, f_nr=20%, natural death {100*base['ndr']:.1f}%/yr, "
               f"loss-to-FU {100*base['drop']:.0f}%/yr, eligibility screen-out {100*base['esel']:.0f}% "
               f"(frailty var {base['fvar']:.2f}), CR2 entry window {base['dmin']:.0f}-{base['dmax']:.0f}mo, "
@@ -1050,13 +1054,14 @@ if __name__ == "__main__":
         print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
         ci_more, ci_few = fit_ci(base, build_plateau)
         print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
-        print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78 +/- sqrt(n))")
+        print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78/80 +/- sqrt(n))")
         print(f"  pool : median {fmt_med(Mc['poolMed'])}")
         coh = Mc['coh']
         print(f"  enrol: median {month_label(med_enroll(coh))}  "
               f"cum {cum_enroll(coh,2022,4):.0f}/{cum_enroll(coh,2023,11):.0f}/{cum_enroll(coh,2024,4):.0f} "
               f"by Apr22/Nov23/Apr24 (sourced ~20/104/126)")
         edv = [Mc['ed'](t) for t in Mc['MT']]
+        print("  event 80: Oct 28 2026 announcement-date proxy; occurrence date undisclosed")
         print(f"  fit  : modeled deaths {'/'.join(f'{x:.0f}' for x in edv)}  vs observed {'/'.join(f'{x:.0f}' for x in Mc['MOBS'])}")
         # the interim HR is undefined when no sim reaches the 80th event; only flag a real breach
         if np.isfinite(rc['medHR_IA']):
