@@ -15,7 +15,9 @@ concurrency:
 jobs:
   test:
     name: golden test (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # Python 3.9 has no setup-python build for Ubuntu 26.04 (ubuntu-latest).
+    # Keep the compatibility matrix on an image with published 3.9 binaries.
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
