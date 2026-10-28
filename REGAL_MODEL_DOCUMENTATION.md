@@ -36,6 +36,9 @@ approximation, not an assertion that the 80th death occurred on 28 October or th
 were observed that day. The browser exposes this row's date for sensitivity; 14–28 October represents
 an assumed 0–14 day reporting lag, not a disclosed range. Python callers can edit `cfg["ev"][-1]`.
 The residual RMS divides by the actual milestone count, and the sweep scores include every row.
+The fixed-date count-sensitivity display perturbs only as-of counts (72/78); exact threshold counts
+(60/80) are held fixed. It is a heuristic range without a confidence level. The separate date control
+explores reporting lag; no 0–14 day range is inferred from the release.
 
 Updated base-preset illustration (default 1–6 month entry window, 400 fixed-seed simulations):
 
@@ -47,6 +50,7 @@ Updated base-preset illustration (default 1–6 month entry window, 400 fixed-se
 | Bounded no-cure fit | State C; responder median 73.7 months, shape 1.238, RMS 0.967 deaths |
 | Bounded no-cure fixed-scenario rejection rate | 99.25%; simulation rate, not posterior probability |
 | Equal-weight plateau GPS median | 95.2 months; weighting remains material |
+| Fixed-date count-sensitivity range | 52.1–125.9 months; as-of counts ±√n clipped to adjacent fixed thresholds, with no confidence level |
 
 **Scope and historical examples:** V2's public-history data, right-censor likelihood and committed
 result bundle retain their August 2026 evidence snapshot. They have not been updated or rerun here.
@@ -712,8 +716,8 @@ controls expose the robustness of that fit:
 
 | Control | Default | Type | Role |
 |---------|---------|------|------|
-| Milestone weighting | weighted 1 / 2 / 4 / 8 (toggle to equal 1 / 1 / 1 / 1) | [A] | The default up-weights the most recent (most informative) milestone; the **unweighted** toggle treats 60/72/78/80 equally, testing whether the weighting choice drives the answer. In the historical three-count example, equal weights moved the GPS median ~88 → ~103 mo (`π_resp` 0.70 → 0.72), so the choice is materially load-bearing. |
-| GPS-median Poisson interval | reported, not set | [D] | The event counts carry Poisson sampling noise, so the explorer refits at each count ±√n and reports the resulting **~68% interval on the derived GPS median** (recomputed from all four rows). The historical three-count interval was about 22–231 mo; it did not include timing or model uncertainty. |
+| Milestone weighting | weighted 1 / 2 / 4 / 8 (toggle to equal 1 / 1 / 1 / 1) | [A] | The default up-weights the most recent (most informative) milestone; the **unweighted** toggle treats 60/72/78/80 equally, testing whether the weighting choice drives the answer. At the current four-count default, equal weights move the GPS median 67.9 → 95.2 mo (`π_resp` 0.667 → 0.711), so the choice is materially load-bearing. |
+| GPS-median count-sensitivity range | reported, not set | [A]/[D] | Heuristic refits at as-of counts (72/78) ±√n, clipped to adjacent fixed thresholds and N to preserve count ordering. Threshold counts (60/80) stay fixed. Dates are held fixed; use the event-80 date control separately for reporting-lag sensitivity. This is **not a confidence interval**, has no calibrated coverage, and excludes model uncertainty. |
 
 ---
 
@@ -729,7 +733,7 @@ fixed result. Monte-Carlo figures carry ±2–3 pp simulation noise at the defau
 | Median enrollment date | ≈ Mar 2023 (cumulative ≈ 30 / 102 / 126 by Apr 2022 / Nov 2023 / Apr 2024) | `enroll` |
 | BAT cure / median | ~12% · **10.7 mo** at the evidence-informed default; at θ = 0.35, the 1–6 mo entry window plus q=0 → 20% → 50% screening moves the median 10.0 → 10.7 → 12.3 mo. The cured fraction moves only through the entry window and edges down 12.16% → 11.92% → 11.48% as screening makes survival through the window less selective (Section 2.5.1). | `build_plateau` |
 | GPS cure / median | ~57% · ~88 mo all-cause (disease-only plateau is never reached); both fall as selection rises and `π_resp` re-fits down | `build_plateau` |
-| GPS median Poisson 68% CI | ~22–231 mo from 60/72/78 ±√n; wide because three pooled counts barely pin the tail | `fit_ci` |
+| Historical all-count perturbation range (formerly labeled Poisson 68% CI) | ~22–231 mo from the old 60/72/78 ±√n calculation; superseded by the fixed-threshold sensitivity range in Section 2.12 | historical `fit_ci` |
 | Pooled long-term-survivor fraction | ~0.34 (disease plateau; all-cause survival decays below it) | `build_plateau` |
 | Pooled median OS | **~19 mo** (above the ≥13.5 floor) | `build_plateau` |
 | Implied HR at the 60-event interim | ~0.45 (clears the 1.00 futility threshold); drifts toward 1 as selection rises | `mc` |
@@ -800,11 +804,13 @@ natural causes, and patients who left before dying.
 The pooled curve is `0.5·S_BAT + 0.5·S_GPS`. The explorer fits its free parameters to all four
 (date, deaths) milestones by **weighted least squares**, with weights `WT = [1, 2, 4, 8]` that
 up-weight the most recent (and most informative) milestone (a **toggle** switches to equal weights
-`[1, 1, 1]` to test the choice; at base it shifts the GPS median by ~15 mo, ~88 → ~103, so the choice
+`[1, 1, 1, 1]` to test the choice; at base it shifts the GPS median by ~27 mo, 67.9 → 95.2, so the choice
 **is** load-bearing and should be reported alongside any headline that depends on it), over
-a coarse grid followed by three local-refinement passes. Sampling uncertainty in the counts is
-propagated by refitting at each milestone ±√n, giving a ~68% Poisson interval on the derived medians
-(Section 2.12). For the plateau model there is a **single** free parameter — the GPS responder
+a coarse grid followed by three local-refinement passes. A fixed-date count-sensitivity range is
+computed by refitting the as-of counts (72/78) at ±√n, clipped to adjacent fixed thresholds
+and N to preserve cumulative-count ordering; threshold counts (60/80) remain fixed.
+This heuristic range has no calibrated confidence level and excludes reporting-lag and model
+uncertainty. Date sensitivity is explored separately with the event-80 date control (Section 2.12). For the plateau model there is a **single** free parameter — the GPS responder
 cure `π_resp` — fit over a 1-D grid plus local refinement. The BAT arm is fully determined by the
 component medians and the enrollment-selection fraction `q` (Section 2.5.1): any longevity the
 milestones demand beyond the raw component medians is supplied *explicitly* by `q` — a healthier

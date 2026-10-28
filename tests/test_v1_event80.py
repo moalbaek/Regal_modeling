@@ -58,7 +58,7 @@ class Event80Test(unittest.TestCase):
 console.log(JSON.stringify(cases.map(cfg=>{
   comp=cfg.comp; ev=cfg.ev;
   const p=buildPlateau(cfg), n=buildNoGPSCure(cfg);
-  return {presp:p.presp,edv:p.MT.map(p.ed),mG:n.mG,sG:n.sG,rms:n.rmsResid,state:n.state};
+  return {presp:p.presp,edv:p.MT.map(p.ed),mG:n.mG,sG:n.sG,rms:n.rmsResid,state:n.state,weights:[p.WT,n.WT]};
 })));'''
         completed = subprocess.run([shutil.which('node'), '-e', script],
                                    text=True, capture_output=True, check=True)
@@ -69,6 +69,8 @@ console.log(JSON.stringify(cases.map(cfg=>{
             for key, value in [('mG', n['mG']), ('sG', n['sG']), ('rms', n['rmsResid'])]:
                 self.assertAlmostEqual(actual[key], value, places=8)
             self.assertEqual(actual['state'], n['state'])
+            for weights in actual['weights']:
+                np.testing.assert_array_equal(weights, p['WT'])
 
 
 if __name__ == '__main__':

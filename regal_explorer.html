@@ -1966,7 +1966,7 @@ function obsFrac(S,tau,hd,n){
 
 const DEFAULT_COMP=[{name:"Observation",w:27,med:6,cure:3,k:1.1},{name:"Hydroxyurea",w:8,med:5,cure:2,k:1.1},
   {name:"HMA",w:22,med:12,cure:10,k:1},{name:"Venetoclax",w:35,med:12,cure:15,k:0.78},{name:"LDAC",w:8,med:7,cure:8,k:1.1}];
-const DEFAULT_EV=[{label:"60 events",y:2024,m:12,d:10,n:60},{label:"72 events",y:2025,m:12,d:26,n:72},{label:"78 events",y:2026,m:5,d:11,n:78},{label:"80 events (announced)",y:2026,m:10,d:28,n:80,dateProxy:true}];
+const DEFAULT_EV=[{label:"60 events",y:2024,m:12,d:10,n:60,threshold:true},{label:"72 events",y:2025,m:12,d:26,n:72},{label:"78 events",y:2026,m:5,d:11,n:78},{label:"80 events (announced)",y:2026,m:10,d:28,n:80,dateProxy:true,threshold:true}];
 const PRESETS={base:{w:[27,8,22,35,8],vc:15},low:{w:[33,12,30,15,10],vc:15},dom:{w:[8,4,18,60,10],vc:15},bear:{w:[5,3,12,70,10],vc:25},bull:{w:[40,10,25,15,10],vc:10}};
 let comp=structuredClone(DEFAULT_COMP), ev=structuredClone(DEFAULT_EV), mode="plateau", curveView="model";
 
@@ -2023,7 +2023,7 @@ function buildPlateau(cfg){
   const presp=best, pgps=(1-fnr)*presp+fnr*ecure(obs);
   // returned curves are all-cause (disease × background mortality).
   const Sb=t=>Sbat(t)*Snat(t,h), Sg=t=>((1-fnr)*(presp+(1-presp)*Snc(t))+fnr*Ssel(t,obs))*Snat(t,h), Sp=t=>Spool(t,presp)*Snat(t,h);
-  return {kind:"plateau",cfg,w,cm,coh,MT,MOBS,presp,h,pibat,pgps,obs,edRaw:ed,
+  return {kind:"plateau",cfg,w,cm,coh,MT,MOBS,WT,presp,h,pibat,pgps,obs,edRaw:ed,
     Sbat:Sb,Sgps:Sg,Spool:Sp,batMed:median(Sb),gpsMed:median(Sg),poolMed:median(Sp),
     poolCure:0.5*(pibat+pgps),ed:t=>ed(t,presp)};
 }
@@ -2094,7 +2094,7 @@ function buildNoGPSCure(cfg){
       : ("interior fit (median "+mG.toFixed(0)+"mo, tail shape "+sG.toFixed(2)+")"); }
   const degenerate=(state==="A"||state==="B");            // A/B render fit status, not a scenario rate
   const Sb=t=>Sbat(t)*Snat(t,h), Sg=t=>Sgps(t,mG,sG)*Snat(t,h), Sp=t=>Spool(t,mG,sG)*Snat(t,h);
-  return {kind:"nogpscure",cfg,w,cm,coh,MT,MOBS,h,pibat,obs,fnr,mG,sG,fitShape,
+  return {kind:"nogpscure",cfg,w,cm,coh,MT,MOBS,WT,h,pibat,obs,fnr,mG,sG,fitShape,
     batMed,ratio:isFinite(batMed)?mG/batMed:NaN,edv,rmsResid,state,reason,cureReq,
     degenerate,edRaw:ed,Sbat:Sb,Sgps:Sg,Spool:Sp,gpsMed:median(Sg),ed:t=>ed(t,mG,sG)};
 }
@@ -2552,7 +2552,7 @@ function chartEnroll(M,cfg){
 // ---------- (h) fixed-scenario rejection rate vs treatment effect ----------
 // sweep one effect knob -> implied HR, scenario rejection rate, and milestone misfit
 function powerSweep(M,key,vals,fixed,nsimH){
-  const WT=M.MT.map((_,i)=>M.cfg.unweighted?1:2**i); const pts=[];
+  const WT=M.WT; const pts=[];
   for(const v of vals){ const Mg=Object.assign({},M); Mg[key]=v; const r=mc(Mg,nsimH);
     if(!isFinite(r.medHR)||!isFinite(r.ps)) continue;
     const f=fixed(v); let e=0; for(let k=0;k<M.MT.length;k++){const d=M.edRaw(M.MT[k],...f)-M.MOBS[k];e+=WT[k]*d*d;}
@@ -2633,13 +2633,20 @@ const cfgFromUI=()=>({N:+$("N").value||126,FINAL:Math.max(2,+$("FINAL").value||2
   ndr:(+$("ndr").value)/100,IA:+$("IA").value||60,futHR:+$("futHR").value||1.0,
   drop:(+$("drop").value)/100,esel:(+$("esel").value)/100,fvar:+$("fvar").value,dmin:Math.min(+$("dmin").value,+$("dmax").value),dmax:+$("dmax").value,unweighted:$("unweighted").checked});
 const fmtMed=m=>m===Infinity?"NR":m.toFixed(0)+"mo";
-// Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts
+// Fixed-date as-of-count sensitivity; threshold counts remain fixed. Not a confidence interval.
 function fitCI(cfg,builder){
-  const saved=ev.map(e=>e.n);
-  const refit=sign=>{ev.forEach((e,i)=>e.n=Math.max(1,saved[i]+sign*Math.sqrt(saved[i])));return builder(cfg).gpsMed;};
-  const more=refit(1), few=refit(-1);
-  ev.forEach((e,i)=>e.n=saved[i]);   // restore observed counts
-  return [more,few];                 // [shorter median (more deaths), longer median (fewer)]
+  const saved=ev.map(e=>({...e}));
+  const isThreshold=e=>e.threshold||e.dateProxy;
+  const refit=sign=>{
+    ev=saved.map((e,i)=>{
+      const lower=Math.max(1,...saved.slice(0,i).filter(isThreshold).map(a=>a.n));
+      const upper=Math.min(cfg.N||Infinity,...saved.slice(i+1).filter(isThreshold).map(a=>a.n));
+      return {...e,n:isThreshold(e)?e.n:Math.min(upper,Math.max(lower,e.n+sign*Math.sqrt(e.n)))};
+    });
+    return builder(cfg).gpsMed;
+  };
+  try{return [refit(1),refit(-1)].sort((a,b)=>a-b);}
+  finally{ev=saved;}  // restore the full history even if a refit fails
 }
 function render(){
   const cfg=cfgFromUI();
@@ -2734,7 +2741,7 @@ function render(){
     ? ` Implied interim HR <b>${iaHR}</b> clears the futility look (≤ ${r.futHR.toFixed(2)}); modeled split at the 80th ≈ <b>${aliveVal}</b> alive (GPS / BAT).`
     : ` <span class="warn">⚠ implied interim HR ${iaHR} exceeds the futility threshold ${r.futHR.toFixed(2)} — inconsistent with the IDMC continuing past the 60-event futility look, so this scenario is implausible.</span>`;
   if(showFit){ const ci=fitCI(cfg, mode==="plateau"?buildPlateau:buildNoGPSCure);
-    note += ` GPS-median Poisson 68% CI <b>${fmtMed(ci[0])}–${fmtMed(ci[1])}</b> (from the 60/72/78/80 counts ±√n${cfg.unweighted?", unweighted fit":""}).`; }
+    note += ` GPS-median count-sensitivity range <b>${fmtMed(ci[0])}–${fmtMed(ci[1])}</b> (as-of counts ±√n, capped at adjacent thresholds; threshold counts and dates fixed${cfg.unweighted?", unweighted fit":""}). Vary the event-80 date separately for reporting-lag sensitivity.`; }
   $("fit").innerHTML=note;
   // enrollment readout under its slider
   const ec=Mc.coh;
@@ -2760,10 +2767,15 @@ function buildCompTable(){
   $("compTable").querySelector("tbody").innerHTML=comp.map((c,i)=>`<tr><th scope="row">${c.name}</th><td><input type="number" id="cm${i}" value="${c.med}" step="0.5" aria-label="${c.name} median (months)"></td><td><input type="number" id="cc${i}" value="${c.cure}" step="1" aria-label="${c.name} cure percent"></td><td><input type="number" id="ck${i}" value="${c.k}" step="0.01" min="0.4" max="2" aria-label="${c.name} shape k"></td></tr>`).join("");
   comp.forEach((c,i)=>{$("cm"+i).addEventListener("input",e=>{comp[i].med=+e.target.value;schedule();});$("cc"+i).addEventListener("input",e=>{comp[i].cure=+e.target.value;if(i===3){$("vcure").value=comp[3].cure;$("vcL").textContent=comp[3].cure+"%";}schedule();});$("ck"+i).addEventListener("input",e=>{comp[i].k=+e.target.value||1;schedule();});});
 }
+const eventDate=e=>new Date(Date.UTC(e.y,e.m-1,e.d)).toISOString().slice(0,10);
+function eventDateBounds(i){
+  const previous=ev[i-1];
+  return {min:previous?eventDate({...previous,d:previous.d+1}):"",max:eventDate(DEFAULT_EV[i])};
+}
 function buildEvTable(){
-  $("evTable").querySelector("tbody").innerHTML=ev.map((e,i)=>`<tr><th scope="row">${e.label}</th><td><input value="${e.y}-${String(e.m).padStart(2,'0')}-${String(e.d).padStart(2,'0')}" style="width:115px" ${e.dateProxy?`type="date" id="ed${i}" min="2026-05-12" max="2026-10-28"`:"disabled"} aria-label="${e.label} date"></td><td><input type="number" id="en${i}" value="${e.n}" aria-label="${e.label} death count"></td></tr>`).join("");
+  $("evTable").querySelector("tbody").innerHTML=ev.map((e,i)=>`<tr><th scope="row">${e.label}</th><td><input value="${eventDate(e)}" style="width:115px" ${e.dateProxy?`type="date" id="ed${i}" min="${eventDateBounds(i).min}" max="${eventDateBounds(i).max}"`:"disabled"} aria-label="${e.label} date"></td><td><input type="number" id="en${i}" value="${e.n}" aria-label="${e.label} death count"></td></tr>`).join("");
   ev.forEach((e,i)=>{if(e.dateProxy)$("ed"+i).addEventListener("change",x=>{
-    if(!x.target.value||!x.target.checkValidity())return;
+    if(!x.target.value||!x.target.checkValidity()){x.target.value=eventDate(ev[i]);return;}
     const [y,m,d]=x.target.value.split("-").map(Number);ev[i]={...ev[i],y,m,d};schedule();
   });});
   ev.forEach((e,i)=>$("en"+i).addEventListener("input",x=>{ev[i].n=+x.target.value;schedule();}));

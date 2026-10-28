@@ -209,11 +209,25 @@
       "sG": 1.5,
       "state": "A"
     },
+    "A_light_edge_four": {
+      "cureReq": false,
+      "mG": 33.99571958377119,
+      "rmsResid": 4.290466602401472,
+      "sG": 1.5,
+      "state": "A"
+    },
     "A_upper_boundary": {
       "cureReq": true,
       "mG": 120.0,
       "rmsResid": 5.496770593640408,
       "sG": 0.8183333333333334,
+      "state": "A"
+    },
+    "A_upper_boundary_four": {
+      "cureReq": true,
+      "mG": 120.0,
+      "rmsResid": 5.894698546348885,
+      "sG": 1.05,
       "state": "A"
     },
     "B_inconsistent": {
@@ -223,11 +237,25 @@
       "sG": 1.4333333333333336,
       "state": "B"
     },
+    "B_inconsistent_four": {
+      "cureReq": false,
+      "mG": 73.2323632430011,
+      "rmsResid": 3.75189585962291,
+      "sG": 1.125,
+      "state": "B"
+    },
     "C_interior": {
       "cureReq": false,
       "mG": 73.78869887707813,
       "rmsResid": 0.4062827718892485,
       "sG": 1.0633333333333332,
+      "state": "C"
+    },
+    "C_interior_four": {
+      "cureReq": false,
+      "mG": 101.78167817038505,
+      "rmsResid": 0.5180146069335875,
+      "sG": 0.7500000000000001,
       "state": "C"
     }
   }

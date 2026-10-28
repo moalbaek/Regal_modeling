@@ -16,12 +16,16 @@ jobs:
   test:
     name: golden test (py${{ matrix.python-version }})
     # Python 3.9 has no setup-python build for Ubuntu 26.04 (ubuntu-latest).
-    # Keep the compatibility matrix on an image with published 3.9 binaries.
-    runs-on: ubuntu-22.04
+    # Keep only the 3.9 compatibility entry on an image with published binaries.
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
+        include:
+          - python-version: "3.9"
+            os: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

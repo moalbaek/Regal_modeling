@@ -48,7 +48,9 @@ confirms the final-analysis trigger but gives no arm split or efficacy result. B
 all four milestones with analyst weights **1/2/4/8**, or equal weights when selected. The browser's
 80-event date is editable for reporting-lag sensitivity (for example 14–28 October under an assumed
 0–14 day lag); Python callers can edit `cfg["ev"][-1]`. This remains approximate expected-count
-calibration, not an exact event-date likelihood. V2 retains its separately dated August evidence
+calibration, not an exact event-date likelihood. The fixed-date count-sensitivity range perturbs
+only the as-of counts (72/78), holds the 60/80 threshold counts fixed, and has no calibrated
+confidence level; reporting-lag sensitivity uses the separate date control. V2 retains its separately dated August evidence
 snapshot and has not been rerun with this announcement.
 
 The v1 eligibility-selection controls now use evidence-informed working defaults: **20%**

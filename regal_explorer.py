@@ -251,13 +251,13 @@ DEFAULT_COMP = [
     {"name": "LDAC",         "w": 8,  "med": 7.0,  "cure": 8,  "k": 1.1},
 ]
 DEFAULT_EV = [
-    {"label": "60 events", "y": 2024, "m": 12, "d": 10, "n": 60},
+    {"label": "60 events", "y": 2024, "m": 12, "d": 10, "n": 60, "threshold": True},
     {"label": "72 events", "y": 2025, "m": 12, "d": 26, "n": 72},
     {"label": "78 events", "y": 2026, "m": 5,  "d": 11, "n": 78},
     # Announcement-date proxy: SELLAS confirmed event 80 on Oct 28, but did not
     # disclose its occurrence date. Edit this date for reporting-lag sensitivity.
     {"label": "80 events (announced)", "y": 2026, "m": 10, "d": 28, "n": 80,
-     "dateProxy": True},
+     "dateProxy": True, "threshold": True},
 ]
 PRESETS = {
     "base": {"w": [27, 8, 22, 35, 8], "vc": 15},
@@ -541,14 +541,27 @@ def build_no_gps_cure(cfg):
 
 # ---------------------------------------------------------------- fit uncertainty
 def fit_ci(cfg, builder):
-    """Poisson ~68% interval on the GPS median from the +/-sqrt(n) sampling noise of the event counts.
-    Returns (med_more, med_fewer): more deaths -> shorter GPS median; fewer deaths -> longer (often NR)."""
+    """Fixed-date count-sensitivity range, not a confidence interval.
+
+    Perturb only as-of counts by +/-sqrt(n), clipped to adjacent fixed thresholds
+    and N to preserve cumulative-count ordering. Threshold counts (60/80) stay fixed.
+    Dates, BAT assumptions and model family are held fixed. Reporting-lag sensitivity
+    is explored separately by editing the announcement-date proxy in cfg["ev"].
+    The historical function name is retained for callers.
+    """
+    def is_threshold(e):
+        return e.get("threshold") or e.get("dateProxy")
+
     def refit(sign):
         c = dict(cfg); c["ev"] = [dict(e) for e in cfg["ev"]]
-        for e in c["ev"]:
-            e["n"] = max(1.0, e["n"] + sign * np.sqrt(e["n"]))
+        for i, e in enumerate(c["ev"]):
+            if not is_threshold(e):
+                lower = max([1.0] + [a["n"] for a in cfg["ev"][:i] if is_threshold(a)])
+                upper = min([cfg["N"]] + [a["n"] for a in cfg["ev"][i+1:] if is_threshold(a)])
+                # Preserve cumulative-count ordering around the fixed thresholds.
+                e["n"] = min(upper, max(lower, e["n"] + sign * np.sqrt(e["n"])))
         return builder(c)["gpsMed"]
-    return refit(+1), refit(-1)
+    return tuple(sorted((refit(+1), refit(-1))))
 
 # ---------------------------------------------------------------- shared Monte-Carlo
 def kaplan_meier(time, event):
@@ -1052,9 +1065,9 @@ if __name__ == "__main__":
               f"(frailty var {base['fvar']:.2f}), CR2 entry window {base['dmin']:.0f}-{base['dmax']:.0f}mo, "
               f"fit {wmode})")
         print(f"  BAT  : cure {100*Mc['pibat']:.0f}%  median {fmt_med(Mc['batMed'])}  @36mo {100*Mc['Sbat'](36):.0f}%")
-        ci_more, ci_few = fit_ci(base, build_plateau)
+        ci_low, ci_high = fit_ci(base, build_plateau)
         print(f"  GPS  : cure {100*Mc['pgps']:.0f}%  median {fmt_med(Mc['gpsMed'])}  (cure gap +{100*(Mc['pgps']-Mc['pibat']):.0f}pp)")
-        print(f"         GPS median Poisson 68% CI [{fmt_med(ci_more)} .. {fmt_med(ci_few)}] (from 60/72/78/80 +/- sqrt(n))")
+        print(f"         GPS median count-sensitivity range [{fmt_med(ci_low)} .. {fmt_med(ci_high)}] (as-of counts +/- sqrt(n); threshold counts fixed; dates fixed)")
         print(f"  pool : median {fmt_med(Mc['poolMed'])}")
         coh = Mc['coh']
         print(f"  enrol: median {month_label(med_enroll(coh))}  "
